@@ -52,6 +52,21 @@ require_contains("${ai_source}" "QFileDialog"
                  "settings must support selecting a local model")
 require_contains("${ai_source}" "zenzaiModel"
                  "local model selection must use the isolated product path")
+require_contains("${ai_header}" "refreshGrimodexDiagnostics"
+                 "settings must expose a Grimodex diagnostics presenter")
+foreach(required IN ITEMS
+        "has_grimodex_diagnostics"
+        "watcher_active"
+        "consumer_registered"
+        "snapshot_status"
+        "active_project_id"
+        "active_sessions"
+        "program"
+        "frontend"
+        "scope_reason")
+    require_contains("${ai_source}" "${required}"
+                     "settings diagnostics must display ${required}")
+endforeach()
 
 read_settings_file(desktop_source "hazkey-settings.desktop.in")
 require_contains("${desktop_source}" "Name=Grimodex IME Settings"
