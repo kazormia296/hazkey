@@ -164,9 +164,10 @@ final class GrimodexSocketManagerTests: XCTestCase {
     var address = sockaddr_un()
     address.sun_family = sa_family_t(AF_UNIX)
     strncpy(&address.sun_path.0, path, MemoryLayout.size(ofValue: address.sun_path) - 1)
+    let addressLength = socklen_t(MemoryLayout<sockaddr_un>.size)
     let result = withUnsafePointer(to: &address) {
       $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-        connect(fd, $0, socklen_t(MemoryLayout.size(ofValue: address)))
+        connect(fd, $0, addressLength)
       }
     }
     guard result == 0 else {
