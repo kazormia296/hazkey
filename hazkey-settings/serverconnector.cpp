@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 
 #include "qdir.h"
@@ -302,11 +303,16 @@ void ServerConnector::setCurrentConfig(
     *props->mutable_profiles() = currentConfig.profiles();
     auto response = transact(request);
     if (response == std::nullopt) {
-        return;
+        throw std::runtime_error(
+            "Failed to communicate with the Grimodex IME service.");
     }
     auto responseVal = response.value();
     if (responseVal.status() != hazkey::SUCCESS) {
-        return;
+        if (!responseVal.error_message().empty()) {
+            throw std::runtime_error(responseVal.error_message());
+        }
+        throw std::runtime_error(
+            "The Grimodex IME service rejected the configuration.");
     }
 }
 
