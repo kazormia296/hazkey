@@ -6,6 +6,7 @@ import XCTest
 private final class RecordingGrimodexDictionaryApplier: GrimodexDynamicDictionaryApplying {
   enum Event: Equatable {
     case stopComposition
+    case abortSessionComposition
     case replace([GrimodexMappedDictionaryEntry])
   }
 
@@ -13,6 +14,10 @@ private final class RecordingGrimodexDictionaryApplier: GrimodexDynamicDictionar
 
   func stopComposition() {
     events.append(.stopComposition)
+  }
+
+  func abortSessionComposition() {
+    events.append(.abortSessionComposition)
   }
 
   func replaceDynamicDictionary(_ entries: [GrimodexMappedDictionaryEntry]) {
@@ -137,11 +142,15 @@ final class GrimodexCompositionIntegrationTests: XCTestCase {
   func testSecureScopeChangeAtSameGenerationRevokesImmediately() {
     let applier = RecordingGrimodexDictionaryApplier()
     let controller = GrimodexCompositionIntegrationController(applier: applier)
-    let nonSecure = GrimodexIntegrationRevision(
-      generation: 7,
-      payload: nil,
-      allowsLearning: true,
-      secureInput: false
+    let nonSecure = makeRevision(
+      7,
+      projectID: "project-a",
+      surface: "刹那",
+      conditions: GrimodexProjectConditions(
+        topic: "星海年代記",
+        style: "簡潔",
+        preference: "固有名詞を優先"
+      )
     )
     controller.prepareFirstInput(latest: nonSecure)
     applier.clear()
@@ -154,10 +163,11 @@ final class GrimodexCompositionIntegrationTests: XCTestCase {
 
     controller.observe(secure)
 
-    XCTAssertEqual(applier.events, [.stopComposition, .replace([])])
+    XCTAssertEqual(applier.events, [.abortSessionComposition, .replace([])])
     XCTAssertFalse(controller.isComposing)
     XCTAssertFalse(controller.allowsLearning)
     XCTAssertTrue(controller.secureInput)
+    XCTAssertEqual(controller.activeConditions, .empty)
     XCTAssertEqual(controller.appliedRevision, secure)
   }
 
