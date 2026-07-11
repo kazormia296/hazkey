@@ -81,22 +81,35 @@ final class HazkeySessionRegistry {
         let ownerFd: Int32
         let clientContext: GrimodexClientContext
         let state: HazkeyServerState
+        var lastAccess: Date
     }
 
     let serverConfig: HazkeyServerConfig
     private let revisionProviderFactory: RevisionProviderFactory
+    private let maximumSessions: Int
+    private let idleTimeout: TimeInterval
+    private let now: () -> Date
     private var sessions: [String: Session] = [:]
 
-    var count: Int { sessions.count }
+    var count: Int {
+        pruneExpiredSessions()
+        return sessions.count
+    }
 
     init(
         serverConfig: HazkeyServerConfig = HazkeyServerConfig(),
         revisionProviderFactory: @escaping RevisionProviderFactory = {
             _ in GrimodexDisabledRevisionProvider()
-        }
+        },
+        maximumSessions: Int = 128,
+        idleTimeout: TimeInterval = 30 * 60,
+        now: @escaping () -> Date = { Date() }
     ) {
         self.serverConfig = serverConfig
         self.revisionProviderFactory = revisionProviderFactory
+        self.maximumSessions = max(1, maximumSessions)
+        self.idleTimeout = max(1, idleTimeout)
+        self.now = now
     }
 
     @discardableResult
@@ -104,6 +117,16 @@ final class HazkeySessionRegistry {
         clientContext: GrimodexClientContext,
         ownerFd: Int32
     ) -> String {
+        pruneExpiredSessions()
+        while sessions.count >= maximumSessions {
+            guard let leastRecentlyUsed = sessions.min(by: { left, right in
+                if left.value.lastAccess == right.value.lastAccess {
+                    return left.key < right.key
+                }
+                return left.value.lastAccess < right.value.lastAccess
+            }) else { break }
+            removeSession(sessionID: leastRecentlyUsed.key)
+        }
         let sessionID = UUID().uuidString.lowercased()
         let state = HazkeyServerState(
             serverConfig: serverConfig,
@@ -113,16 +136,20 @@ final class HazkeySessionRegistry {
         sessions[sessionID] = Session(
             ownerFd: ownerFd,
             clientContext: clientContext,
-            state: state
+            state: state,
+            lastAccess: now()
         )
         return sessionID
     }
 
     func state(for sessionID: String, ownerFd: Int32) -> HazkeyServerState? {
-        guard !sessionID.isEmpty, let session = sessions[sessionID] else {
+        pruneExpiredSessions()
+        guard !sessionID.isEmpty, var session = sessions[sessionID] else {
             return nil
         }
         guard session.ownerFd == ownerFd else { return nil }
+        session.lastAccess = now()
+        sessions[sessionID] = session
         return session.state
     }
 
@@ -130,9 +157,12 @@ final class HazkeySessionRegistry {
         for sessionID: String,
         ownerFd: Int32
     ) -> GrimodexClientContext? {
-        guard let session = sessions[sessionID], session.ownerFd == ownerFd else {
+        pruneExpiredSessions()
+        guard var session = sessions[sessionID], session.ownerFd == ownerFd else {
             return nil
         }
+        session.lastAccess = now()
+        sessions[sessionID] = session
         return session.clientContext
     }
 
@@ -141,8 +171,7 @@ final class HazkeySessionRegistry {
         guard let session = sessions[sessionID], session.ownerFd == ownerFd else {
             return false
         }
-        _ = session.state.saveLearningData()
-        sessions.removeValue(forKey: sessionID)
+        removeSession(sessionID: sessionID)
         return true
     }
 
@@ -171,5 +200,20 @@ final class HazkeySessionRegistry {
         for session in sessions.values {
             _ = session.state.saveLearningData()
         }
+    }
+
+    private func pruneExpiredSessions() {
+        let cutoff = now().addingTimeInterval(-idleTimeout)
+        let expired = sessions.compactMap { sessionID, session in
+            session.lastAccess < cutoff ? sessionID : nil
+        }
+        for sessionID in expired {
+            removeSession(sessionID: sessionID)
+        }
+    }
+
+    private func removeSession(sessionID: String) {
+        guard let session = sessions.removeValue(forKey: sessionID) else { return }
+        _ = session.state.saveLearningData()
     }
 }
