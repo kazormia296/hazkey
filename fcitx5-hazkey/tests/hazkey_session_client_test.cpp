@@ -178,9 +178,40 @@ void secureContextTransitionClearsBeforeReopening() {
     const auto leftSecure = evaluateHazkeyClientContextTransition(secure, normal);
     expect(leftSecure.contextChanged, "leaving secure input must change context");
     expect(!leftSecure.enteredSecure, "leaving secure input is not an entry");
-    expect(!leftSecure.clearPreedit, "already-cleared preedit must not be committed or reused");
+    expect(leftSecure.clearPreedit,
+           "leaving secure input must discard any secure-field composition");
     expect(leftSecure.reopenSession, "leaving secure input must reopen the session");
     expect(leftSecure.allowSurroundingText, "normal context may send surrounding text");
+}
+
+void notifiesTheOwnerWhenAStatefulRequestReopensTheSession() {
+    FakeTransport transport;
+    transport.responses = {
+        openSuccess("session-1"),
+        status(hazkey::SESSION_NOT_FOUND),
+        openSuccess("session-2"),
+        status(hazkey::SUCCESS),
+        status(hazkey::SUCCESS),
+    };
+    int recoveryCount = 0;
+    HazkeySessionClient client(
+        [&transport](const auto& request, bool tryConnect) {
+            return transport.transact(request, tryConnect);
+        });
+    HazkeyClientSession session(context(), [&recoveryCount] {
+        ++recoveryCount;
+    });
+
+    expect(client.open(session), "initial session must open");
+    expect(recoveryCount == 0, "initial open is not recovery");
+    const auto recovered = client.transact(session, inputRequest());
+    expect(recovered.has_value() && recovered->status() == hazkey::SUCCESS,
+           "replayed request must succeed");
+    expect(recoveryCount == 1,
+           "owner must invalidate local composition exactly once after recovery");
+
+    (void)client.transact(session, inputRequest());
+    expect(recoveryCount == 1, "ordinary requests must not notify recovery");
 }
 
 void replacesSessionWhenClientContextChanges() {
@@ -218,6 +249,7 @@ int main() {
     preservesContextWhenReopening();
     neverMixesTwoSessionIds();
     secureContextTransitionClearsBeforeReopening();
+    notifiesTheOwnerWhenAStatefulRequestReopensTheSession();
     replacesSessionWhenClientContextChanges();
     return 0;
 }

@@ -38,6 +38,23 @@ private final class SocketManagerRunner: @unchecked Sendable {
   }
 }
 
+private final class AsyncSocketResult: @unchecked Sendable {
+  private let lock = NSLock()
+  private var stored: Result<Data, Error>?
+
+  func store(_ result: Result<Data, Error>) {
+    lock.lock()
+    stored = result
+    lock.unlock()
+  }
+
+  func get() -> Result<Data, Error>? {
+    lock.lock()
+    defer { lock.unlock() }
+    return stored
+  }
+}
+
 final class GrimodexSocketManagerTests: XCTestCase {
   func testTwoClientsRemainConnectedAndCanInterleaveRequests() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -75,6 +92,66 @@ final class GrimodexSocketManagerTests: XCTestCase {
 
     XCTAssertEqual(try transact(firstFd, payload: Data("first-2".utf8)), Data("first-2".utf8))
     XCTAssertEqual(delegate.connected.count, 2)
+  }
+
+  func testPartialFrameCannotBlockAnotherClient() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "grimodex-partial-frame-tests-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let socketPath = root.appendingPathComponent("server.sock").path
+    let manager = SocketManager(socketPath: socketPath)
+    manager.delegate = EchoSocketManagerDelegate()
+    try manager.setupSocket()
+    let runner = SocketManagerRunner(manager: manager)
+    DispatchQueue.global().async {
+      runner.manager.startListening()
+      runner.stopped.signal()
+    }
+
+    var slowFd: Int32 = -1
+    var healthyFd: Int32 = -1
+    defer {
+      if slowFd >= 0 { close(slowFd) }
+      if healthyFd >= 0 { close(healthyFd) }
+      manager.stop()
+      XCTAssertEqual(runner.stopped.wait(timeout: .now() + 2), .success)
+    }
+
+    slowFd = try connectClient(socketPath)
+    var slowLength = UInt32(4).bigEndian
+    let slowHeader = withUnsafeBytes(of: &slowLength) { Data($0) }
+    XCTAssertEqual(slowHeader.prefix(2).withUnsafeBytes { write(slowFd, $0.baseAddress, 2) }, 2)
+
+    healthyFd = try connectClient(socketPath)
+    let completed = DispatchSemaphore(value: 0)
+    let result = AsyncSocketResult()
+    let fd = healthyFd
+    DispatchQueue.global().async { [self] in
+      result.store(Result { try transact(fd, payload: Data("healthy".utf8)) })
+      completed.signal()
+    }
+
+    XCTAssertEqual(
+      completed.wait(timeout: .now() + 1),
+      .success,
+      "a client that stalls mid-frame must not block unrelated clients"
+    )
+    XCTAssertEqual(try result.get()?.get(), Data("healthy".utf8))
+
+    XCTAssertEqual(
+      slowHeader.dropFirst(2).withUnsafeBytes { write(slowFd, $0.baseAddress, 2) },
+      2
+    )
+    XCTAssertEqual(Data("slow".utf8).withUnsafeBytes { write(slowFd, $0.baseAddress, 4) }, 4)
+    let slowResponseHeader = try readData(from: slowFd, count: 4)
+    let slowResponseLength = slowResponseHeader.withUnsafeBytes {
+      $0.load(as: UInt32.self).bigEndian
+    }
+    XCTAssertEqual(try readData(from: slowFd, count: Int(slowResponseLength)), Data("slow".utf8))
   }
 
   private func connectClient(_ path: String) throws -> Int32 {

@@ -23,6 +23,23 @@ private final class MutableSessionClock: @unchecked Sendable {
   }
 }
 
+private final class LearningClearProbe: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value = 0
+
+  var count: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return value
+  }
+
+  func record() {
+    lock.lock()
+    value += 1
+    lock.unlock()
+  }
+}
+
 final class GrimodexSessionRegistryTests: XCTestCase {
   func testEachSessionOwnsIndependentCompositionState() {
     let config = HazkeyServerConfig()
@@ -118,6 +135,18 @@ final class GrimodexSessionRegistryTests: XCTestCase {
     XCTAssertNil(registry.state(for: sessionA, ownerFd: 10))
     XCTAssertNil(registry.state(for: sessionC, ownerFd: 12))
     XCTAssertEqual(registry.count, 0)
+  }
+
+  func testClearAllLearningDataStillClearsPersistentHistoryWithoutActiveSessions() {
+    let probe = LearningClearProbe()
+    let registry = HazkeySessionRegistry(
+      idleLearningDataClearer: { probe.record() }
+    )
+
+    XCTAssertEqual(registry.count, 0)
+    registry.clearAllLearningData()
+
+    XCTAssertEqual(probe.count, 1)
   }
 
   func testSessionRevisionProviderAppliesScopeAndSecurePolicy() {
