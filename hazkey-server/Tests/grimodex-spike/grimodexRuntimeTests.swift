@@ -54,6 +54,40 @@ private final class GrimodexMutableClock: @unchecked Sendable {
   }
 }
 
+private enum GrimodexInjectedRuntimeFailure: Error {
+  case requested
+}
+
+private final class GrimodexRuntimeFailureGate: @unchecked Sendable {
+  private let lock = NSLock()
+  private var failing = false
+  private var recordedFailureCount = 0
+
+  func setFailing(_ value: Bool) {
+    lock.lock()
+    failing = value
+    lock.unlock()
+  }
+
+  func check() throws {
+    lock.lock()
+    let shouldFail = failing
+    if shouldFail {
+      recordedFailureCount += 1
+    }
+    lock.unlock()
+    if shouldFail {
+      throw GrimodexInjectedRuntimeFailure.requested
+    }
+  }
+
+  var failureCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return recordedFailureCount
+  }
+}
+
 private final class GrimodexRuntimeSandbox {
   let parent: URL
   let root: URL
@@ -105,6 +139,64 @@ private final class GrimodexRuntimeSandbox {
 }
 
 final class GrimodexRuntimeTests: XCTestCase {
+  func testLinuxRuntimeDiagnosticsTrackHeartbeatWatcherFailureRecoveryAndStop() throws {
+    let sandbox = try GrimodexRuntimeSandbox()
+    try sandbox.replaceState()
+    try sandbox.replaceProject()
+    let watcherGate = GrimodexRuntimeFailureGate()
+    let runtime = GrimodexLinuxRuntime(
+      rootURL: sandbox.root,
+      version: "0.1.0",
+      watcherRetryInterval: 0.02,
+      watcherMaxRearmAttempts: 2,
+      watcherBeforeReconcile: { try watcherGate.check() },
+      consumerHeartbeatInterval: 0.03
+    )
+    let consumersURL = sandbox.root.appendingPathComponent("consumers", isDirectory: true)
+
+    runtime.start()
+    XCTAssertTrue(runtime.diagnostics().watcherActive)
+    XCTAssertTrue(runtime.diagnostics().consumerRegistered)
+
+    try FileManager.default.removeItem(at: consumersURL)
+    try Data("blocks consumer directory".utf8).write(to: consumersURL)
+    XCTAssertTrue(eventually {
+      !runtime.diagnostics().consumerRegistered
+    }, "a failed heartbeat must immediately make registration diagnostics unhealthy")
+
+    try FileManager.default.removeItem(at: consumersURL)
+    try FileManager.default.createDirectory(at: consumersURL, withIntermediateDirectories: false)
+    XCTAssertTrue(eventually {
+      runtime.diagnostics().consumerRegistered
+    }, "a later successful heartbeat must restore registration diagnostics")
+
+    watcherGate.setFailing(true)
+    try FileManager.default.removeItem(
+      at: sandbox.root.appendingPathComponent("projects", isDirectory: true)
+    )
+    XCTAssertTrue(eventually {
+      watcherGate.failureCount >= 3 && !runtime.diagnostics().watcherActive
+    }, "exhausted rearm attempts must make watcher diagnostics unhealthy")
+
+    watcherGate.setFailing(false)
+    try sandbox.createSnapshotDirectories()
+    try sandbox.replaceProject()
+    XCTAssertTrue(eventually {
+      runtime.diagnostics().watcherActive
+    }, "a later filesystem event must restore watcher health after rearming")
+
+    runtime.stop()
+    XCTAssertFalse(runtime.diagnostics().watcherActive)
+    XCTAssertFalse(runtime.diagnostics().consumerRegistered)
+
+    runtime.start()
+    XCTAssertTrue(eventually {
+      let diagnostics = runtime.diagnostics()
+      return diagnostics.watcherActive && diagnostics.consumerRegistered
+    }, "restarting after stop must recover both live health signals")
+    runtime.stop()
+  }
+
   func testLinuxRuntimePublishesSnapshotAndConsumerBeforeSessionsOpen() throws {
     let sandbox = try GrimodexRuntimeSandbox()
     try sandbox.replaceState()
@@ -431,6 +523,18 @@ final class GrimodexRuntimeTests: XCTestCase {
     try XCTUnwrap(
       JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
     )
+  }
+
+  private func eventually(
+    timeout: TimeInterval = 2,
+    condition: () -> Bool
+  ) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    repeat {
+      if condition() { return true }
+      Thread.sleep(forTimeInterval: 0.01)
+    } while Date() < deadline
+    return condition()
   }
 }
 
