@@ -47,6 +47,7 @@ let package = Package(
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
             ],
             path: "Tests/grimodex-spike",
+            resources: [.copy("Fixtures")],
             swiftSettings: [.interoperabilityMode(.Cxx)],
         ),
     ]

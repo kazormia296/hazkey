@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - codex/grimodex-ime-phase3-linux-spike
+      - codex/grimodex-ime-phase3-linux-integration
   workflow_dispatch:
 
 permissions:
