@@ -66,7 +66,11 @@ FORBIDDEN_ARTIFACT_MARKERS = (
     b"nsurlconnection",
     b"asynchttpclient",
     b"niohttpclient",
+    b"niohttp1",
     b"curl_easy_",
+    b"curl_multi_",
+    b"curl_share_",
+    b"curl_url_",
     b"libcurl.so",
 )
 
@@ -389,25 +393,27 @@ class PackageMetadataContractTests(unittest.TestCase):
         self.assertIsNotNone(command, "cannot find AUR artifact network gate")
         assert command is not None
 
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory) / "usr"
-            root.mkdir()
-            (root / "server").write_bytes(b"\x7fELF\x00urlsession\x00")
-            result = subprocess.run(
-                [
-                    "grep",
-                    command.group("flags"),
-                    command.group("pattern"),
-                    str(root),
-                ],
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(
-                result.returncode,
-                0,
-                "AUR network gate skipped a lowercase marker in a binary payload",
-            )
+        for marker in FORBIDDEN_ARTIFACT_MARKERS:
+            with self.subTest(marker=marker):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory) / "usr"
+                    root.mkdir()
+                    (root / "server").write_bytes(b"\x7fELF\x00" + marker + b"\x00")
+                    result = subprocess.run(
+                        [
+                            "grep",
+                            command.group("flags"),
+                            command.group("pattern"),
+                            str(root),
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(
+                        result.returncode,
+                        0,
+                        f"AUR network gate skipped binary marker {marker!r}",
+                    )
 
     def test_installed_and_uninstalled_paths_are_identical_and_isolated(self) -> None:
         installed = parse_path_manifest(INSTALL_MANIFEST)
@@ -714,6 +720,10 @@ class ProductArtifactContractTests(unittest.TestCase):
             "import FoundationNetworking\n",
             "let client = HTTPClient(eventLoopGroupProvider: .createNew)\n",
             "curl_easy_perform(handle)\n",
+            "let fd = socket(AF_INET, SOCK_STREAM, 0)\n",
+            "getaddrinfo(host, port, &hints, &result)\n",
+            "let process = Process()\n",
+            'popen("curl https://example.invalid", "r")\n',
         ):
             with self.subTest(source=source):
                 with tempfile.TemporaryDirectory() as temporary_directory:
