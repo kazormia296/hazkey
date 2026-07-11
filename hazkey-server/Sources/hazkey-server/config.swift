@@ -7,11 +7,14 @@ let TABLE_FILE_SIZE_LIMIT = 1024 * 1024  //1MB
 
 private enum HazkeyServerConfigError: LocalizedError {
     case emptyProfiles
+    case invalidProfileDocument
 
     var errorDescription: String? {
         switch self {
         case .emptyProfiles:
             "Configuration profiles must not be empty"
+        case .invalidProfileDocument:
+            "Configuration must be an array of profile objects"
         }
     }
 }
@@ -349,8 +352,10 @@ class HazkeyServerConfig {
         let jsonData = try Data(contentsOf: configPath)
 
         // Parse JSON array
-        let jsonArray =
-            try JSONSerialization.jsonObject(with: jsonData, options: []) as! [[String: Any]]
+        let jsonObject = try JSONSerialization.jsonObject(with: jsonData, options: [])
+        guard let jsonArray = jsonObject as? [[String: Any]] else {
+            throw HazkeyServerConfigError.invalidProfileDocument
+        }
 
         var configs: [Hazkey_Config_Profile] = []
         var decodeOptions = JSONDecodingOptions()
