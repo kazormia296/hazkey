@@ -29,16 +29,23 @@ final class GrimodexProcessIdentityTests: XCTestCase {
       executable: "/usr/lib/hazkey/hazkey-server",
       proc: proc
     )
+    try writeProcess(
+      pid: 104,
+      uid: 1000,
+      executable: "/tmp/untrusted/fcitx5-grimodex-server",
+      proc: proc
+    )
 
     let verifier = ProcessIdentityVerifier(
       procRoot: proc,
       uid: 1000,
-      expectedExecutableName: "fcitx5-grimodex-server"
+      expectedExecutablePath: "/usr/lib/fcitx5-grimodex/fcitx5-grimodex-server"
     )
 
     XCTAssertTrue(verifier.canTerminate(pid: 101))
     XCTAssertFalse(verifier.canTerminate(pid: 102))
     XCTAssertFalse(verifier.canTerminate(pid: 103))
+    XCTAssertFalse(verifier.canTerminate(pid: 104))
     XCTAssertFalse(verifier.canTerminate(pid: 404))
   }
 
