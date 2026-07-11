@@ -29,6 +29,7 @@ UNINSTALL_MANIFEST = (
 HAZKEY_REFERENCE_MANIFEST = (
     REPOSITORY_ROOT / "packaging/manifests/fcitx5-hazkey.reference-paths"
 )
+BUILD_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/build.yml"
 
 FORBIDDEN_ARTIFACT_MARKERS = (
     b"qt6network",
@@ -214,6 +215,21 @@ class PackageMetadataContractTests(unittest.TestCase):
         self.assertIn("usr/share/licenses/fcitx5-grimodex", debian_install)
         self.assertIn("LICENSE", pkgbuild)
         self.assertIn("NOTICE.md", pkgbuild)
+
+    def test_release_workflow_uses_grimodex_artifact_identity(self) -> None:
+        workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            'archive="fcitx5-grimodex-${GRIMODEX_IME_VERSION}-${{ matrix.arch }}.tar.zst"',
+            workflow,
+        )
+        self.assertIn(
+            "name: fcitx5-grimodex-release-${{ matrix.arch }}",
+            workflow,
+        )
+        self.assertIn('sha256sum "$archive"', workflow)
+        self.assertIn("gh release upload", workflow)
+        self.assertNotIn("packages/fcitx5-hazkey-", workflow)
+        self.assertNotIn("name: fcitx5-hazkey-", workflow)
 
 
 class ProductArtifactContractTests(unittest.TestCase):
