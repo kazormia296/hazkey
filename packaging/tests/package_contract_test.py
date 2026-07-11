@@ -434,16 +434,45 @@ class PackageMetadataContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             repository = root / "repository"
-            (repository / "hazkey-server").mkdir(parents=True)
-            (repository / "hazkey-server/Package.resolved").write_text(
+            server = repository / "hazkey-server"
+            checkouts = root / "checkouts"
+            destination = root / "stage"
+            (server / "azooKey_dictionary_storage").mkdir(parents=True)
+            (server / "azooKey_dictionary_storage/LICENSE").write_text("dictionary")
+            (server / "azooKey_emoji_dictionary_storage/data").mkdir(parents=True)
+            (server / "azooKey_emoji_dictionary_storage/data/README.md").write_text(
+                "emoji notice"
+            )
+            (server / "llama.cpp").mkdir(parents=True)
+            (server / "llama.cpp/LICENSE").write_text("llama")
+            (server / "Package.resolved").write_text(
                 json.dumps({"pins": [{"identity": "missing"}]}), encoding="utf-8"
             )
+            (checkouts / "missing").mkdir(parents=True)
+            inputs = {}
+            for name in ("swift", "protobuf", "mozc", "unicode"):
+                inputs[name] = root / f"{name}-LICENSE"
+                inputs[name].write_text(name)
+
             result = subprocess.run(
-                ["python3", str(LICENSE_COLLECTOR), "--repository-root", str(repository)],
+                [
+                    "python3", str(LICENSE_COLLECTOR),
+                    "--repository-root", str(repository),
+                    "--swift-checkouts", str(checkouts),
+                    "--swift-runtime-license", str(inputs["swift"]),
+                    "--protobuf-license", str(inputs["protobuf"]),
+                    "--emoji-mozc-license", str(inputs["mozc"]),
+                    "--emoji-unicode-license", str(inputs["unicode"]),
+                    "--destination-root", str(destination),
+                ],
                 capture_output=True,
                 text=True,
             )
             self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "no license document found for Swift package missing",
+                result.stderr,
+            )
 
     def test_settings_and_desktop_use_the_packaged_grimodex_icon(self) -> None:
         settings_cmake = (
@@ -485,6 +514,19 @@ class ProductArtifactContractTests(unittest.TestCase):
             path.write_bytes(b"local product")
             with self.assertRaisesRegex(AssertionError, "Hazkey public path"):
                 validate_staged_root(root, [("optional", "/usr/lib/*/fcitx5/*")])
+
+    def test_staged_validator_rejects_nested_multiarch_libdir(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            addon = root / "usr/lib/vendor/x86_64-linux-gnu/fcitx5/fcitx5-grimodex.so"
+            addon.parent.mkdir(parents=True)
+            addon.write_bytes(b"local product")
+
+            with self.assertRaisesRegex(AssertionError, "unowned staged package path"):
+                validate_staged_root(
+                    root,
+                    [("required", "/usr/lib/{,*/}fcitx5/fcitx5-grimodex.so")],
+                )
 
     def test_artifact_validator_rejects_network_clients_and_huggingface(self) -> None:
         for marker in FORBIDDEN_ARTIFACT_MARKERS:
