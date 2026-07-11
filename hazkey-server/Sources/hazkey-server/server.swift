@@ -34,11 +34,7 @@ class HazkeyServer: SocketManagerDelegate {
 
     func start() throws {
         let forceRestart = parseCommandLineArguments()
-        if !FileManager.default.fileExists(atPath: runtimeDir.path) {
-            try FileManager.default.createDirectory(
-                at: runtimeDir, withIntermediateDirectories: true,
-                attributes: [FileAttributeKey.posixPermissions: 0o700])
-        }
+        try GrimodexRuntimeDirectory.prepare(at: runtimeDir)
         do {
             try processManager.tryLock(force: forceRestart)
         } catch ProcessManagerError.anotherInstanceRunning {
