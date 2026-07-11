@@ -111,6 +111,26 @@ final class GrimodexSnapshotManagerTests: XCTestCase {
     XCTAssertNil(result.payload?.conditions.preference)
   }
 
+  func testLegacyProfileFallsBackToBoundedTopicWithoutZenzaiContext() throws {
+    let sandbox = try GrimodexFixtureSandbox()
+    try sandbox.installState("valid/state-active.json")
+    var project = try JSONSerialization.jsonObject(
+      with: sandbox.fixtureData("valid/project-with-zenzai-context.json")
+    ) as! [String: Any]
+    project.removeValue(forKey: "zenzai_context")
+    project["profile"] = "1234567890123456789012345・後半は切り捨て"
+    try JSONSerialization.data(withJSONObject: project).write(
+      to: sandbox.root.appendingPathComponent("projects/project-a.json")
+    )
+
+    let result = GrimodexSnapshotLoader(rootURL: sandbox.root).load()
+
+    XCTAssertEqual(result.diagnostic, .loaded)
+    XCTAssertEqual(result.payload?.conditions.topic, "1234567890123456789012345")
+    XCTAssertNil(result.payload?.conditions.style)
+    XCTAssertNil(result.payload?.conditions.preference)
+  }
+
   func testInactiveStateProducesAnEmptyPayloadWithoutAnError() throws {
     let sandbox = try GrimodexFixtureSandbox()
     try sandbox.installState("valid/state-inactive.json")
