@@ -17,7 +17,6 @@ class SocketManager {
     private static let readChunkSize = 64 * 1024
     private static let maximumReadPerPoll = 4 * readChunkSize
     private static let maximumPendingOutputSize = 2 * maximumMessageSize
-    private static let defaultMaximumClients = 64
 
     weak var delegate: SocketManagerDelegate?
 
@@ -55,7 +54,7 @@ class SocketManager {
 
     init(
         socketPath: String,
-        maximumClients: Int = SocketManager.defaultMaximumClients
+        maximumClients: Int = 64
     ) {
         self.socketPath = socketPath
         self.maximumClients = max(1, maximumClients)
