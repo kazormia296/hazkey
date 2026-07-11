@@ -830,30 +830,176 @@ struct Hazkey_Config_ReloadZenzaiModel: Sendable {
   init() {}
 }
 
-struct Hazkey_Config_CurrentConfig: Sendable {
+struct Hazkey_Config_GrimodexDiagnostics: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var fileHashes: [Hazkey_Config_FileHash] = []
+  var watcherActive: Bool = false
 
-  var profiles: [Hazkey_Config_Profile] = []
+  var consumerRegistered: Bool = false
 
-  var availableKeymaps: [Hazkey_Config_Keymap] = []
+  var snapshotStatus: String = String()
 
-  var availableTables: [Hazkey_Config_InputTable] = []
+  var generation: UInt64 = 0
 
-  var availableZenzaiBackendDevices: [Hazkey_Config_BackendDevice] = []
+  var activeProjectID: String {
+    get {return _activeProjectID ?? String()}
+    set {_activeProjectID = newValue}
+  }
+  /// Returns true if `activeProjectID` has been explicitly set.
+  var hasActiveProjectID: Bool {return self._activeProjectID != nil}
+  /// Clears the value of `activeProjectID`. Subsequent reads from it will return its default value.
+  mutating func clearActiveProjectID() {self._activeProjectID = nil}
 
-  var zenzaiModelAvailable: Bool = false
+  var activeSessions: UInt32 = 0
 
-  var zenzaiModelPath: String = String()
+  var program: String {
+    get {return _program ?? String()}
+    set {_program = newValue}
+  }
+  /// Returns true if `program` has been explicitly set.
+  var hasProgram: Bool {return self._program != nil}
+  /// Clears the value of `program`. Subsequent reads from it will return its default value.
+  mutating func clearProgram() {self._program = nil}
 
-  var xdgConfigHomePath: String = String()
+  var frontend: String {
+    get {return _frontend ?? String()}
+    set {_frontend = newValue}
+  }
+  /// Returns true if `frontend` has been explicitly set.
+  var hasFrontend: Bool {return self._frontend != nil}
+  /// Clears the value of `frontend`. Subsequent reads from it will return its default value.
+  mutating func clearFrontend() {self._frontend = nil}
+
+  var secureInput: Bool = false
+
+  var integrationAllowed: Bool = false
+
+  var scopeReason: Hazkey_Config_GrimodexDiagnostics.ScopeReason = .unspecified
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  enum ScopeReason: SwiftProtobuf.Enum, Swift.CaseIterable {
+    typealias RawValue = Int
+    case unspecified // = 0
+    case allowedGrimodex // = 1
+    case allowedAllApplications // = 2
+    case disabled // = 3
+    case secureInput // = 4
+    case unknownProgram // = 5
+    case otherProgram // = 6
+    case UNRECOGNIZED(Int)
+
+    init() {
+      self = .unspecified
+    }
+
+    init?(rawValue: Int) {
+      switch rawValue {
+      case 0: self = .unspecified
+      case 1: self = .allowedGrimodex
+      case 2: self = .allowedAllApplications
+      case 3: self = .disabled
+      case 4: self = .secureInput
+      case 5: self = .unknownProgram
+      case 6: self = .otherProgram
+      default: self = .UNRECOGNIZED(rawValue)
+      }
+    }
+
+    var rawValue: Int {
+      switch self {
+      case .unspecified: return 0
+      case .allowedGrimodex: return 1
+      case .allowedAllApplications: return 2
+      case .disabled: return 3
+      case .secureInput: return 4
+      case .unknownProgram: return 5
+      case .otherProgram: return 6
+      case .UNRECOGNIZED(let i): return i
+      }
+    }
+
+    // The compiler won't synthesize support with the UNRECOGNIZED case.
+    static let allCases: [Hazkey_Config_GrimodexDiagnostics.ScopeReason] = [
+      .unspecified,
+      .allowedGrimodex,
+      .allowedAllApplications,
+      .disabled,
+      .secureInput,
+      .unknownProgram,
+      .otherProgram,
+    ]
+
+  }
+
+  init() {}
+
+  fileprivate var _activeProjectID: String? = nil
+  fileprivate var _program: String? = nil
+  fileprivate var _frontend: String? = nil
+}
+
+struct Hazkey_Config_CurrentConfig: @unchecked Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var fileHashes: [Hazkey_Config_FileHash] {
+    get {return _storage._fileHashes}
+    set {_uniqueStorage()._fileHashes = newValue}
+  }
+
+  var profiles: [Hazkey_Config_Profile] {
+    get {return _storage._profiles}
+    set {_uniqueStorage()._profiles = newValue}
+  }
+
+  var availableKeymaps: [Hazkey_Config_Keymap] {
+    get {return _storage._availableKeymaps}
+    set {_uniqueStorage()._availableKeymaps = newValue}
+  }
+
+  var availableTables: [Hazkey_Config_InputTable] {
+    get {return _storage._availableTables}
+    set {_uniqueStorage()._availableTables = newValue}
+  }
+
+  var availableZenzaiBackendDevices: [Hazkey_Config_BackendDevice] {
+    get {return _storage._availableZenzaiBackendDevices}
+    set {_uniqueStorage()._availableZenzaiBackendDevices = newValue}
+  }
+
+  var zenzaiModelAvailable: Bool {
+    get {return _storage._zenzaiModelAvailable}
+    set {_uniqueStorage()._zenzaiModelAvailable = newValue}
+  }
+
+  var zenzaiModelPath: String {
+    get {return _storage._zenzaiModelPath}
+    set {_uniqueStorage()._zenzaiModelPath = newValue}
+  }
+
+  var xdgConfigHomePath: String {
+    get {return _storage._xdgConfigHomePath}
+    set {_uniqueStorage()._xdgConfigHomePath = newValue}
+  }
+
+  var grimodexDiagnostics: Hazkey_Config_GrimodexDiagnostics {
+    get {return _storage._grimodexDiagnostics ?? Hazkey_Config_GrimodexDiagnostics()}
+    set {_uniqueStorage()._grimodexDiagnostics = newValue}
+  }
+  /// Returns true if `grimodexDiagnostics` has been explicitly set.
+  var hasGrimodexDiagnostics: Bool {return _storage._grimodexDiagnostics != nil}
+  /// Clears the value of `grimodexDiagnostics`. Subsequent reads from it will return its default value.
+  mutating func clearGrimodexDiagnostics() {_uniqueStorage()._grimodexDiagnostics = nil}
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
+
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
@@ -1723,6 +1869,114 @@ extension Hazkey_Config_ReloadZenzaiModel: SwiftProtobuf.Message, SwiftProtobuf.
   }
 }
 
+extension Hazkey_Config_GrimodexDiagnostics: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".GrimodexDiagnostics"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "watcher_active"),
+    2: .standard(proto: "consumer_registered"),
+    3: .standard(proto: "snapshot_status"),
+    4: .same(proto: "generation"),
+    5: .standard(proto: "active_project_id"),
+    6: .standard(proto: "active_sessions"),
+    7: .same(proto: "program"),
+    8: .same(proto: "frontend"),
+    9: .standard(proto: "secure_input"),
+    10: .standard(proto: "integration_allowed"),
+    11: .standard(proto: "scope_reason"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.watcherActive) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.consumerRegistered) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.snapshotStatus) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.generation) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self._activeProjectID) }()
+      case 6: try { try decoder.decodeSingularUInt32Field(value: &self.activeSessions) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self._program) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self._frontend) }()
+      case 9: try { try decoder.decodeSingularBoolField(value: &self.secureInput) }()
+      case 10: try { try decoder.decodeSingularBoolField(value: &self.integrationAllowed) }()
+      case 11: try { try decoder.decodeSingularEnumField(value: &self.scopeReason) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if self.watcherActive != false {
+      try visitor.visitSingularBoolField(value: self.watcherActive, fieldNumber: 1)
+    }
+    if self.consumerRegistered != false {
+      try visitor.visitSingularBoolField(value: self.consumerRegistered, fieldNumber: 2)
+    }
+    if !self.snapshotStatus.isEmpty {
+      try visitor.visitSingularStringField(value: self.snapshotStatus, fieldNumber: 3)
+    }
+    if self.generation != 0 {
+      try visitor.visitSingularUInt64Field(value: self.generation, fieldNumber: 4)
+    }
+    try { if let v = self._activeProjectID {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 5)
+    } }()
+    if self.activeSessions != 0 {
+      try visitor.visitSingularUInt32Field(value: self.activeSessions, fieldNumber: 6)
+    }
+    try { if let v = self._program {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 7)
+    } }()
+    try { if let v = self._frontend {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 8)
+    } }()
+    if self.secureInput != false {
+      try visitor.visitSingularBoolField(value: self.secureInput, fieldNumber: 9)
+    }
+    if self.integrationAllowed != false {
+      try visitor.visitSingularBoolField(value: self.integrationAllowed, fieldNumber: 10)
+    }
+    if self.scopeReason != .unspecified {
+      try visitor.visitSingularEnumField(value: self.scopeReason, fieldNumber: 11)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Config_GrimodexDiagnostics, rhs: Hazkey_Config_GrimodexDiagnostics) -> Bool {
+    if lhs.watcherActive != rhs.watcherActive {return false}
+    if lhs.consumerRegistered != rhs.consumerRegistered {return false}
+    if lhs.snapshotStatus != rhs.snapshotStatus {return false}
+    if lhs.generation != rhs.generation {return false}
+    if lhs._activeProjectID != rhs._activeProjectID {return false}
+    if lhs.activeSessions != rhs.activeSessions {return false}
+    if lhs._program != rhs._program {return false}
+    if lhs._frontend != rhs._frontend {return false}
+    if lhs.secureInput != rhs.secureInput {return false}
+    if lhs.integrationAllowed != rhs.integrationAllowed {return false}
+    if lhs.scopeReason != rhs.scopeReason {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_Config_GrimodexDiagnostics.ScopeReason: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "SCOPE_REASON_UNSPECIFIED"),
+    1: .same(proto: "ALLOWED_GRIMODEX"),
+    2: .same(proto: "ALLOWED_ALL_APPLICATIONS"),
+    3: .same(proto: "DISABLED"),
+    4: .same(proto: "SECURE_INPUT"),
+    5: .same(proto: "UNKNOWN_PROGRAM"),
+    6: .same(proto: "OTHER_PROGRAM"),
+  ]
+}
+
 extension Hazkey_Config_CurrentConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".CurrentConfig"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
@@ -1734,64 +1988,126 @@ extension Hazkey_Config_CurrentConfig: SwiftProtobuf.Message, SwiftProtobuf._Mes
     8: .standard(proto: "zenzai_model_available"),
     9: .standard(proto: "zenzai_model_path"),
     6: .standard(proto: "xdg_config_home_path"),
+    20: .standard(proto: "grimodex_diagnostics"),
   ]
 
+  fileprivate class _StorageClass {
+    var _fileHashes: [Hazkey_Config_FileHash] = []
+    var _profiles: [Hazkey_Config_Profile] = []
+    var _availableKeymaps: [Hazkey_Config_Keymap] = []
+    var _availableTables: [Hazkey_Config_InputTable] = []
+    var _availableZenzaiBackendDevices: [Hazkey_Config_BackendDevice] = []
+    var _zenzaiModelAvailable: Bool = false
+    var _zenzaiModelPath: String = String()
+    var _xdgConfigHomePath: String = String()
+    var _grimodexDiagnostics: Hazkey_Config_GrimodexDiagnostics? = nil
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _fileHashes = source._fileHashes
+      _profiles = source._profiles
+      _availableKeymaps = source._availableKeymaps
+      _availableTables = source._availableTables
+      _availableZenzaiBackendDevices = source._availableZenzaiBackendDevices
+      _zenzaiModelAvailable = source._zenzaiModelAvailable
+      _zenzaiModelPath = source._zenzaiModelPath
+      _xdgConfigHomePath = source._xdgConfigHomePath
+      _grimodexDiagnostics = source._grimodexDiagnostics
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.fileHashes) }()
-      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.profiles) }()
-      case 3: try { try decoder.decodeRepeatedMessageField(value: &self.availableKeymaps) }()
-      case 4: try { try decoder.decodeRepeatedMessageField(value: &self.availableTables) }()
-      case 6: try { try decoder.decodeSingularStringField(value: &self.xdgConfigHomePath) }()
-      case 7: try { try decoder.decodeRepeatedMessageField(value: &self.availableZenzaiBackendDevices) }()
-      case 8: try { try decoder.decodeSingularBoolField(value: &self.zenzaiModelAvailable) }()
-      case 9: try { try decoder.decodeSingularStringField(value: &self.zenzaiModelPath) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeRepeatedMessageField(value: &_storage._fileHashes) }()
+        case 2: try { try decoder.decodeRepeatedMessageField(value: &_storage._profiles) }()
+        case 3: try { try decoder.decodeRepeatedMessageField(value: &_storage._availableKeymaps) }()
+        case 4: try { try decoder.decodeRepeatedMessageField(value: &_storage._availableTables) }()
+        case 6: try { try decoder.decodeSingularStringField(value: &_storage._xdgConfigHomePath) }()
+        case 7: try { try decoder.decodeRepeatedMessageField(value: &_storage._availableZenzaiBackendDevices) }()
+        case 8: try { try decoder.decodeSingularBoolField(value: &_storage._zenzaiModelAvailable) }()
+        case 9: try { try decoder.decodeSingularStringField(value: &_storage._zenzaiModelPath) }()
+        case 20: try { try decoder.decodeSingularMessageField(value: &_storage._grimodexDiagnostics) }()
+        default: break
+        }
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.fileHashes.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.fileHashes, fieldNumber: 1)
-    }
-    if !self.profiles.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.profiles, fieldNumber: 2)
-    }
-    if !self.availableKeymaps.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.availableKeymaps, fieldNumber: 3)
-    }
-    if !self.availableTables.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.availableTables, fieldNumber: 4)
-    }
-    if !self.xdgConfigHomePath.isEmpty {
-      try visitor.visitSingularStringField(value: self.xdgConfigHomePath, fieldNumber: 6)
-    }
-    if !self.availableZenzaiBackendDevices.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.availableZenzaiBackendDevices, fieldNumber: 7)
-    }
-    if self.zenzaiModelAvailable != false {
-      try visitor.visitSingularBoolField(value: self.zenzaiModelAvailable, fieldNumber: 8)
-    }
-    if !self.zenzaiModelPath.isEmpty {
-      try visitor.visitSingularStringField(value: self.zenzaiModelPath, fieldNumber: 9)
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      if !_storage._fileHashes.isEmpty {
+        try visitor.visitRepeatedMessageField(value: _storage._fileHashes, fieldNumber: 1)
+      }
+      if !_storage._profiles.isEmpty {
+        try visitor.visitRepeatedMessageField(value: _storage._profiles, fieldNumber: 2)
+      }
+      if !_storage._availableKeymaps.isEmpty {
+        try visitor.visitRepeatedMessageField(value: _storage._availableKeymaps, fieldNumber: 3)
+      }
+      if !_storage._availableTables.isEmpty {
+        try visitor.visitRepeatedMessageField(value: _storage._availableTables, fieldNumber: 4)
+      }
+      if !_storage._xdgConfigHomePath.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._xdgConfigHomePath, fieldNumber: 6)
+      }
+      if !_storage._availableZenzaiBackendDevices.isEmpty {
+        try visitor.visitRepeatedMessageField(value: _storage._availableZenzaiBackendDevices, fieldNumber: 7)
+      }
+      if _storage._zenzaiModelAvailable != false {
+        try visitor.visitSingularBoolField(value: _storage._zenzaiModelAvailable, fieldNumber: 8)
+      }
+      if !_storage._zenzaiModelPath.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._zenzaiModelPath, fieldNumber: 9)
+      }
+      try { if let v = _storage._grimodexDiagnostics {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 20)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Hazkey_Config_CurrentConfig, rhs: Hazkey_Config_CurrentConfig) -> Bool {
-    if lhs.fileHashes != rhs.fileHashes {return false}
-    if lhs.profiles != rhs.profiles {return false}
-    if lhs.availableKeymaps != rhs.availableKeymaps {return false}
-    if lhs.availableTables != rhs.availableTables {return false}
-    if lhs.availableZenzaiBackendDevices != rhs.availableZenzaiBackendDevices {return false}
-    if lhs.zenzaiModelAvailable != rhs.zenzaiModelAvailable {return false}
-    if lhs.zenzaiModelPath != rhs.zenzaiModelPath {return false}
-    if lhs.xdgConfigHomePath != rhs.xdgConfigHomePath {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._fileHashes != rhs_storage._fileHashes {return false}
+        if _storage._profiles != rhs_storage._profiles {return false}
+        if _storage._availableKeymaps != rhs_storage._availableKeymaps {return false}
+        if _storage._availableTables != rhs_storage._availableTables {return false}
+        if _storage._availableZenzaiBackendDevices != rhs_storage._availableZenzaiBackendDevices {return false}
+        if _storage._zenzaiModelAvailable != rhs_storage._zenzaiModelAvailable {return false}
+        if _storage._zenzaiModelPath != rhs_storage._zenzaiModelPath {return false}
+        if _storage._xdgConfigHomePath != rhs_storage._xdgConfigHomePath {return false}
+        if _storage._grimodexDiagnostics != rhs_storage._grimodexDiagnostics {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

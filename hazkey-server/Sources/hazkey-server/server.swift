@@ -63,6 +63,14 @@ class HazkeyServer: SocketManagerDelegate {
             sessionRegistry: sessionRegistry,
             onConfigurationChanged: { config in
                 grimodexRuntime.updateScopeMode(config.grimodexScopeMode)
+            },
+            diagnosticsProvider: {
+                GrimodexDiagnosticsSnapshot(
+                    runtime: grimodexRuntime.diagnostics(),
+                    sessions: sessionRegistry.diagnostics(
+                        scopeMode: serverConfig.grimodexScopeMode
+                    )
+                )
             }
         )
         do {

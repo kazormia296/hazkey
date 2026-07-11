@@ -227,6 +227,24 @@ final class HazkeySessionRegistry {
         }
     }
 
+    func diagnostics(scopeMode: GrimodexScopeMode) -> GrimodexSessionDiagnostics {
+        pruneExpiredSessions()
+        let latest = sessions.max { left, right in
+            if left.value.lastAccess == right.value.lastAccess {
+                return left.key < right.key
+            }
+            return left.value.lastAccess < right.value.lastAccess
+        }?.value
+        let decision = latest.map {
+            GrimodexScopePolicy.evaluate(mode: scopeMode, context: $0.clientContext)
+        }
+        return GrimodexSessionDiagnostics(
+            activeSessions: sessions.count,
+            clientContext: latest?.clientContext,
+            scopeDecision: decision
+        )
+    }
+
     private func pruneExpiredSessions() {
         let cutoff = now().addingTimeInterval(-idleTimeout)
         let expired = sessions.compactMap { sessionID, session in

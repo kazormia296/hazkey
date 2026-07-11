@@ -4,13 +4,18 @@ import SwiftProtobuf
 class ProtocolHandler {
     private let sessionRegistry: HazkeySessionRegistry
     private let onConfigurationChanged: (HazkeyServerConfig) -> Void
+    private let diagnosticsProvider: () -> GrimodexDiagnosticsSnapshot
 
     init(
         sessionRegistry: HazkeySessionRegistry,
-        onConfigurationChanged: @escaping (HazkeyServerConfig) -> Void = { _ in }
+        onConfigurationChanged: @escaping (HazkeyServerConfig) -> Void = { _ in },
+        diagnosticsProvider: @escaping () -> GrimodexDiagnosticsSnapshot = {
+            .unavailable
+        }
     ) {
         self.sessionRegistry = sessionRegistry
         self.onConfigurationChanged = onConfigurationChanged
+        self.diagnosticsProvider = diagnosticsProvider
     }
 
     func processProto(data: Data, clientFd: Int32) -> Data {
@@ -52,7 +57,11 @@ class ProtocolHandler {
                 response = sessionNotFoundResponse()
             }
         case .getConfig:
-            response = sessionRegistry.serverConfig.getCurrentConfig()
+            var configResponse = sessionRegistry.serverConfig.getCurrentConfig()
+            if configResponse.status == .success {
+                configResponse.currentConfig.grimodexDiagnostics = diagnosticsProvider().protobuf
+            }
+            response = configResponse
         case .setConfig(let request):
             response = sessionRegistry.serverConfig.setCurrentConfig(
                 request.fileHashes,

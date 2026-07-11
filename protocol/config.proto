@@ -151,6 +151,30 @@ message ReloadZenzaiModel {}
 
 // Response messages
 
+message GrimodexDiagnostics {
+    enum ScopeReason {
+        SCOPE_REASON_UNSPECIFIED = 0;
+        ALLOWED_GRIMODEX = 1;
+        ALLOWED_ALL_APPLICATIONS = 2;
+        DISABLED = 3;
+        SECURE_INPUT = 4;
+        UNKNOWN_PROGRAM = 5;
+        OTHER_PROGRAM = 6;
+    }
+
+    bool watcher_active = 1;
+    bool consumer_registered = 2;
+    string snapshot_status = 3;
+    uint64 generation = 4;
+    optional string active_project_id = 5;
+    uint32 active_sessions = 6;
+    optional string program = 7;
+    optional string frontend = 8;
+    bool secure_input = 9;
+    bool integration_allowed = 10;
+    ScopeReason scope_reason = 11;
+}
+
 message CurrentConfig {
     repeated FileHash file_hashes = 1;
     repeated Profile profiles = 2;
@@ -160,4 +184,5 @@ message CurrentConfig {
     bool zenzai_model_available = 8;
     string zenzai_model_path = 9;
     string xdg_config_home_path = 6;
+    GrimodexDiagnostics grimodex_diagnostics = 20;
 }

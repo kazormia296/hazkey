@@ -8,6 +8,8 @@ final class GrimodexLinuxRuntime {
     private let scopeModeStore: GrimodexScopeModeStore
     private let lifecycleLock = NSLock()
     private var started = false
+    private var watcherActive = false
+    private var consumerRegistered = false
 
     init(
         rootURL: URL = GrimodexPathResolver.resolve(),
@@ -40,6 +42,9 @@ final class GrimodexLinuxRuntime {
         _ = snapshotManager.reload()
         do {
             try watcher.start()
+            lifecycleLock.lock()
+            watcherActive = true
+            lifecycleLock.unlock()
         } catch {
             NSLog("Failed to start Grimodex snapshot watcher: \(error)")
             do {
@@ -51,6 +56,9 @@ final class GrimodexLinuxRuntime {
         }
         do {
             try registrar.start()
+            lifecycleLock.lock()
+            consumerRegistered = true
+            lifecycleLock.unlock()
         } catch {
             NSLog("Failed to register Grimodex IME consumer: \(error)")
         }
@@ -63,6 +71,8 @@ final class GrimodexLinuxRuntime {
             return
         }
         started = false
+        watcherActive = false
+        consumerRegistered = false
         lifecycleLock.unlock()
 
         do {
@@ -96,5 +106,17 @@ final class GrimodexLinuxRuntime {
 
     func updateScopeMode(_ scopeMode: GrimodexScopeMode) {
         scopeModeStore.update(scopeMode)
+    }
+
+    func diagnostics() -> GrimodexRuntimeDiagnostics {
+        lifecycleLock.lock()
+        let watcherActive = watcherActive
+        let consumerRegistered = consumerRegistered
+        lifecycleLock.unlock()
+        return GrimodexRuntimeDiagnostics(
+            watcherActive: watcherActive,
+            consumerRegistered: consumerRegistered,
+            snapshot: snapshotManager.latest()
+        )
     }
 }
