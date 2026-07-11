@@ -45,6 +45,27 @@ private final class RecordingHazkeyCandidateLearning: HazkeyCandidateLearning {
 }
 
 final class GrimodexStateIntegrationTests: XCTestCase {
+  func testSetContextUsesFcitxUnicodeScalarPrefix() {
+    let state = HazkeyServerState()
+    state.serverConfig.zenzaiAvailable = true
+    state.serverConfig.zenzaiModelPath = URL(fileURLWithPath: "/tmp/grimodex-test-model.gguf")
+    state.serverConfig.currentProfile.zenzaiEnable = true
+    let prefix = "e\u{301}👨‍👩‍👧‍👦"
+    let context = prefix + "後"
+
+    XCTAssertEqual(
+      state.setContext(
+        surroundingText: context,
+        anchorIndex: prefix.unicodeScalars.count
+      ).status,
+      .success
+    )
+    XCTAssertEqual(
+      state.baseConvertRequestOptions.zenzaiMode,
+      state.serverConfig.genZenzaiMode(leftContext: prefix)
+    )
+  }
+
   func testStatePinsOnFirstInputAndAppliesLatestAtReset() {
     let conditionsA = GrimodexProjectConditions(
       topic: "project-a-topic",

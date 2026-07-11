@@ -204,6 +204,28 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
     XCTAssertFalse(response.errorMessage.isEmpty)
   }
 
+  func testSetContextAcceptsFcitxUnicodeScalarAnchor() throws {
+    let registry = HazkeySessionRegistry()
+    let handler = ProtocolHandler(sessionRegistry: registry)
+    let session = try openSession(handler: handler, clientFd: 10, program: "grimodex")
+    let context = "e\u{301}👨‍👩‍👧‍👦後"
+
+    let response = try process(
+      sessionRequest(session) {
+        $0.setContext = Hazkey_Commands_SetContext.with {
+          $0.context = context
+          $0.anchor = Int32(context.unicodeScalars.count - 1)
+        }
+      },
+      handler: handler,
+      clientFd: 10
+    )
+
+    XCTAssertEqual(context.count, 3)
+    XCTAssertEqual(context.unicodeScalars.count, 10)
+    XCTAssertEqual(response.status, .success)
+  }
+
   func testNegativePrefixCompleteIndexReturnsFailed() throws {
     let registry = HazkeySessionRegistry()
     let handler = ProtocolHandler(sessionRegistry: registry)

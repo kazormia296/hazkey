@@ -4,7 +4,7 @@ project(hazkey-session-client-tests LANGUAGES CXX)
 
 include(CTest)
 find_package(Protobuf REQUIRED)
-find_package(ICU REQUIRED COMPONENTS i18n)
+find_package(Fcitx5Utils REQUIRED)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -76,5 +76,5 @@ target_include_directories(
     hazkey-text-offset-test
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src"
 )
-target_link_libraries(hazkey-text-offset-test PRIVATE ICU::i18n)
+target_link_libraries(hazkey-text-offset-test PRIVATE Fcitx5::Utils)
 add_test(NAME hazkey-text-offset-test COMMAND hazkey-text-offset-test)
