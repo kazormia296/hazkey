@@ -1,4 +1,5 @@
 import Foundation
+import Glibc
 import SwiftProtobuf
 import XCTest
 
@@ -163,6 +164,116 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
     )
   }
 
+  func testNegativeSetContextAnchorReturnsFailed() throws {
+    let registry = HazkeySessionRegistry()
+    let handler = ProtocolHandler(sessionRegistry: registry)
+    let session = try openSession(handler: handler, clientFd: 10, program: "grimodex")
+
+    let response = try process(
+      sessionRequest(session) {
+        $0.setContext = Hazkey_Commands_SetContext.with {
+          $0.context = "abc"
+          $0.anchor = -1
+        }
+      },
+      handler: handler,
+      clientFd: 10
+    )
+
+    XCTAssertEqual(response.status, .failed)
+    XCTAssertFalse(response.errorMessage.isEmpty)
+  }
+
+  func testOutOfRangeSetContextAnchorReturnsFailed() throws {
+    let registry = HazkeySessionRegistry()
+    let handler = ProtocolHandler(sessionRegistry: registry)
+    let session = try openSession(handler: handler, clientFd: 10, program: "grimodex")
+
+    let response = try process(
+      sessionRequest(session) {
+        $0.setContext = Hazkey_Commands_SetContext.with {
+          $0.context = "abc"
+          $0.anchor = 4
+        }
+      },
+      handler: handler,
+      clientFd: 10
+    )
+
+    XCTAssertEqual(response.status, .failed)
+    XCTAssertFalse(response.errorMessage.isEmpty)
+  }
+
+  func testNegativePrefixCompleteIndexReturnsFailed() throws {
+    let registry = HazkeySessionRegistry()
+    let handler = ProtocolHandler(sessionRegistry: registry)
+    let session = try openSession(handler: handler, clientFd: 10, program: "grimodex")
+    registry.state(for: session, ownerFd: 10)?.currentCandidateList = []
+
+    let response = try process(
+      sessionRequest(session) {
+        $0.prefixComplete = Hazkey_Commands_PrefixComplete.with { $0.index = -1 }
+      },
+      handler: handler,
+      clientFd: 10
+    )
+
+    XCTAssertEqual(response.status, .failed)
+    XCTAssertFalse(response.errorMessage.isEmpty)
+  }
+
+  func testOutOfRangePrefixCompleteIndexReturnsFailed() throws {
+    let registry = HazkeySessionRegistry()
+    let handler = ProtocolHandler(sessionRegistry: registry)
+    let session = try openSession(handler: handler, clientFd: 10, program: "grimodex")
+    registry.state(for: session, ownerFd: 10)?.currentCandidateList = []
+
+    let response = try process(
+      sessionRequest(session) {
+        $0.prefixComplete = Hazkey_Commands_PrefixComplete.with { $0.index = 0 }
+      },
+      handler: handler,
+      clientFd: 10
+    )
+
+    XCTAssertEqual(response.status, .failed)
+    XCTAssertFalse(response.errorMessage.isEmpty)
+  }
+
+  func testEmptyProfilesAreRejectedWithoutChangingExistingConfiguration() throws {
+    try withTemporaryConfigHome { configHome in
+      let config = HazkeyServerConfig()
+      var preservedProfile = HazkeyServerConfig.genDefaultConfig()
+      preservedProfile.profileName = "preserved-profile"
+      XCTAssertEqual(
+        config.setCurrentConfig([], [preservedProfile]).status,
+        .success
+      )
+
+      let configPath = configHome
+        .appendingPathComponent(GrimodexProductPaths.packageName, isDirectory: true)
+        .appendingPathComponent("config.json", isDirectory: false)
+      let contentsBeforeRequest = try Data(contentsOf: configPath)
+      let handler = ProtocolHandler(
+        sessionRegistry: HazkeySessionRegistry(serverConfig: config)
+      )
+
+      let response = try process(
+        Hazkey_RequestEnvelope.with {
+          $0.setConfig = Hazkey_Config_SetConfig.with { $0.profiles = [] }
+        },
+        handler: handler,
+        clientFd: 20
+      )
+
+      XCTAssertEqual(response.status, .failed)
+      XCTAssertFalse(response.errorMessage.isEmpty)
+      XCTAssertEqual(try Data(contentsOf: configPath), contentsBeforeRequest)
+      XCTAssertEqual(config.profiles.map(\.profileName), ["preserved-profile"])
+      XCTAssertEqual(config.currentProfile.profileName, "preserved-profile")
+    }
+  }
+
   private func openSession(
     handler: ProtocolHandler,
     clientFd: Int32,
@@ -222,5 +333,28 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
       clientFd: clientFd
     )
     return try Hazkey_ResponseEnvelope(serializedBytes: data)
+  }
+
+  private func withTemporaryConfigHome(
+    _ body: (URL) throws -> Void
+  ) throws {
+    let fileManager = FileManager.default
+    let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(
+      "grimodex-malformed-config-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    let configHome = temporaryRoot.appendingPathComponent("config", isDirectory: true)
+    let previousConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
+    XCTAssertEqual(setenv("XDG_CONFIG_HOME", configHome.path, 1), 0)
+    defer {
+      if let previousConfigHome {
+        _ = setenv("XDG_CONFIG_HOME", previousConfigHome, 1)
+      } else {
+        _ = unsetenv("XDG_CONFIG_HOME")
+      }
+      try? fileManager.removeItem(at: temporaryRoot)
+    }
+
+    try body(configHome)
   }
 }
