@@ -5,6 +5,11 @@ protocol HazkeyCandidateLearning: AnyObject {
     func setCompletedData(_ candidate: Candidate)
     func updateLearningData(_ candidate: Candidate)
     func commitUpdateLearningData()
+    func synchronizePersistedLearningData()
+}
+
+extension HazkeyCandidateLearning {
+    func synchronizePersistedLearningData() {}
 }
 
 final class HazkeyKanaKanjiCandidateLearning: HazkeyCandidateLearning {
@@ -24,6 +29,34 @@ final class HazkeyKanaKanjiCandidateLearning: HazkeyCandidateLearning {
 
     func commitUpdateLearningData() {
         converter.commitUpdateLearningData()
+    }
+
+    func synchronizePersistedLearningData() {
+        // AzooKey does not expose a dedicated public reload API. Its commit
+        // operation is the public path that saves any local temporary memory
+        // and then invalidates this converter's persisted-memory LOUDS cache.
+        // Calling it only between compositions preserves converter-local
+        // dynamic dictionaries while making another session's commit visible.
+        converter.commitUpdateLearningData()
+    }
+}
+
+final class HazkeyLearningRevisionStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var revision: UInt64 = 0
+
+    func current() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return revision
+    }
+
+    @discardableResult
+    func recordCommit() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        revision &+= 1
+        return revision
     }
 }
 

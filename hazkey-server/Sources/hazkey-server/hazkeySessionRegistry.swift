@@ -1,4 +1,5 @@
 import Foundation
+import KanaKanjiConverterModule
 
 protocol GrimodexSnapshotProviding: Sendable {
     func latest() -> GrimodexPublishedSnapshot
@@ -80,6 +81,7 @@ enum HazkeySessionOpenError: Error, Equatable {
 final class HazkeySessionRegistry {
     typealias RevisionProviderFactory =
         (GrimodexClientContext) -> any GrimodexRevisionProviding
+    typealias ConverterFactory = () -> KanaKanjiConverter
 
     private struct Session {
         let ownerFd: Int32
@@ -90,6 +92,8 @@ final class HazkeySessionRegistry {
 
     let serverConfig: HazkeyServerConfig
     private let revisionProviderFactory: RevisionProviderFactory
+    private let converterFactory: ConverterFactory
+    private let learningRevisionStore = HazkeyLearningRevisionStore()
     private let maximumSessions: Int
     private let maximumSessionsPerOwner: Int
     private let idleTimeout: TimeInterval
@@ -107,6 +111,7 @@ final class HazkeySessionRegistry {
         revisionProviderFactory: @escaping RevisionProviderFactory = {
             _ in GrimodexDisabledRevisionProvider()
         },
+        converterFactory: ConverterFactory? = nil,
         maximumSessions: Int = 128,
         maximumSessionsPerOwner: Int = 16,
         idleTimeout: TimeInterval = 30 * 60,
@@ -115,6 +120,9 @@ final class HazkeySessionRegistry {
     ) {
         self.serverConfig = serverConfig
         self.revisionProviderFactory = revisionProviderFactory
+        self.converterFactory = converterFactory ?? {
+            KanaKanjiConverter(dictionaryURL: serverConfig.dictionaryPath)
+        }
         self.maximumSessions = max(1, maximumSessions)
         self.maximumSessionsPerOwner = max(
             1,
@@ -167,7 +175,9 @@ final class HazkeySessionRegistry {
         let sessionID = UUID().uuidString.lowercased()
         let state = HazkeyServerState(
             serverConfig: serverConfig,
-            revisionProvider: revisionProviderFactory(clientContext)
+            revisionProvider: revisionProviderFactory(clientContext),
+            converter: converterFactory(),
+            learningRevisionStore: learningRevisionStore
         )
         state.refreshGrimodexIntegration()
         sessions[sessionID] = Session(

@@ -7,6 +7,8 @@ class HazkeyServerState {
     let converter: KanaKanjiConverter
     private let grimodexRevisionProvider: any GrimodexRevisionProviding
     private let candidateLearning: any HazkeyCandidateLearning
+    private let learningRevisionStore: HazkeyLearningRevisionStore
+    private var observedLearningRevision: UInt64
     var currentCandidateList: [Candidate]?
     var composingText: ComposingTextBox = ComposingTextBox()
 
@@ -43,9 +45,12 @@ class HazkeyServerState {
         serverConfig injectedServerConfig: HazkeyServerConfig? = nil,
         revisionProvider: any GrimodexRevisionProviding = GrimodexDisabledRevisionProvider(),
         candidateLearning: (any HazkeyCandidateLearning)? = nil,
-        converter injectedConverter: KanaKanjiConverter? = nil
+        converter injectedConverter: KanaKanjiConverter? = nil,
+        learningRevisionStore: HazkeyLearningRevisionStore = HazkeyLearningRevisionStore()
     ) {
         self.grimodexRevisionProvider = revisionProvider
+        self.learningRevisionStore = learningRevisionStore
+        self.observedLearningRevision = learningRevisionStore.current()
         let serverConfig = injectedServerConfig ?? HazkeyServerConfig()
         self.serverConfig = serverConfig
 
@@ -169,6 +174,7 @@ class HazkeyServerState {
 
     func createComposingTextInstanse() -> Hazkey_ResponseEnvelope {
         grimodexIntegration.endOrReset(latest: grimodexRevisionProvider.latest())
+        synchronizeCommittedLearningIfNeeded()
         updateSurroundingContext()
         composingText = ComposingTextBox()
         currentCandidateList = nil
@@ -188,6 +194,7 @@ class HazkeyServerState {
             }
         }
         if !grimodexIntegration.isComposing {
+            synchronizeCommittedLearningIfNeeded()
             grimodexIntegration.prepareFirstInput(latest: grimodexRevisionProvider.latest())
             updateSurroundingContext()
             refreshZenzaiMode()
@@ -260,6 +267,7 @@ class HazkeyServerState {
     func saveLearningData() -> Hazkey_ResponseEnvelope {
         if learningDataNeedsCommit, grimodexIntegration.allowsLearning {
             candidateLearning.commitUpdateLearningData()
+            observedLearningRevision = learningRevisionStore.recordCommit()
             learningDataNeedsCommit = false
         } else if !grimodexIntegration.allowsLearning {
             learningDataNeedsCommit = false
@@ -560,6 +568,7 @@ class HazkeyServerState {
     func reinitializeConfiguration() {
         NSLog("Reinitializing state configuration...")
         grimodexIntegration.endOrReset(latest: grimodexRevisionProvider.latest())
+        synchronizeCommittedLearningIfNeeded()
 
         self.keymap = serverConfig.loadKeymap()
 
@@ -576,6 +585,14 @@ class HazkeyServerState {
         self.isShiftPressedAlone = false
 
         NSLog("State configuration reinitialized successfully")
+    }
+
+    private func synchronizeCommittedLearningIfNeeded() {
+        let currentRevision = learningRevisionStore.current()
+        guard currentRevision != observedLearningRevision else { return }
+        candidateLearning.synchronizePersistedLearningData()
+        learningDataNeedsCommit = false
+        observedLearningRevision = currentRevision
     }
 
 }
