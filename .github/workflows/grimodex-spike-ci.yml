@@ -23,7 +23,8 @@ jobs:
           sudo apt-get install --yes --no-install-recommends \
             build-essential cmake gettext ninja-build \
             libfcitx5config-dev libfcitx5core-dev libfcitx5utils-dev \
-            libprotobuf-dev protobuf-compiler
+            libprotobuf-dev protobuf-compiler \
+            qt6-base-dev qt6-l10n-tools qt6-tools-dev qt6-tools-dev-tools
 
       - name: Build Fcitx addon
         run: |
@@ -42,6 +43,17 @@ jobs:
 
       - name: Run session client tests
         run: ctest --test-dir fcitx5-hazkey/session-tests-ci --output-on-failure
+
+      - name: Build settings diagnostics UI
+        run: |
+          cmake -S hazkey-settings -B hazkey-settings/build-ci \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON
+          cmake --build hazkey-settings/build-ci --parallel 2
+
+      - name: Run settings tests
+        run: ctest --test-dir hazkey-settings/build-ci --output-on-failure
 
   swift-tests:
     runs-on: ubuntu-24.04
@@ -171,6 +183,8 @@ jobs:
       - name: Run Grimodex spike tests
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/hazkey-server/build-ci/bin
+          GRIMODEX_PROCESS_E2E_SERVER: ${{ github.workspace }}/hazkey-server/build-ci/swift-build/release/hazkey-server
+          FCITX5_GRIMODEX_DICTIONARY: ${{ github.workspace }}/hazkey-server/azooKey_dictionary_storage/Dictionary
         run: |
           swift test \
             --package-path hazkey-server \
