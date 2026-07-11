@@ -159,6 +159,30 @@ void neverMixesTwoSessionIds() {
     expect(transport.requests[3].session_id() == "session-b", "B must retain its id");
 }
 
+void secureContextTransitionClearsBeforeReopening() {
+    const auto normal = context(false);
+    const auto secure = context(true);
+
+    const auto enteredSecure = evaluateHazkeyClientContextTransition(normal, secure);
+    expect(enteredSecure.contextChanged, "secure transition must change context");
+    expect(enteredSecure.enteredSecure, "secure transition must be detected");
+    expect(enteredSecure.clearPreedit, "secure transition must clear client preedit");
+    expect(enteredSecure.reopenSession, "secure transition must reopen the session");
+    expect(!enteredSecure.allowSurroundingText, "secure context must hide surrounding text");
+
+    const auto stillSecure = evaluateHazkeyClientContextTransition(secure, secure);
+    expect(!stillSecure.contextChanged, "identical secure context must be stable");
+    expect(!stillSecure.reopenSession, "identical secure context must not reopen");
+    expect(!stillSecure.allowSurroundingText, "secure context must stay private");
+
+    const auto leftSecure = evaluateHazkeyClientContextTransition(secure, normal);
+    expect(leftSecure.contextChanged, "leaving secure input must change context");
+    expect(!leftSecure.enteredSecure, "leaving secure input is not an entry");
+    expect(!leftSecure.clearPreedit, "already-cleared preedit must not be committed or reused");
+    expect(leftSecure.reopenSession, "leaving secure input must reopen the session");
+    expect(leftSecure.allowSurroundingText, "normal context may send surrounding text");
+}
+
 }  // namespace
 
 int main() {
@@ -166,5 +190,6 @@ int main() {
     stopsAfterTheSingleRetry();
     preservesContextWhenReopening();
     neverMixesTwoSessionIds();
+    secureContextTransitionClearsBeforeReopening();
     return 0;
 }
