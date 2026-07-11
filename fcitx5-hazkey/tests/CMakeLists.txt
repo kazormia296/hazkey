@@ -39,3 +39,15 @@ target_include_directories(
 target_link_libraries(hazkey-session-client-test PRIVATE hazkey-session-protocol)
 
 add_test(NAME hazkey-session-client-test COMMAND hazkey-session-client-test)
+
+add_executable(
+    grimodex-product-identity-test
+    grimodex_product_identity_test.cpp
+)
+target_compile_features(grimodex-product-identity-test PRIVATE cxx_std_20)
+target_compile_options(grimodex-product-identity-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(
+    grimodex-product-identity-test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../linux-shared"
+)
+add_test(NAME grimodex-product-identity-test COMMAND grimodex-product-identity-test)
