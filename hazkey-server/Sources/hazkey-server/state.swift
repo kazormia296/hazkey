@@ -40,12 +40,13 @@ class HazkeyServerState {
     }
 
     init(
+        serverConfig injectedServerConfig: HazkeyServerConfig? = nil,
         revisionProvider: any GrimodexRevisionProviding = GrimodexDisabledRevisionProvider(),
         candidateLearning: (any HazkeyCandidateLearning)? = nil,
         converter injectedConverter: KanaKanjiConverter? = nil
     ) {
         self.grimodexRevisionProvider = revisionProvider
-        let serverConfig = HazkeyServerConfig()
+        let serverConfig = injectedServerConfig ?? HazkeyServerConfig()
         self.serverConfig = serverConfig
 
         let converter = injectedConverter
