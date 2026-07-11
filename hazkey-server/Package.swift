@@ -46,7 +46,7 @@ let package = Package(
                 "hazkey-server",
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
             ],
-            path: "Tests/hazkey-server",
+            path: "Tests/grimodex-spike",
             swiftSettings: [.interoperabilityMode(.Cxx)],
         ),
     ]
