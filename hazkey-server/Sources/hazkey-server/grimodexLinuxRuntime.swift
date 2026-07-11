@@ -42,6 +42,12 @@ final class GrimodexLinuxRuntime {
             try watcher.start()
         } catch {
             NSLog("Failed to start Grimodex snapshot watcher: \(error)")
+            do {
+                try registrar.unregister()
+            } catch {
+                NSLog("Failed to withdraw Grimodex IME consumer: \(error)")
+            }
+            return
         }
         do {
             try registrar.start()
@@ -59,7 +65,11 @@ final class GrimodexLinuxRuntime {
         started = false
         lifecycleLock.unlock()
 
-        registrar.stop()
+        do {
+            try registrar.unregister()
+        } catch {
+            NSLog("Failed to unregister Grimodex IME consumer: \(error)")
+        }
         watcher.stop()
     }
 
