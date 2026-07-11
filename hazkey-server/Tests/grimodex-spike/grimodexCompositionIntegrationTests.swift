@@ -219,6 +219,29 @@ final class GrimodexCompositionIntegrationTests: XCTestCase {
     XCTAssertEqual(controller.pinnedRevision, controller.appliedRevision)
   }
 
+  func testResetBoundaryAbortsForAStaleSecureRevision() {
+    let applier = RecordingGrimodexDictionaryApplier()
+    let controller = GrimodexCompositionIntegrationController(applier: applier)
+    let active = makeRevision(9, projectID: "project-a", surface: "切那")
+    controller.prepareFirstInput(latest: active)
+    applier.clear()
+
+    controller.endOrReset(
+      latest: GrimodexIntegrationRevision(
+        generation: 8,
+        payload: nil,
+        allowsLearning: false,
+        secureInput: true
+      )
+    )
+
+    XCTAssertEqual(applier.events, [.abortSessionComposition, .replace([])])
+    XCTAssertFalse(controller.isComposing)
+    XCTAssertFalse(controller.allowsLearning)
+    XCTAssertTrue(controller.secureInput)
+    XCTAssertEqual(controller.appliedRevision?.generation, 9)
+  }
+
   func testRepeatedSecureNotificationDoesNotAbortSecureComposition() {
     let applier = RecordingGrimodexDictionaryApplier()
     let controller = GrimodexCompositionIntegrationController(applier: applier)

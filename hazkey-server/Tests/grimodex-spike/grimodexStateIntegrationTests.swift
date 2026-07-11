@@ -158,6 +158,57 @@ final class GrimodexStateIntegrationTests: XCTestCase {
     XCTAssertEqual(learning.commitCount, 0)
   }
 
+  func testSecureInputNeverRetainsOrReusesSurroundingText() {
+    let active = makeRevision(
+      9,
+      projectID: "project-a",
+      surface: "切那"
+    )
+    let provider = MutableGrimodexRevisionProvider(active)
+    let state = HazkeyServerState(revisionProvider: provider)
+    state.serverConfig.zenzaiAvailable = true
+    state.serverConfig.zenzaiModelPath = URL(fileURLWithPath: "/tmp/grimodex-test-model.gguf")
+    state.serverConfig.currentProfile.zenzaiEnable = true
+    state.serverConfig.currentProfile.zenzaiContextualMode = true
+
+    _ = state.setContext(surroundingText: "safe-before", anchorIndex: 11)
+    XCTAssertEqual(
+      state.baseConvertRequestOptions.zenzaiMode,
+      state.serverConfig.genZenzaiMode(leftContext: "safe-before")
+    )
+
+    provider.update(
+      GrimodexIntegrationRevision(
+        generation: 8,
+        payload: nil,
+        allowsLearning: false,
+        secureInput: true
+      )
+    )
+    state.refreshGrimodexIntegration()
+    XCTAssertEqual(state.baseConvertRequestOptions.zenzaiMode, .off)
+
+    _ = state.setContext(surroundingText: "password-secret", anchorIndex: 15)
+    XCTAssertEqual(state.baseConvertRequestOptions.zenzaiMode, .off)
+
+    provider.update(makeRevision(10, projectID: "project-a", surface: "切那"))
+    state.refreshGrimodexIntegration()
+    XCTAssertEqual(
+      state.baseConvertRequestOptions.zenzaiMode,
+      state.serverConfig.genZenzaiMode(leftContext: "")
+    )
+    XCTAssertNotEqual(
+      state.baseConvertRequestOptions.zenzaiMode,
+      state.serverConfig.genZenzaiMode(leftContext: "password-secret")
+    )
+
+    _ = state.setContext(surroundingText: "safe-after", anchorIndex: 10)
+    XCTAssertEqual(
+      state.baseConvertRequestOptions.zenzaiMode,
+      state.serverConfig.genZenzaiMode(leftContext: "safe-after")
+    )
+  }
+
   func testCompletePrefixDoesNotQueueLearningWhenRevisionDisallowsIt() {
     let disabled = GrimodexIntegrationRevision(
       generation: 1,
