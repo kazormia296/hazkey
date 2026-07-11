@@ -78,7 +78,20 @@ final class GrimodexCompositionIntegrationTests: XCTestCase {
     XCTAssertEqual(controller.appliedRevision, revisionB)
   }
 
-  func testIdleProjectUpdateAppliesImmediatelyAndNextInputPinsWithoutReimport() {
+  func testResetAlwaysStopsConverterEvenWhenRevisionDidNotChange() {
+    let applier = RecordingGrimodexDictionaryApplier()
+    let controller = GrimodexCompositionIntegrationController(applier: applier)
+    let revision = makeRevision(1, projectID: "project-a", surface: "刹那")
+    controller.prepareFirstInput(latest: revision)
+    applier.clear()
+
+    controller.endOrReset(latest: revision)
+
+    XCTAssertEqual(applier.events, [.stopComposition])
+    XCTAssertFalse(controller.isComposing)
+  }
+
+  func testIdleProjectUpdateIsAppliedByNextInputWithoutWatcherMutation() {
     let applier = RecordingGrimodexDictionaryApplier()
     let controller = GrimodexCompositionIntegrationController(applier: applier)
     let revisionA = makeRevision(1, projectID: "project-a", surface: "刹那")
@@ -87,15 +100,11 @@ final class GrimodexCompositionIntegrationTests: XCTestCase {
     controller.endOrReset(latest: revisionA)
     applier.clear()
 
-    controller.observe(revisionB)
+    controller.prepareFirstInput(latest: revisionB)
     XCTAssertEqual(
       applier.events,
       [.stopComposition, .replace(revisionB.payload!.dictionaryEntries)]
     )
-    applier.clear()
-
-    controller.prepareFirstInput(latest: revisionB)
-    XCTAssertTrue(applier.events.isEmpty)
     XCTAssertEqual(controller.pinnedRevision, revisionB)
   }
 
