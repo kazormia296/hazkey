@@ -570,13 +570,22 @@ struct GrimodexSnapshotLoader: Sendable {
             return GrimodexLoadResult(payload: nil, diagnostic: .stateChangedDuringRead)
         }
 
-        let conditions = project.zenzaiContext.map { context in
-            GrimodexProjectConditions(
+        let conditions: GrimodexProjectConditions
+        if let context = project.zenzaiContext {
+            conditions = GrimodexProjectConditions(
                 topic: converterCondition(context.topic),
                 style: context.style.map(converterCondition),
                 preference: context.preference.map(converterCondition)
             )
-        } ?? .empty
+        } else if let profile = project.profile, !profile.isEmpty {
+            conditions = GrimodexProjectConditions(
+                topic: converterCondition(profile),
+                style: nil,
+                preference: nil
+            )
+        } else {
+            conditions = .empty
+        }
         return GrimodexLoadResult(
             payload: GrimodexIntegrationPayload(
                 projectID: project.projectID,
