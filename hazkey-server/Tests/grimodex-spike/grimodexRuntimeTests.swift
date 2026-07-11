@@ -105,6 +105,43 @@ private final class GrimodexRuntimeSandbox {
 }
 
 final class GrimodexRuntimeTests: XCTestCase {
+  func testLinuxRuntimePublishesSnapshotAndConsumerBeforeSessionsOpen() throws {
+    let sandbox = try GrimodexRuntimeSandbox()
+    try sandbox.replaceState()
+    try sandbox.replaceProject()
+    let runtime = GrimodexLinuxRuntime(
+      rootURL: sandbox.root,
+      version: "0.1.0"
+    )
+
+    runtime.start()
+    defer { runtime.stop() }
+
+    XCTAssertEqual(runtime.snapshotManager.latest().diagnostic, .loaded)
+    XCTAssertNotNil(runtime.snapshotManager.latest().payload)
+    let consumerURL = sandbox.root.appendingPathComponent(
+      "consumers/fcitx5-grimodex.json"
+    )
+    let consumer = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: Data(contentsOf: consumerURL)) as? [String: Any]
+    )
+    XCTAssertEqual(consumer["consumer_id"] as? String, "fcitx5-grimodex")
+    XCTAssertEqual(
+      (consumer["capabilities"] as? [String: Bool])?["application_scoping"],
+      true
+    )
+
+    let provider = runtime.revisionProvider(
+      scopeMode: .grimodexOnly,
+      clientContext: GrimodexClientContext(
+        program: "grimodex",
+        frontend: "wayland",
+        secureInput: false
+      )
+    )
+    XCTAssertNotNil(provider.latest().payload)
+  }
+
   func testManagerPreservesLastGoodPayloadDuringRetryableStateRace() throws {
     let sandbox = try GrimodexRuntimeSandbox()
     let stateA = try sandbox.fixtureData("valid/state-active.json")
