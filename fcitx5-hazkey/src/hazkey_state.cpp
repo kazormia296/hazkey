@@ -12,6 +12,7 @@
 #include "commands.pb.h"
 #include "fcitx-utils/keysym.h"
 #include "hazkey_candidate.h"
+#include "hazkey_candidate_display.h"
 #include "hazkey_engine.h"
 #include "hazkey_server_connector.h"
 
@@ -516,21 +517,24 @@ bool HazkeyState::showCandidateList(bool isSuggest) {
 }
 
 void HazkeyState::showNonPredictCandidateList() {
-    showCandidateList(false);
+    const bool candidateRequestSucceeded = showCandidateList(false);
 
     livePreeditIndex_ = -1;
 
-    // highlight all preedit text
-    // because the first candidate is the result of all preedit text.
-    auto currentPreedit = preedit_.text();
-    preedit_.setSimplePreeditHighlighted(currentPreedit);
-
     auto newCandidateList = std::dynamic_pointer_cast<HazkeyCandidateList>(
         ic_->inputPanel().candidateList());
-    newCandidateList->focus();
-    updateCandidateCursor(newCandidateList);
-    setCandidateCursorAUX(
-        std::static_pointer_cast<HazkeyCandidateList>(newCandidateList));
+    (void)dispatchNonPredictCandidateList(
+        candidateRequestSucceeded, newCandidateList,
+        [this](const std::shared_ptr<HazkeyCandidateList>& candidateList) {
+            // Highlight all preedit text because the first candidate is the
+            // result of all preedit text.
+            auto currentPreedit = preedit_.text();
+            preedit_.setSimplePreeditHighlighted(currentPreedit);
+            candidateList->focus();
+            updateCandidateCursor(candidateList);
+            setCandidateCursorAUX(candidateList);
+        },
+        [this] { discardLocalComposition(); });
 }
 
 void HazkeyState::showPreeditCandidateList() {
