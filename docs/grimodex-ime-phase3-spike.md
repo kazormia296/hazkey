@@ -1,6 +1,6 @@
 # Grimodex IME Phase 3.1 Linux dynamic-dictionary spike
 
-This branch keeps the spike disabled by default. It does not change normal Hazkey conversion until
+This branch keeps the spike disabled by default. It does not change normal Grimodex IME conversion until
 the developer opts in with an environment variable.
 
 ## Fixed vocabulary
@@ -8,7 +8,7 @@ the developer opts in with an environment variable.
 Start the server with:
 
 ```bash
-GRIMODEX_IME_DICTIONARY_SPIKE=1 hazkey-server --replace
+GRIMODEX_IME_DICTIONARY_SPIKE=1 fcitx5-grimodex-server --replace
 ```
 
 The server replaces only the AzooKey dynamic-user-dictionary layer with these entries:
@@ -27,7 +27,7 @@ Run each required scale separately so RSS and latency are attributable to one co
 
 ```bash
 for count in 100 500 2000 5000 10000; do
-  GRIMODEX_IME_DICTIONARY_BENCHMARK_COUNT="$count" hazkey-server --replace
+  GRIMODEX_IME_DICTIONARY_BENCHMARK_COUNT="$count" fcitx5-grimodex-server --replace
 done
 ```
 
