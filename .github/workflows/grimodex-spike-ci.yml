@@ -1,0 +1,50 @@
+name: Grimodex IME spike
+
+on:
+  push:
+    branches:
+      - codex/grimodex-ime-phase3-linux-spike
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  swift-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Cache Swift toolchain
+        id: cache-swift
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/swift
+          key: ubuntu-24.04-swift-6.2-release
+
+      - name: Install Swift 6.2
+        if: steps.cache-swift.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "${{ github.workspace }}/swift"
+          wget --quiet https://download.swift.org/swift-6.2-release/ubuntu2404/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu24.04.tar.gz
+          tar xf swift-6.2-RELEASE-ubuntu24.04.tar.gz \
+            --strip-components=1 \
+            -C "${{ github.workspace }}/swift"
+
+      - name: Add Swift to PATH
+        run: echo "${{ github.workspace }}/swift/usr/bin" >> "$GITHUB_PATH"
+
+      - name: Configure generated server constants
+        run: |
+          cmake -S hazkey-server -B hazkey-server/build-ci \
+            -DHAZKEY_SERVER_ENABLE_ZENZAI=OFF \
+            -DHAZKEY_SERVER_BUILD_LLAMA_LIBS=OFF \
+            -DHAZKEY_SERVER_INSTALL_LLAMA_LIBS=OFF \
+            -DHAZKEY_SERVER_ZENZAI_TRAIT=OFF \
+            -DHAZKEY_SERVER_INSTALL_DICTIONARY=OFF
+
+      - name: Run Grimodex spike tests
+        run: swift test --package-path hazkey-server --filter GrimodexDictionarySpikeTests

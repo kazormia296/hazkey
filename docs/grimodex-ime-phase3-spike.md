@@ -35,10 +35,16 @@ Accepted values are exactly `100`, `500`, `2000`, `5000`, and `10000`; every oth
 fail-closed and leaves the dynamic dictionary unchanged. The log reports:
 
 - `import_ms`: replacement time for the generated dynamic dictionary
-- `warm_p95_ms`: P95 of 50 warmed candidate requests for a present entry
-- `rss_kib`: Linux `/proc/self/status` resident memory after import
+- `warm_p95_ms`: P95 of 50 warmed, cache-reset candidate requests for `せつな`
+- `candidate_rank`: 1-based rank of `刹那`, or `missing` when it is absent
+- `rss_kib`: Linux `/proc/self/status` resident memory immediately after import
+- `rss_delta_kib`: resident-memory change from immediately before to immediately after import
 
-The Phase 3 target is warm P95 below 5 ms excluding Zenzai inference. Cost values in this spike are
+Every measured request resets converter composition state and Zenzai is forced off. The benchmark
+corpus always starts with the two fixed quality-probe entries, so benchmark mode replaces the
+dynamic dictionary without removing the vocabulary used for candidate-quality inspection.
+
+The Phase 3 target is warm P95 below 5 ms excluding Zenzai inference. Score values in this spike are
 the initial baseline from Grimodex's `ime-contract/expected/mapped-entries.json`; they are not final
 until the candidate-quality and performance results are recorded.
 

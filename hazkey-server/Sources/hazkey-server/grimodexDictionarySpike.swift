@@ -22,6 +22,8 @@ struct GrimodexDictionaryBenchmarkReport: Sendable {
     let importMilliseconds: Double
     let warmP95Milliseconds: Double
     let residentMemoryKilobytes: Int?
+    let residentMemoryDeltaKilobytes: Int?
+    let candidateRank: Int?
 }
 
 enum GrimodexDictionarySpike {
@@ -74,7 +76,9 @@ enum GrimodexDictionarySpike {
 
     static func makeBenchmarkEntries(count: Int) -> [DicdataElement] {
         guard count > 0 else { return [] }
-        return (0..<count).map { index in
+        let fixed = Array(fixedEntries.prefix(count))
+        guard count > fixed.count else { return fixed }
+        let generated = (fixed.count..<count).map { index in
             let category: GrimodexDictionaryCategory = switch index % 3 {
             case 0: .person
             case 1: .place
@@ -90,6 +94,7 @@ enum GrimodexDictionarySpike {
                 )
             )
         }
+        return fixed + generated
     }
 
     static func runBenchmarkIfConfigured(
@@ -106,25 +111,32 @@ enum GrimodexDictionarySpike {
         }
 
         let entries = makeBenchmarkEntries(count: count)
+        let residentMemoryBeforeImport = residentMemoryKilobytes()
         let importStarted = DispatchTime.now().uptimeNanoseconds
         converter.importDynamicUserDictionary(entries)
         let importFinished = DispatchTime.now().uptimeNanoseconds
+        let residentMemoryAfterImport = residentMemoryKilobytes()
 
-        var composingText = ComposingText()
-        composingText.insertAtCursorPosition("ぐりもでっくすべんち0", inputStyle: .direct)
         var benchmarkOptions = options
         benchmarkOptions.N_best = 9
+        benchmarkOptions.zenzaiMode = .off
         for _ in 0..<10 {
+            converter.stopComposition()
+            let composingText = qualityProbeText()
             _ = converter.requestCandidates(composingText, options: benchmarkOptions)
         }
 
         var samples: [Double] = []
         samples.reserveCapacity(50)
+        var candidateRank: Int?
         for _ in 0..<50 {
+            converter.stopComposition()
+            let composingText = qualityProbeText()
             let started = DispatchTime.now().uptimeNanoseconds
-            _ = converter.requestCandidates(composingText, options: benchmarkOptions)
+            let result = converter.requestCandidates(composingText, options: benchmarkOptions)
             let finished = DispatchTime.now().uptimeNanoseconds
             samples.append(milliseconds(from: started, to: finished))
+            candidateRank = result.mainResults.firstIndex { $0.text == "刹那" }.map { $0 + 1 }
         }
         samples.sort()
         let p95Index = min(samples.count - 1, (samples.count * 95) / 100)
@@ -133,8 +145,24 @@ enum GrimodexDictionarySpike {
             entryCount: count,
             importMilliseconds: milliseconds(from: importStarted, to: importFinished),
             warmP95Milliseconds: samples[p95Index],
-            residentMemoryKilobytes: residentMemoryKilobytes()
+            residentMemoryKilobytes: residentMemoryAfterImport,
+            residentMemoryDeltaKilobytes: memoryDelta(
+                before: residentMemoryBeforeImport,
+                after: residentMemoryAfterImport
+            ),
+            candidateRank: candidateRank
         )
+    }
+
+    private static func qualityProbeText() -> ComposingText {
+        var composingText = ComposingText()
+        composingText.insertAtCursorPosition("せつな", inputStyle: .direct)
+        return composingText
+    }
+
+    private static func memoryDelta(before: Int?, after: Int?) -> Int? {
+        guard let before, let after else { return nil }
+        return after - before
     }
 
     private static func cid(for category: GrimodexDictionaryCategory) -> Int {

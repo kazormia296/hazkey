@@ -68,10 +68,13 @@ class HazkeyServerState {
             options: baseConvertRequestOptions
         ) {
             let rss = report.residentMemoryKilobytes.map { String($0) } ?? "unavailable"
+            let rssDelta = report.residentMemoryDeltaKilobytes.map { String($0) } ?? "unavailable"
+            let candidateRank = report.candidateRank.map { String($0) } ?? "missing"
             NSLog(
                 "Grimodex dictionary benchmark entries=\(report.entryCount) "
                     + "import_ms=\(report.importMilliseconds) "
-                    + "warm_p95_ms=\(report.warmP95Milliseconds) rss_kib=\(rss)"
+                    + "warm_p95_ms=\(report.warmP95Milliseconds) rss_kib=\(rss) "
+                    + "rss_delta_kib=\(rssDelta) candidate_rank=\(candidateRank)"
             )
         }
     }
