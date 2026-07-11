@@ -148,6 +148,67 @@ final class GrimodexRuntimeTests: XCTestCase {
     XCTAssertNil(invalid.payload)
   }
 
+  func testManagerClearsPayloadImmediatelyWhenStateDisappears() throws {
+    let sandbox = try GrimodexRuntimeSandbox()
+    try sandbox.replaceState()
+    try sandbox.replaceProject()
+    let manager = GrimodexSnapshotManager(
+      loader: GrimodexSnapshotLoader(rootURL: sandbox.root)
+    )
+    XCTAssertEqual(manager.reload().generation, 1)
+
+    try FileManager.default.removeItem(
+      at: sandbox.root.appendingPathComponent("state.json")
+    )
+    let missing = manager.reload()
+
+    XCTAssertEqual(missing.diagnostic, .missingState)
+    XCTAssertEqual(missing.generation, 2)
+    XCTAssertNil(missing.payload)
+  }
+
+  func testManagerFailsClosedAfterOneMissingSnapshotRetry() throws {
+    let sandbox = try GrimodexRuntimeSandbox()
+    try sandbox.replaceState()
+    try sandbox.replaceProject()
+    let manager = GrimodexSnapshotManager(
+      loader: GrimodexSnapshotLoader(rootURL: sandbox.root)
+    )
+    XCTAssertEqual(manager.reload().generation, 1)
+
+    try FileManager.default.removeItem(
+      at: sandbox.root.appendingPathComponent("projects/project-a.json")
+    )
+    XCTAssertEqual(manager.reload().generation, 1)
+    let exhausted = manager.reload()
+
+    XCTAssertEqual(exhausted.diagnostic, .missingSnapshot)
+    XCTAssertEqual(exhausted.generation, 2)
+    XCTAssertNil(exhausted.payload)
+    XCTAssertEqual(manager.reload().generation, 2)
+  }
+
+  func testSuccessfulRetryResetsTheTransientFailureBudget() throws {
+    let sandbox = try GrimodexRuntimeSandbox()
+    try sandbox.replaceState()
+    try sandbox.replaceProject()
+    let manager = GrimodexSnapshotManager(
+      loader: GrimodexSnapshotLoader(rootURL: sandbox.root)
+    )
+    XCTAssertEqual(manager.reload().generation, 1)
+    let projectURL = sandbox.root.appendingPathComponent("projects/project-a.json")
+
+    try FileManager.default.removeItem(at: projectURL)
+    XCTAssertNotNil(manager.reload().payload)
+    try sandbox.replaceProject()
+    XCTAssertEqual(manager.reload().diagnostic, .loaded)
+
+    try FileManager.default.removeItem(at: projectURL)
+    let independentFailure = manager.reload()
+    XCTAssertEqual(independentFailure.generation, 1)
+    XCTAssertNotNil(independentFailure.payload)
+  }
+
   func testWatcherDebouncesAtomicSnapshotReplacements() throws {
     let sandbox = try GrimodexRuntimeSandbox()
     let probe = GrimodexReloadProbe()
