@@ -1,4 +1,5 @@
 import Foundation
+import KanaKanjiConverterModuleWithDefaultDictionary
 import XCTest
 
 @testable import hazkey_server
@@ -75,5 +76,32 @@ final class GrimodexDictionarySpikeTests: XCTestCase {
         environment: ["GRIMODEX_IME_DICTIONARY_SPIKE": "1"]
       )
     )
+  }
+
+  func testRequiredBenchmarkScalesRecordRankLatencyAndMemory() throws {
+    let converter = KanaKanjiConverter.withDefaultDictionary()
+    let options = HazkeyServerConfig().genBaseConvertRequestOptions()
+
+    for count in GrimodexDictionarySpike.benchmarkCounts {
+      let report = try XCTUnwrap(
+        GrimodexDictionarySpike.runBenchmarkIfConfigured(
+          converter: converter,
+          options: options,
+          environment: ["GRIMODEX_IME_DICTIONARY_BENCHMARK_COUNT": String(count)]
+        )
+      )
+      XCTAssertEqual(report.entryCount, count)
+      XCTAssertEqual(report.candidateRank, 1)
+      XCTAssertTrue(report.importMilliseconds.isFinite)
+      XCTAssertTrue(report.warmP95Milliseconds.isFinite)
+      print(
+        "GRIMODEX_BENCHMARK entries=\(report.entryCount) "
+          + "import_ms=\(report.importMilliseconds) "
+          + "warm_p95_ms=\(report.warmP95Milliseconds) "
+          + "rss_kib=\(report.residentMemoryKilobytes.map(String.init) ?? \"unavailable\") "
+          + "rss_delta_kib=\(report.residentMemoryDeltaKilobytes.map(String.init) ?? \"unavailable\") "
+          + "candidate_rank=\(report.candidateRank.map(String.init) ?? \"missing\")"
+      )
+    }
   }
 }
