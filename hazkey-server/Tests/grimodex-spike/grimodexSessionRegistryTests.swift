@@ -106,7 +106,7 @@ final class GrimodexSessionRegistryTests: XCTestCase {
     XCTAssertEqual(registry.count, 1)
   }
 
-  func testRegistryBoundsSessionsAndExpiresIdleOwners() {
+  func testRegistryRefusesNewOwnerWhenGlobalCapacityIsFullAndExpiresIdleOwners() {
     let clock = MutableSessionClock(Date(timeIntervalSince1970: 1_000))
     let registry = HazkeySessionRegistry(
       maximumSessions: 2,
@@ -125,19 +125,24 @@ final class GrimodexSessionRegistryTests: XCTestCase {
     clock.advance(10)
     XCTAssertNotNil(registry.state(for: sessionA, ownerFd: 10))
     clock.advance(10)
-    let sessionC = registry.open(
+    let thirdOwnerResult = registry.attemptOpen(
       clientContext: context(program: "grimodex"),
       ownerFd: 12
     )
 
     XCTAssertNotNil(registry.state(for: sessionA, ownerFd: 10))
-    XCTAssertNil(registry.state(for: sessionB, ownerFd: 11))
-    XCTAssertNotNil(registry.state(for: sessionC, ownerFd: 12))
+    XCTAssertNotNil(registry.state(for: sessionB, ownerFd: 11))
+    switch thirdOwnerResult {
+    case .success(let sessionID):
+      XCTFail("foreign owner unexpectedly opened session \(sessionID)")
+    case .failure(let error):
+      XCTAssertEqual(error, .resourceExhausted)
+    }
     XCTAssertEqual(registry.count, 2)
 
     clock.advance(61)
     XCTAssertNil(registry.state(for: sessionA, ownerFd: 10))
-    XCTAssertNil(registry.state(for: sessionC, ownerFd: 12))
+    XCTAssertNil(registry.state(for: sessionB, ownerFd: 11))
     XCTAssertEqual(registry.count, 0)
   }
 

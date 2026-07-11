@@ -56,6 +56,56 @@ private final class AsyncSocketResult: @unchecked Sendable {
 }
 
 final class GrimodexSocketManagerTests: XCTestCase {
+  func testConnectionsBeyondClientLimitAreClosedImmediately() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "grimodex-client-limit-tests-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let socketPath = root.appendingPathComponent("server.sock").path
+    let manager = SocketManager(socketPath: socketPath, maximumClients: 2)
+    let delegate = EchoSocketManagerDelegate()
+    manager.delegate = delegate
+    try manager.setupSocket()
+    let runner = SocketManagerRunner(manager: manager)
+    DispatchQueue.global().async {
+      runner.manager.startListening()
+      runner.stopped.signal()
+    }
+
+    var firstFd: Int32 = -1
+    var secondFd: Int32 = -1
+    var rejectedFd: Int32 = -1
+    defer {
+      if firstFd >= 0 { close(firstFd) }
+      if secondFd >= 0 { close(secondFd) }
+      if rejectedFd >= 0 { close(rejectedFd) }
+      manager.stop()
+      XCTAssertEqual(runner.stopped.wait(timeout: .now() + 2), .success)
+    }
+
+    firstFd = try connectClient(socketPath)
+    XCTAssertEqual(try Self.transact(firstFd, payload: Data("first".utf8)), Data("first".utf8))
+    secondFd = try connectClient(socketPath)
+    XCTAssertEqual(
+      try Self.transact(secondFd, payload: Data("second".utf8)),
+      Data("second".utf8)
+    )
+
+    rejectedFd = try connectClient(socketPath)
+    var rejectedPoll = pollfd(
+      fd: rejectedFd,
+      events: Int16(POLLIN | POLLHUP | POLLERR),
+      revents: 0
+    )
+    XCTAssertGreaterThan(poll(&rejectedPoll, 1, 1_000), 0)
+    var byte: UInt8 = 0
+    XCTAssertEqual(read(rejectedFd, &byte, 1), 0)
+    XCTAssertEqual(delegate.connected.count, 2)
+  }
+
   func testTwoClientsRemainConnectedAndCanInterleaveRequests() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(
       "grimodex-socket-manager-tests-\(UUID().uuidString)",
