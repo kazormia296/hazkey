@@ -38,6 +38,70 @@ jobs:
       - name: Add Swift to PATH
         run: echo "${{ github.workspace }}/swift/usr/bin" >> "$GITHUB_PATH"
 
+      - name: Verify SwiftProtobuf pin
+        run: |
+          jq -e '
+            .pins[] |
+            select(
+              .identity == "swift-protobuf" and
+              .state.version == "1.30.0" and
+              .state.revision == "102a647b573f60f73afdce5613a51d71349fe507"
+            )
+          ' hazkey-server/Package.resolved >/dev/null
+
+      - name: Cache protoc-gen-swift
+        id: swift-protobuf-generator
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/protobuf-tools/protoc-gen-swift
+          key: >-
+            protoc-gen-swift-v1-${{ runner.os }}-${{ runner.arch }}-swift-6.2-1.30.0-102a647b573f
+
+      - name: Build protoc-gen-swift 1.30.0
+        if: steps.swift-protobuf-generator.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet --depth 1 --branch 1.30.0 \
+            https://github.com/apple/swift-protobuf.git \
+            "$RUNNER_TEMP/swift-protobuf"
+          test "$(git -C "$RUNNER_TEMP/swift-protobuf" rev-parse HEAD)" = \
+            "102a647b573f60f73afdce5613a51d71349fe507"
+          swift build \
+            --package-path "$RUNNER_TEMP/swift-protobuf" \
+            --scratch-path "$RUNNER_TEMP/swift-protobuf-build" \
+            --configuration release \
+            --product protoc-gen-swift
+          install -Dm755 \
+            "$RUNNER_TEMP/swift-protobuf-build/release/protoc-gen-swift" \
+            "$RUNNER_TEMP/protobuf-tools/protoc-gen-swift"
+
+      - name: Install pinned protoc and generate Swift
+        run: |
+          test "$(uname -m)" = "x86_64"
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/protoc.zip" \
+            https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
+          echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $RUNNER_TEMP/protoc.zip" \
+            | sha256sum --check
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          PROTOC="$RUNNER_TEMP/protoc/bin/protoc" \
+          PROTOC_GEN_SWIFT="$RUNNER_TEMP/protobuf-tools/protoc-gen-swift" \
+            hazkey-server/scripts/generate-swift-protobuf.sh \
+            "$RUNNER_TEMP/generated-swift-protobuf"
+
+      - name: Upload generated Swift protobuf
+        uses: actions/upload-artifact@v6
+        with:
+          name: swift-protobuf-generated-${{ github.sha }}
+          path: ${{ runner.temp }}/generated-swift-protobuf/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Gate generated Swift protobuf drift
+        run: |
+          diff --recursive --unified \
+            hazkey-server/Sources/hazkey-server/Protocol \
+            "$RUNNER_TEMP/generated-swift-protobuf"
+
       - name: Fingerprint runner image
         id: runner-image
         run: echo "value=${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
