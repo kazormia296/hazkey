@@ -114,7 +114,10 @@ class HazkeyServerState {
 
     func setContext(surroundingText: String, anchorIndex: Int) -> Hazkey_ResponseEnvelope {
         let leftContext = String(surroundingText.prefix(anchorIndex))
-        grimodexIntegration.observe(grimodexRevisionProvider.latest())
+        let latestRevision = grimodexRevisionProvider.latest()
+        if latestRevision.secureInput || grimodexIntegration.secureInput {
+            grimodexIntegration.observe(latestRevision)
+        }
         updateSurroundingContext(leftContext)
         refreshZenzaiMode()
 
