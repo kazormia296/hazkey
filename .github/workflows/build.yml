@@ -6,6 +6,9 @@ on:
       - "*"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -17,32 +20,52 @@ jobs:
             arch: x86_64
             swift_url: https://download.swift.org/swift-6.2-release/ubuntu2204/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu22.04.tar.gz
             static_protobuf: false
+            release_asset: false
+            install_libdir: lib/x86_64-linux-gnu
           - runner: ubuntu-24.04
             label: ubuntu-24.04
             arch: x86_64
             swift_url: https://download.swift.org/swift-6.2-release/ubuntu2404/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu24.04.tar.gz
             static_protobuf: false
+            release_asset: false
+            install_libdir: lib/x86_64-linux-gnu
           - runner: ubuntu-24.04-arm
             label: ubuntu-24.04
             arch: aarch64
             swift_url: https://download.swift.org/swift-6.2-release/ubuntu2404-aarch64/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu24.04-aarch64.tar.gz
             static_protobuf: false
+            release_asset: false
+            install_libdir: lib/aarch64-linux-gnu
           - runner: ubuntu-22.04
             label: ubuntu-22.04-static_protobuf
             arch: x86_64
             swift_url: https://download.swift.org/swift-6.2-release/ubuntu2204/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu22.04.tar.gz
             static_protobuf: true
+            release_asset: true
+            install_libdir: lib
           - runner: ubuntu-24.04-arm
             label: ubuntu-24.04-static_protobuf
             arch: aarch64
             swift_url: https://download.swift.org/swift-6.2-release/ubuntu2404-aarch64/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu24.04-aarch64.tar.gz
             static_protobuf: true
+            release_asset: true
+            install_libdir: lib
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
         with:
           submodules: "recursive"
+
+      - name: Resolve Grimodex IME version
+        shell: bash
+        run: |
+          version="$(sed -nE 's/^project\(grimodex-ime VERSION ([0-9]+\.[0-9]+\.[0-9]+)\)$/\1/p' CMakeLists.txt)"
+          test -n "$version"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            test "$GITHUB_REF_NAME" = "v${version}"
+          fi
+          echo "GRIMODEX_IME_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Cache Swift Environment
         id: cache-swift
@@ -72,7 +95,7 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends wget gnupg2 \
             build-essential gettext fakeroot libfcitx5core-dev libfcitx5config-dev libfcitx5utils-dev \
-            ninja-build qt6-base-dev qt6-tools-dev qt6-tools-dev-tools libqt6widgets6 libqt6gui6 qt6-l10n-tools libglx-dev libgl1-mesa-dev libxkbcommon-dev
+            ninja-build qt6-base-dev qt6-tools-dev qt6-tools-dev-tools libqt6widgets6 libqt6gui6 qt6-l10n-tools libglx-dev libgl1-mesa-dev libxkbcommon-dev zstd
 
       - name: Install Dependencies (protobuf)
         if: ${{ !matrix.static_protobuf }}
@@ -127,7 +150,7 @@ jobs:
         run: |
           echo "${{ github.workspace }}/local_deps/bin" >> $GITHUB_PATH
 
-      - name: Build hazkey-settings
+      - name: Build Grimodex settings
         run: |
           mkdir -p ${{ github.workspace }}/hazkey-settings/build
           cd ${{ github.workspace }}/hazkey-settings/build
@@ -135,6 +158,7 @@ jobs:
           cmake \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_INSTALL_LIBDIR=${{ matrix.install_libdir }} \
             -DCMAKE_CXX_FLAGS=-I${{ github.workspace }}/local_deps/include \
             -DCMAKE_PREFIX_PATH=${{ github.workspace }}/local_deps \
             -DProtobuf_USE_STATIC_LIBS=${{ matrix.static_protobuf }} \
@@ -142,23 +166,28 @@ jobs:
           ninja -j$(nproc)
           env  DESTDIR=${{ github.workspace }}/workdir ninja install
 
-      - name: Build fcitx5-hazkey
+      - name: Build Grimodex Fcitx addon
         run: |
           mkdir -p ${{ github.workspace }}/fcitx5-hazkey/build
           cd ${{ github.workspace }}/fcitx5-hazkey/build
           cmake -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_INSTALL_LIBDIR=${{ matrix.install_libdir }} \
             -DCMAKE_PREFIX_PATH=${{ github.workspace }}/local_deps \
             -DProtobuf_USE_STATIC_LIBS=${{ matrix.static_protobuf }} \
             -G Ninja ..
           ninja -j$(nproc)
           env DESTDIR=${{ github.workspace }}/workdir ninja install
 
-      - name: Build hazkey-server
+      - name: Build Grimodex server
         run: |
           mkdir -p ${{ github.workspace }}/hazkey-server/build
           cd ${{ github.workspace }}/hazkey-server/build
-          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DHAZKEY_SERVER_SWIFT_LTO_MODE=full -G Ninja ..
+          cmake -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_INSTALL_LIBDIR=${{ matrix.install_libdir }} \
+            -DHAZKEY_SERVER_SWIFT_LTO_MODE=full \
+            -G Ninja ..
           ninja -j$(nproc)
           env DESTDIR=${{ github.workspace }}/workdir ninja install
 
@@ -166,13 +195,63 @@ jobs:
         run: |
           find ${{ github.workspace }}/workdir/usr/ -type f -print0 | xargs -0 file -i | grep -E "application/(x-pie-executable|x-sharedlib)" | cut -d: -f1 | xargs -I{} strip "{}"
 
-      - name: Create tar.gz archive
+      - name: Create immutable Grimodex release assets
+        if: matrix.release_asset
+        shell: bash
         run: |
           cd ${{ github.workspace }}/workdir
-          tar -czvf ${{ github.workspace }}/packages/fcitx5-hazkey-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz ./usr
+          archive="fcitx5-grimodex-${GRIMODEX_IME_VERSION}-${{ matrix.arch }}.tar.zst"
+          tar --zstd -cf "${{ github.workspace }}/packages/$archive" ./usr
+          cd ${{ github.workspace }}/packages
+          sha256sum "$archive" > "$archive.sha256"
 
-      - name: Upload Build Artifacts
+      - name: Upload Grimodex release assets
+        if: matrix.release_asset
         uses: actions/upload-artifact@v6
         with:
-          name: fcitx5-hazkey-${{ matrix.label }}-${{ matrix.arch }}
-          path: ${{ github.workspace }}/packages/*
+          name: fcitx5-grimodex-release-${{ matrix.arch }}
+          path: |
+            ${{ github.workspace }}/packages/fcitx5-grimodex-*-${{ matrix.arch }}.tar.zst
+            ${{ github.workspace }}/packages/fcitx5-grimodex-*-${{ matrix.arch }}.tar.zst.sha256
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish immutable Grimodex release assets
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download canonical architecture assets
+        uses: actions/download-artifact@v6
+        with:
+          pattern: fcitx5-grimodex-release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Validate release checksums
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cd release-assets
+          for arch in x86_64 aarch64; do
+            archive="fcitx5-grimodex-${version}-${arch}.tar.zst"
+            test -f "$archive"
+            test -f "$archive.sha256"
+            sha256sum --check "$archive.sha256"
+          done
+
+      - name: Publish release without overwriting assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "fcitx5-grimodex $GITHUB_REF_NAME" \
+              --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" release-assets/* \
+            --repo "$GITHUB_REPOSITORY"
