@@ -182,6 +182,22 @@ def validate_staged_install_and_uninstall(
             )
 
 
+class LinuxClientLifecycleContractTests(unittest.TestCase):
+    def test_session_properties_are_destroyed_before_server_connector(self) -> None:
+        header = (REPOSITORY_ROOT / "fcitx5-hazkey/src/hazkey_engine.h").read_text(
+            encoding="utf-8"
+        )
+        connector = (
+            REPOSITORY_ROOT / "fcitx5-hazkey/src/hazkey_server_connector.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertLess(
+            header.index("HazkeyServerConnector server_;"),
+            header.index("FactoryFor<HazkeyState> factory_;"),
+        )
+        self.assertIn("sessionClient_.close(session_, false)", connector)
+
+
 class PackageMetadataContractTests(unittest.TestCase):
     def test_release_gates_watch_every_staged_install_input(self) -> None:
         package_workflow = PACKAGE_WORKFLOW.read_text(encoding="utf-8")
