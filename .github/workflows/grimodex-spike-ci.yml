@@ -37,14 +37,34 @@ jobs:
       - name: Add Swift to PATH
         run: echo "${{ github.workspace }}/swift/usr/bin" >> "$GITHUB_PATH"
 
-      - name: Configure generated server constants
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential ninja-build
+
+      - name: Configure Hazkey with Zenzai support
         run: |
           cmake -S hazkey-server -B hazkey-server/build-ci \
-            -DHAZKEY_SERVER_ENABLE_ZENZAI=OFF \
-            -DHAZKEY_SERVER_BUILD_LLAMA_LIBS=OFF \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_VULKAN=OFF \
+            -DHAZKEY_SERVER_ENABLE_ZENZAI=ON \
+            -DHAZKEY_SERVER_BUILD_LLAMA_LIBS=ON \
             -DHAZKEY_SERVER_INSTALL_LLAMA_LIBS=OFF \
-            -DHAZKEY_SERVER_ZENZAI_TRAIT=OFF \
+            -DHAZKEY_SERVER_ZENZAI_TRAIT=ON \
+            -DHAZKEY_SERVER_STATIC_SWIFT_STDLIB=OFF \
             -DHAZKEY_SERVER_INSTALL_DICTIONARY=OFF
 
+      - name: Build Hazkey and llama
+        run: cmake --build hazkey-server/build-ci --target build_hazkey_server --parallel 2
+
       - name: Run Grimodex spike tests
-        run: swift test --package-path hazkey-server --filter GrimodexDictionarySpikeTests
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/hazkey-server/build-ci/bin
+        run: |
+          swift test \
+            --package-path hazkey-server \
+            --scratch-path hazkey-server/build-ci/swift-build \
+            --traits ZenzaiSupport \
+            -Xlinker -L${{ github.workspace }}/hazkey-server/build-ci/bin \
+            --filter GrimodexDictionarySpikeTests

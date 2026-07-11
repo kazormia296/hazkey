@@ -110,12 +110,14 @@ enum GrimodexDictionarySpike {
             return nil
         }
 
-        let entries = makeBenchmarkEntries(count: count)
         let residentMemoryBeforeImport = residentMemoryKilobytes()
+        var entries = makeBenchmarkEntries(count: count)
         let importStarted = DispatchTime.now().uptimeNanoseconds
         converter.importDynamicUserDictionary(entries)
         let importFinished = DispatchTime.now().uptimeNanoseconds
+        entries.removeAll(keepingCapacity: false)
         let residentMemoryAfterImport = residentMemoryKilobytes()
+        defer { converter.stopComposition() }
 
         var benchmarkOptions = options
         benchmarkOptions.N_best = 9
