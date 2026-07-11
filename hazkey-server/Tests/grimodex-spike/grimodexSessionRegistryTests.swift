@@ -58,6 +58,10 @@ final class GrimodexSessionRegistryTests: XCTestCase {
     XCTAssertTrue(stateA !== stateB)
     XCTAssertTrue(stateA.serverConfig === config)
     XCTAssertTrue(stateB.serverConfig === config)
+    XCTAssertTrue(
+      stateA.converter === stateB.converter,
+      "sessions must share learning memory while keeping composition state isolated"
+    )
 
     _ = stateA.inputChar(inputString: "a")
     _ = stateB.inputChar(inputString: "i")
@@ -135,6 +139,35 @@ final class GrimodexSessionRegistryTests: XCTestCase {
     XCTAssertNil(registry.state(for: sessionA, ownerFd: 10))
     XCTAssertNil(registry.state(for: sessionC, ownerFd: 12))
     XCTAssertEqual(registry.count, 0)
+  }
+
+  func testOneOwnerCannotEvictAnotherOwnersActiveComposition() {
+    let registry = HazkeySessionRegistry(
+      maximumSessions: 3,
+      maximumSessionsPerOwner: 2
+    )
+    let protected = registry.open(
+      clientContext: context(program: "grimodex"),
+      ownerFd: 10
+    )
+    let firstAttackerSession = registry.open(
+      clientContext: context(program: "other"),
+      ownerFd: 20
+    )
+    let secondAttackerSession = registry.open(
+      clientContext: context(program: "other"),
+      ownerFd: 20
+    )
+    let thirdAttackerSession = registry.open(
+      clientContext: context(program: "other"),
+      ownerFd: 20
+    )
+
+    XCTAssertNotNil(registry.state(for: protected, ownerFd: 10))
+    XCTAssertNil(registry.state(for: firstAttackerSession, ownerFd: 20))
+    XCTAssertNotNil(registry.state(for: secondAttackerSession, ownerFd: 20))
+    XCTAssertNotNil(registry.state(for: thirdAttackerSession, ownerFd: 20))
+    XCTAssertEqual(registry.count, 3)
   }
 
   func testClearAllLearningDataStillClearsPersistentHistoryWithoutActiveSessions() {
