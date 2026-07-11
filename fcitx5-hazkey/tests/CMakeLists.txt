@@ -51,3 +51,15 @@ target_include_directories(
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../linux-shared"
 )
 add_test(NAME grimodex-product-identity-test COMMAND grimodex-product-identity-test)
+
+add_executable(
+    hazkey-candidate-display-test
+    hazkey_candidate_display_test.cpp
+)
+target_compile_features(hazkey-candidate-display-test PRIVATE cxx_std_20)
+target_compile_options(hazkey-candidate-display-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(
+    hazkey-candidate-display-test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src"
+)
+add_test(NAME hazkey-candidate-display-test COMMAND hazkey-candidate-display-test)
