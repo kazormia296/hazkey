@@ -262,6 +262,7 @@ class LinuxClientLifecycleContractTests(unittest.TestCase):
 
 class PackageMetadataContractTests(unittest.TestCase):
     def test_release_gates_watch_every_staged_install_input(self) -> None:
+        release_workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
         package_workflow = PACKAGE_WORKFLOW.read_text(encoding="utf-8")
         integration_workflow = INTEGRATION_WORKFLOW.read_text(encoding="utf-8")
 
@@ -279,6 +280,7 @@ class PackageMetadataContractTests(unittest.TestCase):
                 self.assertIn(f'- "{path_filter}"', package_workflow)
 
         self.assertIn("pull_request:", integration_workflow)
+        self.assertIn("pull_request:", release_workflow)
 
     def test_integration_ci_validates_reused_real_cmake_installs(self) -> None:
         workflow = INTEGRATION_WORKFLOW.read_text(encoding="utf-8")
