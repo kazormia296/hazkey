@@ -4,6 +4,7 @@ import SwiftUtils
 
 enum GrimodexProtocolLimits {
     static let stateBytes = 65_536
+    static let consumerBytes = 65_536
     static let projectBytes = 16_777_216
     static let projectEntries = 20_000
     static let projectIDScalars = 128
@@ -93,9 +94,20 @@ struct GrimodexIntegrationPayload: Equatable, Sendable {
 enum GrimodexLoadDiagnostic: String, Equatable, Sendable {
     case loaded
     case inactive
+    case missingState
+    case missingSnapshot
     case invalidState
     case invalidSnapshot
     case stateChangedDuringRead
+
+    var isRetryable: Bool {
+        switch self {
+        case .missingSnapshot, .stateChangedDuringRead:
+            true
+        case .loaded, .inactive, .missingState, .invalidState, .invalidSnapshot:
+            false
+        }
+    }
 }
 
 struct GrimodexLoadResult: Equatable, Sendable {
@@ -508,7 +520,7 @@ struct GrimodexSnapshotLoader: Sendable {
                 stateURL,
                 maxBytes: GrimodexProtocolLimits.stateBytes
             ) else {
-                return GrimodexLoadResult(payload: nil, diagnostic: .inactive)
+                return GrimodexLoadResult(payload: nil, diagnostic: .missingState)
             }
             firstState = try JSONDecoder().decode(GrimodexWireState.self, from: data)
             guard GrimodexProtocolValidator.validate(firstState) else {
@@ -530,7 +542,7 @@ struct GrimodexSnapshotLoader: Sendable {
                 projectURL,
                 maxBytes: GrimodexProtocolLimits.projectBytes
             ) else {
-                return GrimodexLoadResult(payload: nil, diagnostic: .invalidSnapshot)
+                return GrimodexLoadResult(payload: nil, diagnostic: .missingSnapshot)
             }
             project = try JSONDecoder().decode(GrimodexWireProject.self, from: data)
             guard GrimodexProtocolValidator.validate(project, expectedProjectID: projectID) else {
@@ -583,7 +595,9 @@ struct GrimodexSnapshotLoader: Sendable {
 
 final class GrimodexSnapshotManager: @unchecked Sendable {
     private let loader: GrimodexSnapshotLoader
+    private let reloadLock = NSLock()
     private let lock = NSLock()
+    private var consecutiveRetryableFailures = 0
     private var published = GrimodexPublishedSnapshot(
         generation: 0,
         payload: nil,
@@ -595,9 +609,24 @@ final class GrimodexSnapshotManager: @unchecked Sendable {
     }
 
     func reload() -> GrimodexPublishedSnapshot {
+        reloadLock.lock()
+        defer { reloadLock.unlock() }
         let result = loader.load()
         lock.lock()
         defer { lock.unlock() }
+        if result.diagnostic.isRetryable {
+            consecutiveRetryableFailures += 1
+            if consecutiveRetryableFailures == 1 {
+                published = GrimodexPublishedSnapshot(
+                    generation: published.generation,
+                    payload: published.payload,
+                    diagnostic: result.diagnostic
+                )
+                return published
+            }
+        } else {
+            consecutiveRetryableFailures = 0
+        }
         let generation = published.payload == result.payload
             ? published.generation
             : published.generation &+ 1
