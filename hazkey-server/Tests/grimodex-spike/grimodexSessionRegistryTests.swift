@@ -58,9 +58,9 @@ final class GrimodexSessionRegistryTests: XCTestCase {
     XCTAssertTrue(stateA !== stateB)
     XCTAssertTrue(stateA.serverConfig === config)
     XCTAssertTrue(stateB.serverConfig === config)
-    XCTAssertTrue(
+    XCTAssertFalse(
       stateA.converter === stateB.converter,
-      "sessions must share learning memory while keeping composition state isolated"
+      "converter-local dynamic dictionaries must remain isolated per composition session"
     )
 
     _ = stateA.inputChar(inputString: "a")
