@@ -1578,6 +1578,59 @@
             <number>10</number>
            </property>
            <item>
+            <layout class="QHBoxLayout" name="grimodexIntegrationHeader">
+             <property name="topMargin">
+              <number>10</number>
+             </property>
+             <property name="bottomMargin">
+              <number>10</number>
+             </property>
+             <item>
+              <widget class="QLabel" name="grimodexIntegrationHeaderLabel">
+               <property name="text">
+                <string>Grimodex Integration</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="Line" name="grimodexIntegrationHeaderLine">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <layout class="QGridLayout" name="grimodexIntegrationGrid">
+             <property name="leftMargin">
+              <number>20</number>
+             </property>
+             <property name="rightMargin">
+              <number>20</number>
+             </property>
+             <property name="bottomMargin">
+              <number>20</number>
+             </property>
+             <item row="0" column="0">
+              <widget class="QLabel" name="grimodexScopeLabel">
+               <property name="text">
+                <string>Application scope</string>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QComboBox" name="grimodexScope"/>
+             </item>
+            </layout>
+           </item>
+           <item>
             <layout class="QHBoxLayout" name="zenzaiHeader">
              <property name="topMargin">
               <number>10</number>

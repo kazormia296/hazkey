@@ -40,6 +40,8 @@ class AiTabController : public QObject {
     QString calculateFileSHA256(const QString& filePath);
     void refreshWarnings();
     void populateDeviceList();
+    void populateGrimodexScopeList();
+    void updateGrimodexScopeFromProfile();
     void updateSelectionFromProfile();
 
     Ui::MainWindow* ui_;

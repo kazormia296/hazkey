@@ -42,6 +42,13 @@ void AiTabController::setContext(const TabContext& context) {
 }
 
 void AiTabController::connectSignals() {
+    connect(ui_->grimodexScope, &QComboBox::currentIndexChanged, this,
+            [this](int) {
+                if (isLoading_.load()) {
+                    return;
+                }
+                saveToConfig();
+            });
     connect(ui_->zenzaiBackendDevice, &QComboBox::currentIndexChanged, this,
             [this](int) {
                 if (isLoading_.load()) {
@@ -56,8 +63,11 @@ void AiTabController::loadFromConfig() {
 
     isLoading_.store(true);
     const QSignalBlocker deviceBlocker(ui_->zenzaiBackendDevice);
+    const QSignalBlocker scopeBlocker(ui_->grimodexScope);
 
     refreshWarnings();
+    populateGrimodexScopeList();
+    updateGrimodexScopeFromProfile();
     populateDeviceList();
     updateSelectionFromProfile();
 
@@ -87,6 +97,10 @@ void AiTabController::saveToConfig() {
         GET_CHECKBOX_BOOL(ui_->zenzaiContextualConversion));
     context_.currentProfile->set_zenzai_profile(
         GET_LINEEDIT_STRING(ui_->zenzaiUserPlofile));
+
+    context_.currentProfile->set_grimodex_scope_mode(
+        static_cast<::hazkey::config::Profile_GrimodexScopeMode>(
+            ui_->grimodexScope->currentData().toInt()));
 
     const QString selectedDevice =
         ui_->zenzaiBackendDevice->currentData().toString();
@@ -361,6 +375,25 @@ void AiTabController::populateDeviceList() {
         }
         ui_->zenzaiBackendDevice->addItem(displayText, deviceName);
     }
+}
+
+void AiTabController::populateGrimodexScopeList() {
+    ui_->grimodexScope->clear();
+    ui_->grimodexScope->addItem(
+        tr("Grimodex only (recommended)"),
+        ::hazkey::config::Profile_GrimodexScopeMode_GRIMODEX_ONLY);
+    ui_->grimodexScope->addItem(
+        tr("Off"), ::hazkey::config::Profile_GrimodexScopeMode_GRIMODEX_OFF);
+    ui_->grimodexScope->addItem(
+        tr("All applications"),
+        ::hazkey::config::
+            Profile_GrimodexScopeMode_GRIMODEX_ALL_APPLICATIONS);
+}
+
+void AiTabController::updateGrimodexScopeFromProfile() {
+    const int index = ui_->grimodexScope->findData(
+        context_.currentProfile->grimodex_scope_mode());
+    ui_->grimodexScope->setCurrentIndex(index >= 0 ? index : 0);
 }
 
 void AiTabController::updateSelectionFromProfile() {
