@@ -105,10 +105,9 @@ class HazkeyServerConfig {
         do {
             profiles = try Self.loadConfig()
         } catch {
-            return Hazkey_ResponseEnvelope.with {
-                $0.status = .failed
-                $0.errorMessage = "\(error)"
-            }
+            NSLog("Failed to reload config: \(error)")
+            NSLog("Returning active in-memory config...")
+            profiles = self.profiles
         }
 
         let userKeymapDir = Self.getConfigDirectory().appendingPathComponent(
