@@ -183,6 +183,33 @@ void secureContextTransitionClearsBeforeReopening() {
     expect(leftSecure.allowSurroundingText, "normal context may send surrounding text");
 }
 
+void replacesSessionWhenClientContextChanges() {
+    FakeTransport transport;
+    transport.responses = {
+        openSuccess("session-1"),
+        status(hazkey::SUCCESS),
+        openSuccess("session-2"),
+    };
+    HazkeySessionClient client(
+        [&transport](const auto& request, bool tryConnect) {
+            return transport.transact(request, tryConnect);
+        });
+    HazkeyClientSession session(context(false));
+    expect(client.open(session), "initial session must open");
+
+    expect(client.updateContext(session, context(true)),
+           "context update must reopen the session");
+
+    expect(transport.requests.size() == 3, "context update is close plus open");
+    expect(transport.requests[1].has_close_session(), "old session must close");
+    expect(transport.requests[1].close_session().session_id() == "session-1",
+           "close must target the old id");
+    expect(transport.requests[2].open_session().client().secure_input(),
+           "new open must carry secure context");
+    expect(session.id() == "session-2", "session must expose the replacement id");
+    expect(session.context().secureInput, "session must retain replacement context");
+}
+
 }  // namespace
 
 int main() {
@@ -191,5 +218,6 @@ int main() {
     preservesContextWhenReopening();
     neverMixesTwoSessionIds();
     secureContextTransitionClearsBeforeReopening();
+    replacesSessionWhenClientContextChanges();
     return 0;
 }
