@@ -53,7 +53,7 @@ HazkeyServerSession::HazkeyServerSession(HazkeyServerConnector& connector,
 }
 
 HazkeyServerSession::~HazkeyServerSession() {
-    (void)connector_.sessionClient_.close(session_);
+    (void)connector_.sessionClient_.close(session_, false);
 }
 
 bool HazkeyServerSession::updateClientContext(HazkeyClientContext context) {

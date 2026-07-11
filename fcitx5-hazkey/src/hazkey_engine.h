@@ -46,8 +46,8 @@ class HazkeyEngine : public InputMethodEngineV2 {
    private:
     HazkeyEngineConfig config_;
     Instance *instance_;
-    FactoryFor<HazkeyState> factory_;
     HazkeyServerConnector server_;
+    FactoryFor<HazkeyState> factory_;
     std::unique_ptr<HandlerTableEntry<EventHandler>> capabilityWatcher_;
     iconv_t conv_;
 };
