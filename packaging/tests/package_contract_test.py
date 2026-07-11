@@ -61,12 +61,12 @@ REQUIRED_PACKAGED_PATHS = (
     "/usr/share/icons/hicolor/scalable/apps/fcitx5-grimodex.svg",
     "/usr/share/licenses/fcitx5-grimodex/LICENSE",
     "/usr/share/licenses/fcitx5-grimodex/NOTICE.md",
-    "/usr/share/licenses/fcitx5-grimodex/third-party/azookey-dictionary/*",
-    "/usr/share/licenses/fcitx5-grimodex/third-party/azookey-emoji/*",
-    "/usr/share/licenses/fcitx5-grimodex/third-party/llama.cpp/*",
-    "/usr/share/licenses/fcitx5-grimodex/third-party/protobuf/*",
-    "/usr/share/licenses/fcitx5-grimodex/third-party/swift-packages/*",
-    "/usr/share/licenses/fcitx5-grimodex/third-party/swift-runtime/*",
+    "/usr/share/licenses/fcitx5-grimodex/third-party/azookey-dictionary/**",
+    "/usr/share/licenses/fcitx5-grimodex/third-party/azookey-emoji/**",
+    "/usr/share/licenses/fcitx5-grimodex/third-party/llama.cpp/**",
+    "/usr/share/licenses/fcitx5-grimodex/third-party/protobuf/**",
+    "/usr/share/licenses/fcitx5-grimodex/third-party/swift-packages/**",
+    "/usr/share/licenses/fcitx5-grimodex/third-party/swift-runtime/**",
     "/usr/share/metainfo/com.miyakey.grimodex.ime.fcitx5.metainfo.xml",
 )
 
@@ -126,6 +126,34 @@ def expand_manifest_pattern(pattern: str) -> list[str]:
     return [pattern.replace(marker, ""), pattern.replace(marker, "*/")]
 
 
+def manifest_path_matches(path: str, pattern: str) -> bool:
+    """Match package paths without allowing * to cross path separators."""
+    path_parts = path.removeprefix("/").split("/")
+    pattern_parts = pattern.removeprefix("/").split("/")
+
+    def match(path_index: int, pattern_index: int) -> bool:
+        if pattern_index == len(pattern_parts):
+            return path_index == len(path_parts)
+
+        pattern_part = pattern_parts[pattern_index]
+        if pattern_part == "**":
+            return match(path_index, pattern_index + 1) or (
+                path_index < len(path_parts)
+                and match(path_index + 1, pattern_index)
+            )
+        if "**" in pattern_part:
+            raise AssertionError(
+                f"recursive wildcard must occupy a complete path segment: {pattern}"
+            )
+        return (
+            path_index < len(path_parts)
+            and fnmatch.fnmatchcase(path_parts[path_index], pattern_part)
+            and match(path_index + 1, pattern_index + 1)
+        )
+
+    return match(0, 0)
+
+
 def staged_public_paths(root: Path) -> list[str]:
     return sorted(
         "/" + path.relative_to(root).as_posix()
@@ -156,13 +184,13 @@ def validate_staged_root(root: Path, entries: list[tuple[str, str]]) -> None:
     for path in paths:
         if "hazkey" in path.lower():
             raise AssertionError(f"Hazkey public path leaked into Grimodex package: {path}")
-        if not any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns):
+        if not any(manifest_path_matches(path, pattern) for pattern in patterns):
             raise AssertionError(f"unowned staged package path: {path}")
 
     for kind, pattern in entries:
         expanded_patterns = expand_manifest_pattern(pattern)
         if kind == "required" and not any(
-            fnmatch.fnmatchcase(path, expanded)
+            manifest_path_matches(path, expanded)
             for path in paths
             for expanded in expanded_patterns
         ):
@@ -189,14 +217,14 @@ def validate_staged_install_and_uninstall(
     ]
     for path in paths:
         if not any(
-            fnmatch.fnmatchcase(path, pattern) for pattern in uninstall_patterns
+            manifest_path_matches(path, pattern) for pattern in uninstall_patterns
         ):
             raise AssertionError(f"uninstall manifest does not own staged path: {path}")
 
     for kind, pattern in uninstall_entries:
         expanded_patterns = expand_manifest_pattern(pattern)
         if kind == "required" and not any(
-            fnmatch.fnmatchcase(path, expanded)
+            manifest_path_matches(path, expanded)
             for path in paths
             for expanded in expanded_patterns
         ):
@@ -500,11 +528,27 @@ class ProductArtifactContractTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as temporary_directory:
                     root = Path(temporary_directory)
                     for pattern in REQUIRED_PACKAGED_PATHS:
-                        path = pattern.replace("{,*/}", multiarch).replace("*", "fixture")
+                        path = (
+                            pattern.replace("{,*/}", multiarch)
+                            .replace("**", "fixture")
+                            .replace("*", "fixture")
+                        )
                         destination = root / path.removeprefix("/")
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         destination.write_bytes(b"local Grimodex product")
                     validate_staged_root(root, entries)
+
+    def test_staged_validator_accepts_explicit_recursive_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            dictionary = root / "usr/share/fcitx5-grimodex/Dictionary/p/pc_1.csv"
+            dictionary.parent.mkdir(parents=True)
+            dictionary.write_bytes(b"local product")
+
+            validate_staged_root(
+                root,
+                [("required", "/usr/share/fcitx5-grimodex/**")],
+            )
 
     def test_staged_validator_rejects_hazkey_public_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
