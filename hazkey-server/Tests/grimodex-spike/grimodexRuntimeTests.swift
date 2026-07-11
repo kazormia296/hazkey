@@ -150,22 +150,23 @@ final class GrimodexRuntimeTests: XCTestCase {
       watcherRetryInterval: 0.02,
       watcherMaxRearmAttempts: 2,
       watcherBeforeReconcile: { try watcherGate.check() },
-      consumerHeartbeatInterval: 0.03
+      consumerHeartbeatInterval: 0.1
     )
-    let consumersURL = sandbox.root.appendingPathComponent("consumers", isDirectory: true)
+    let consumerURL = sandbox.root.appendingPathComponent(
+      "consumers/fcitx5-grimodex.json"
+    )
 
     runtime.start()
     XCTAssertTrue(runtime.diagnostics().watcherActive)
     XCTAssertTrue(runtime.diagnostics().consumerRegistered)
 
-    try FileManager.default.removeItem(at: consumersURL)
-    try Data("blocks consumer directory".utf8).write(to: consumersURL)
+    try FileManager.default.removeItem(at: consumerURL)
+    try FileManager.default.createDirectory(at: consumerURL, withIntermediateDirectories: false)
     XCTAssertTrue(eventually {
       !runtime.diagnostics().consumerRegistered
     }, "a failed heartbeat must immediately make registration diagnostics unhealthy")
 
-    try FileManager.default.removeItem(at: consumersURL)
-    try FileManager.default.createDirectory(at: consumersURL, withIntermediateDirectories: false)
+    try FileManager.default.removeItem(at: consumerURL)
     XCTAssertTrue(eventually {
       runtime.diagnostics().consumerRegistered
     }, "a later successful heartbeat must restore registration diagnostics")
