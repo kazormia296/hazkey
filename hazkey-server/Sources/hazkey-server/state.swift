@@ -173,8 +173,11 @@ class HazkeyServerState {
     /// ComposingText
 
     func createComposingTextInstanse() -> Hazkey_ResponseEnvelope {
+        let pendingLearningAllowed = grimodexIntegration.allowsLearning
         grimodexIntegration.endOrReset(latest: grimodexRevisionProvider.latest())
-        synchronizeCommittedLearningIfNeeded()
+        synchronizeCommittedLearningIfNeeded(
+            pendingLearningAllowed: pendingLearningAllowed
+        )
         updateSurroundingContext()
         composingText = ComposingTextBox()
         currentCandidateList = nil
@@ -194,7 +197,9 @@ class HazkeyServerState {
             }
         }
         if !grimodexIntegration.isComposing {
-            synchronizeCommittedLearningIfNeeded()
+            synchronizeCommittedLearningIfNeeded(
+                pendingLearningAllowed: grimodexIntegration.allowsLearning
+            )
             grimodexIntegration.prepareFirstInput(latest: grimodexRevisionProvider.latest())
             updateSurroundingContext()
             refreshZenzaiMode()
@@ -265,13 +270,7 @@ class HazkeyServerState {
     }
 
     func saveLearningData() -> Hazkey_ResponseEnvelope {
-        if learningDataNeedsCommit, grimodexIntegration.allowsLearning {
-            candidateLearning.commitUpdateLearningData()
-            observedLearningRevision = learningRevisionStore.recordCommit()
-            learningDataNeedsCommit = false
-        } else if !grimodexIntegration.allowsLearning {
-            learningDataNeedsCommit = false
-        }
+        commitPendingLearningIfAllowed(grimodexIntegration.allowsLearning)
         return Hazkey_ResponseEnvelope.with {
             $0.status = .success
         }
@@ -567,8 +566,11 @@ class HazkeyServerState {
 
     func reinitializeConfiguration() {
         NSLog("Reinitializing state configuration...")
+        let pendingLearningAllowed = grimodexIntegration.allowsLearning
         grimodexIntegration.endOrReset(latest: grimodexRevisionProvider.latest())
-        synchronizeCommittedLearningIfNeeded()
+        synchronizeCommittedLearningIfNeeded(
+            pendingLearningAllowed: pendingLearningAllowed
+        )
 
         self.keymap = serverConfig.loadKeymap()
 
@@ -587,12 +589,27 @@ class HazkeyServerState {
         NSLog("State configuration reinitialized successfully")
     }
 
-    private func synchronizeCommittedLearningIfNeeded() {
+    private func synchronizeCommittedLearningIfNeeded(
+        pendingLearningAllowed: Bool
+    ) {
+        // Learning queued by the composition that just ended belongs to that
+        // composition's pinned policy. Publish it before applying a newer
+        // persisted-cache revision from another session.
+        commitPendingLearningIfAllowed(pendingLearningAllowed)
+
         let currentRevision = learningRevisionStore.current()
         guard currentRevision != observedLearningRevision else { return }
         candidateLearning.synchronizePersistedLearningData()
-        learningDataNeedsCommit = false
         observedLearningRevision = currentRevision
+    }
+
+    private func commitPendingLearningIfAllowed(_ allowsLearning: Bool) {
+        guard learningDataNeedsCommit else { return }
+        defer { learningDataNeedsCommit = false }
+        guard allowsLearning else { return }
+
+        candidateLearning.commitUpdateLearningData()
+        observedLearningRevision = learningRevisionStore.recordCommit()
     }
 
 }
