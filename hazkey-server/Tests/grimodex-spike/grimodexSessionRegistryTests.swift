@@ -1,4 +1,6 @@
 import Foundation
+import KanaKanjiConverterModule
+import KanaKanjiConverterModuleWithDefaultDictionary
 import XCTest
 
 @testable import hazkey_server
@@ -41,6 +43,83 @@ private final class LearningClearProbe: @unchecked Sendable {
 }
 
 final class GrimodexSessionRegistryTests: XCTestCase {
+  func testCommittedLearningIsVisibleToAnotherLongLivedSessionAtNextComposition() throws {
+    let memoryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "GrimodexSharedLearning-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: memoryDirectory,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: memoryDirectory) }
+
+    let registry = HazkeySessionRegistry(
+      converterFactory: { .withDefaultDictionary() }
+    )
+    let sessionA = registry.open(
+      clientContext: context(program: "grimodex"),
+      ownerFd: 10
+    )
+    let sessionB = registry.open(
+      clientContext: context(program: "grimodex"),
+      ownerFd: 11
+    )
+    let stateA = try XCTUnwrap(registry.state(for: sessionA, ownerFd: 10))
+    let stateB = try XCTUnwrap(registry.state(for: sessionB, ownerFd: 11))
+    XCTAssertFalse(stateA.converter === stateB.converter)
+
+    for state in [stateA, stateB] {
+      state.baseConvertRequestOptions.learningType = .inputAndOutput
+      state.baseConvertRequestOptions.memoryDirectoryURL = memoryDirectory
+    }
+
+    var input = ComposingText()
+    input.insertAtCursorPosition("せいかん", inputStyle: .direct)
+    func candidates(_ state: HazkeyServerState) -> [Candidate] {
+      state.converter.stopComposition()
+      return state.converter.requestCandidates(
+        input,
+        options: state.baseConvertRequestOptions
+      ).mainResults
+    }
+
+    let surface = "星環"
+    XCTAssertFalse(candidates(stateB).contains { $0.text == surface })
+    _ = candidates(stateA)
+
+    let learnedElement = DicdataElement(
+      word: surface,
+      ruby: "セイカン",
+      cid: 1288,
+      mid: 501,
+      value: -10
+    )
+    stateA.currentCandidateList = [
+      Candidate(
+        text: surface,
+        value: learnedElement.value(),
+        composingCount: .inputCount(input.input.count),
+        lastMid: learnedElement.mid,
+        data: [learnedElement]
+      )
+    ]
+    XCTAssertEqual(stateA.completePrefix(candidateIndex: 0).status, .success)
+    XCTAssertEqual(stateA.saveLearningData().status, .success)
+
+    XCTAssertFalse(
+      candidates(stateB).contains { $0.text == surface },
+      "an in-flight composition must keep its pinned learning cache"
+    )
+    XCTAssertEqual(stateB.createComposingTextInstanse().status, .success)
+    XCTAssertTrue(
+      candidates(stateB).contains {
+        $0.text == surface && $0.data.contains { $0.metadata.contains(.isLearned) }
+      },
+      "the next composition must reload learning committed by another session"
+    )
+  }
+
   func testEachSessionOwnsIndependentCompositionState() {
     let config = HazkeyServerConfig()
     let registry = HazkeySessionRegistry(serverConfig: config)
