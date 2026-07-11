@@ -8,25 +8,33 @@ final class GrimodexLinuxRuntime {
     private let scopeModeStore: GrimodexScopeModeStore
     private let lifecycleLock = NSLock()
     private var started = false
-    private var watcherActive = false
-    private var consumerRegistered = false
 
     init(
         rootURL: URL = GrimodexPathResolver.resolve(),
         version: String,
-        initialScopeMode: GrimodexScopeMode = .defaultValue
+        initialScopeMode: GrimodexScopeMode = .defaultValue,
+        watcherRetryInterval: TimeInterval = 0.1,
+        watcherMaxRearmAttempts: Int = 5,
+        watcherBeforeReconcile: @escaping @Sendable () throws -> Void = {},
+        consumerHeartbeatInterval: TimeInterval = GrimodexConsumerRegistrar.heartbeatInterval
     ) {
         let manager = GrimodexSnapshotManager(
             loader: GrimodexSnapshotLoader(rootURL: rootURL)
         )
         snapshotManager = manager
         scopeModeStore = GrimodexScopeModeStore(initialScopeMode)
-        watcher = GrimodexSnapshotWatcher(rootURL: rootURL) {
+        watcher = GrimodexSnapshotWatcher(
+            rootURL: rootURL,
+            retryInterval: watcherRetryInterval,
+            maxRearmAttempts: watcherMaxRearmAttempts,
+            beforeReconcile: watcherBeforeReconcile
+        ) {
             manager.reload().diagnostic.isRetryable
         }
         registrar = GrimodexConsumerRegistrar(
             rootURL: rootURL,
-            version: version
+            version: version,
+            heartbeatInterval: consumerHeartbeatInterval
         )
     }
 
@@ -42,9 +50,6 @@ final class GrimodexLinuxRuntime {
         _ = snapshotManager.reload()
         do {
             try watcher.start()
-            lifecycleLock.lock()
-            watcherActive = true
-            lifecycleLock.unlock()
         } catch {
             NSLog("Failed to start Grimodex snapshot watcher: \(error)")
             do {
@@ -56,9 +61,6 @@ final class GrimodexLinuxRuntime {
         }
         do {
             try registrar.start()
-            lifecycleLock.lock()
-            consumerRegistered = true
-            lifecycleLock.unlock()
         } catch {
             NSLog("Failed to register Grimodex IME consumer: \(error)")
         }
@@ -71,8 +73,6 @@ final class GrimodexLinuxRuntime {
             return
         }
         started = false
-        watcherActive = false
-        consumerRegistered = false
         lifecycleLock.unlock()
 
         do {
@@ -109,13 +109,9 @@ final class GrimodexLinuxRuntime {
     }
 
     func diagnostics() -> GrimodexRuntimeDiagnostics {
-        lifecycleLock.lock()
-        let watcherActive = watcherActive
-        let consumerRegistered = consumerRegistered
-        lifecycleLock.unlock()
         return GrimodexRuntimeDiagnostics(
-            watcherActive: watcherActive,
-            consumerRegistered: consumerRegistered,
+            watcherActive: watcher.isActive,
+            consumerRegistered: registrar.isRegistered,
             snapshot: snapshotManager.latest()
         )
     }

@@ -154,21 +154,31 @@ final class GrimodexConsumerRegistrar: @unchecked Sendable {
     private let rootURL: URL
     private let version: String
     private let now: @Sendable () -> Date
+    private let heartbeatInterval: TimeInterval
     private let writer = GrimodexConsumerAtomicWriter()
     private let registrationLock = NSLock()
     private let heartbeatQueue = DispatchQueue(
         label: "com.miyakey.grimodex.ime.consumer-heartbeat"
     )
     private var heartbeatTimer: DispatchSourceTimer?
+    private var registered = false
+
+    var isRegistered: Bool {
+        registrationLock.lock()
+        defer { registrationLock.unlock() }
+        return registered
+    }
 
     init(
         rootURL: URL = GrimodexPathResolver.resolve(),
         version: String,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        heartbeatInterval: TimeInterval = GrimodexConsumerRegistrar.heartbeatInterval
     ) {
         self.rootURL = rootURL.standardizedFileURL
         self.version = version
         self.now = now
+        self.heartbeatInterval = max(0.01, heartbeatInterval)
     }
 
     @discardableResult
@@ -176,29 +186,35 @@ final class GrimodexConsumerRegistrar: @unchecked Sendable {
         registrationLock.lock()
         defer { registrationLock.unlock() }
 
-        guard validVersion(version) else {
-            throw GrimodexConsumerRegistrarError.invalidVersion
-        }
-        try ensurePrivateDirectory(rootURL)
-        let consumersURL = rootURL.appendingPathComponent("consumers", isDirectory: true)
-        try ensurePrivateDirectory(consumersURL)
-        let destination = consumersURL.appendingPathComponent("\(Self.consumerID).json")
+        do {
+            guard validVersion(version) else {
+                throw GrimodexConsumerRegistrarError.invalidVersion
+            }
+            try ensurePrivateDirectory(rootURL)
+            let consumersURL = rootURL.appendingPathComponent("consumers", isDirectory: true)
+            try ensurePrivateDirectory(consumersURL)
+            let destination = consumersURL.appendingPathComponent("\(Self.consumerID).json")
 
-        let handshake = GrimodexConsumerHandshake(
-            consumerID: Self.consumerID,
-            name: "Grimodex IME for Linux",
-            version: version,
-            lastSeen: timestamp(now())
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        var data = try encoder.encode(handshake)
-        data.append(0x0A)
-        guard data.count <= GrimodexProtocolLimits.consumerBytes else {
-            throw GrimodexConsumerRegistrarError.oversizedPayload
+            let handshake = GrimodexConsumerHandshake(
+                consumerID: Self.consumerID,
+                name: "Grimodex IME for Linux",
+                version: version,
+                lastSeen: timestamp(now())
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            var data = try encoder.encode(handshake)
+            data.append(0x0A)
+            guard data.count <= GrimodexProtocolLimits.consumerBytes else {
+                throw GrimodexConsumerRegistrarError.oversizedPayload
+            }
+            try writer.replace(data, at: destination)
+            registered = true
+            return destination
+        } catch {
+            registered = false
+            throw error
         }
-        try writer.replace(data, at: destination)
-        return destination
     }
 
     func start() throws {
@@ -208,8 +224,8 @@ final class GrimodexConsumerRegistrar: @unchecked Sendable {
                 _ = try registerNow()
                 let timer = DispatchSource.makeTimerSource(queue: heartbeatQueue)
                 timer.schedule(
-                    deadline: .now() + Self.heartbeatInterval,
-                    repeating: Self.heartbeatInterval
+                    deadline: .now() + heartbeatInterval,
+                    repeating: heartbeatInterval
                 )
                 timer.setEventHandler { [weak self] in
                     guard let self else { return }
@@ -231,6 +247,9 @@ final class GrimodexConsumerRegistrar: @unchecked Sendable {
             heartbeatTimer?.cancel()
             heartbeatTimer = nil
         }
+        registrationLock.lock()
+        registered = false
+        registrationLock.unlock()
     }
 
     func unregister() throws {
@@ -239,7 +258,10 @@ final class GrimodexConsumerRegistrar: @unchecked Sendable {
                 heartbeatTimer?.cancel()
                 heartbeatTimer = nil
                 registrationLock.lock()
-                defer { registrationLock.unlock() }
+                defer {
+                    registered = false
+                    registrationLock.unlock()
+                }
                 let destination = rootURL
                     .appendingPathComponent("consumers", isDirectory: true)
                     .appendingPathComponent("\(Self.consumerID).json")

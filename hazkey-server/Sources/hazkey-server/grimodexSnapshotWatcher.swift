@@ -48,8 +48,11 @@ final class GrimodexSnapshotWatcher: @unchecked Sendable {
     private let projectsURL: URL
     private let debounceInterval: TimeInterval
     private let retryInterval: TimeInterval
+    private let maxRearmAttempts: Int
+    private let beforeReconcile: @Sendable () throws -> Void
     private let reload: @Sendable () -> Bool
     private let queue = DispatchQueue(label: "com.miyakey.grimodex.ime.snapshot-watcher")
+    private let healthLock = NSLock()
 
     private var fileDescriptor: Int32 = -1
     private var source: DispatchSourceRead?
@@ -59,11 +62,20 @@ final class GrimodexSnapshotWatcher: @unchecked Sendable {
     private var pendingRetry: DispatchWorkItem?
     private var pendingRearm: DispatchWorkItem?
     private var started = false
+    private var active = false
+
+    var isActive: Bool {
+        healthLock.lock()
+        defer { healthLock.unlock() }
+        return active
+    }
 
     init(
         rootURL: URL,
         debounceInterval: TimeInterval = 0.1,
         retryInterval: TimeInterval = 0.1,
+        maxRearmAttempts: Int = 5,
+        beforeReconcile: @escaping @Sendable () throws -> Void = {},
         reload: @escaping @Sendable () -> Bool
     ) {
         self.rootURL = rootURL.standardizedFileURL
@@ -71,6 +83,8 @@ final class GrimodexSnapshotWatcher: @unchecked Sendable {
             .appendingPathComponent("projects", isDirectory: true)
         self.debounceInterval = max(0, debounceInterval)
         self.retryInterval = max(0, retryInterval)
+        self.maxRearmAttempts = max(0, maxRearmAttempts)
+        self.beforeReconcile = beforeReconcile
         self.reload = reload
     }
 
@@ -108,8 +122,10 @@ final class GrimodexSnapshotWatcher: @unchecked Sendable {
         do {
             try reconcileWatches()
             started = true
+            setActive(true)
             performReload(allowRetry: true)
         } catch {
+            setActive(false)
             source = nil
             fileDescriptor = -1
             readSource.cancel()
@@ -118,6 +134,7 @@ final class GrimodexSnapshotWatcher: @unchecked Sendable {
     }
 
     private func stopIsolated() {
+        setActive(false)
         guard started || source != nil else { return }
         started = false
         pendingReload?.cancel()
@@ -134,6 +151,7 @@ final class GrimodexSnapshotWatcher: @unchecked Sendable {
     }
 
     private func reconcileWatches() throws {
+        try beforeReconcile()
         var transientError: GrimodexSnapshotWatcherError?
         for _ in 0..<2 {
             do {
@@ -318,22 +336,26 @@ final class GrimodexSnapshotWatcher: @unchecked Sendable {
         pendingRearm = nil
         do {
             try reconcileWatches()
+            setActive(true)
         } catch {
+            setActive(false)
             NSLog("Failed to rearm Grimodex snapshot watches: \(error)")
             scheduleRearm(attempt: 1)
         }
     }
 
     private func scheduleRearm(attempt: Int) {
-        guard started, attempt <= 5 else { return }
+        guard started, attempt <= maxRearmAttempts else { return }
         pendingRearm?.cancel()
         let item = DispatchWorkItem { [weak self] in
             guard let self, self.started else { return }
             self.pendingRearm = nil
             do {
                 try self.reconcileWatches()
+                self.setActive(true)
                 self.scheduleReload()
             } catch {
+                self.setActive(false)
                 NSLog("Failed to rearm Grimodex snapshot watches: \(error)")
                 self.scheduleRearm(attempt: attempt + 1)
             }
@@ -370,5 +392,11 @@ final class GrimodexSnapshotWatcher: @unchecked Sendable {
         }
         pendingRetry = item
         queue.asyncAfter(deadline: .now() + retryInterval, execute: item)
+    }
+
+    private func setActive(_ value: Bool) {
+        healthLock.lock()
+        active = value
+        healthLock.unlock()
     }
 }
