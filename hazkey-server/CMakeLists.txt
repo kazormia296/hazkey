@@ -129,6 +129,20 @@ install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/swift-build/${SWIFT_BUILD_TYPE}/haz
         RENAME fcitx5-grimodex-server
         DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR}/fcitx5-grimodex)
 
+# SwiftPM resource accessors resolve these bundles next to the executable at
+# runtime. Installing only the executable leaves a build-machine fallback path
+# embedded in the binary and makes Zenzai personalization fail after packaging.
+set(HAZKEY_SERVER_SWIFT_RESOURCE_BUNDLES
+    AzooKeyKanaKanjiConverter_EfficientNGram.resources
+    swift-transformers_Hub.resources
+)
+foreach(_bundle IN LISTS HAZKEY_SERVER_SWIFT_RESOURCE_BUNDLES)
+    install(DIRECTORY
+        "${CMAKE_CURRENT_BINARY_DIR}/swift-build/${SWIFT_BUILD_TYPE}/${_bundle}"
+        DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR}/fcitx5-grimodex
+    )
+endforeach()
+
 # configure and install hazkey-server wrapper script
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/hazkey-server.sh.in

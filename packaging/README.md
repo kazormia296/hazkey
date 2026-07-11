@@ -50,6 +50,12 @@ JSON configuration; provider-domain metadata by itself is not treated as a
 network capability. These checks complement, rather than replace, package
 manager install/uninstall tests on Debian and Arch runners.
 
+The server package also owns the SwiftPM resource bundles located beside the
+real server executable. In particular, the EfficientNGram tokenizer data and
+the tokenizer fallback configuration must survive staging and uninstall as a
+single package-owned tree; the executable's build-machine fallback paths are
+not usable on an installed system.
+
 The integration workflow installs the already-built Fcitx addon, Qt settings
 application, and Swift server with CMake into two DESTDIR trees, merges those
 trees, and runs this validator with `GRIMODEX_STAGED_ROOT`. The validator checks
