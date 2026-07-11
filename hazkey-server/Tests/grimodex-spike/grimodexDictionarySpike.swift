@@ -94,13 +94,18 @@ final class GrimodexDictionarySpikeTests: XCTestCase {
       XCTAssertEqual(report.candidateRank, 1)
       XCTAssertTrue(report.importMilliseconds.isFinite)
       XCTAssertTrue(report.warmP95Milliseconds.isFinite)
+      let residentMemory =
+        report.residentMemoryKilobytes.map(String.init) ?? "unavailable"
+      let residentMemoryDelta =
+        report.residentMemoryDeltaKilobytes.map(String.init) ?? "unavailable"
+      let candidateRank = report.candidateRank.map(String.init) ?? "missing"
       print(
         "GRIMODEX_BENCHMARK entries=\(report.entryCount) "
           + "import_ms=\(report.importMilliseconds) "
           + "warm_p95_ms=\(report.warmP95Milliseconds) "
-          + "rss_kib=\(report.residentMemoryKilobytes.map(String.init) ?? \"unavailable\") "
-          + "rss_delta_kib=\(report.residentMemoryDeltaKilobytes.map(String.init) ?? \"unavailable\") "
-          + "candidate_rank=\(report.candidateRank.map(String.init) ?? \"missing\")"
+          + "rss_kib=\(residentMemory) "
+          + "rss_delta_kib=\(residentMemoryDelta) "
+          + "candidate_rank=\(candidateRank)"
       )
     }
   }
