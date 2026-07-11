@@ -114,13 +114,15 @@ class HazkeyServerState {
     }
 
     func setContext(surroundingText: String, anchorIndex: Int) -> Hazkey_ResponseEnvelope {
-        guard anchorIndex >= 0, anchorIndex <= surroundingText.count else {
+        let unicodeScalars = surroundingText.unicodeScalars
+        guard anchorIndex >= 0, anchorIndex <= unicodeScalars.count else {
             return Hazkey_ResponseEnvelope.with {
                 $0.status = .failed
                 $0.errorMessage = "Context anchor is out of range"
             }
         }
-        let leftContext = String(surroundingText.prefix(anchorIndex))
+        let anchor = unicodeScalars.index(unicodeScalars.startIndex, offsetBy: anchorIndex)
+        let leftContext = String(surroundingText[..<anchor])
         let latestRevision = grimodexRevisionProvider.latest()
         if latestRevision.secureInput || grimodexIntegration.secureInput {
             grimodexIntegration.observe(latestRevision)

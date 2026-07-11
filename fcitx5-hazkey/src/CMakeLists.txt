@@ -4,7 +4,7 @@ set(PROTO_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/../../protocol/config.proto
 )
 
-add_library(fcitx5-hazkey SHARED hazkey_state.cpp hazkey_engine.cpp hazkey_candidate.cpp hazkey_preedit.cpp hazkey_server_connector.cpp hazkey_session_client.cpp)
+add_library(fcitx5-hazkey SHARED hazkey_state.cpp hazkey_engine.cpp hazkey_candidate.cpp hazkey_preedit.cpp hazkey_server_connector.cpp hazkey_session_client.cpp hazkey_text_offset.cpp)
 
 if(Protobuf_VERSION VERSION_GREATER_EQUAL "3.15")
     # 3.15 ~：stable proto3 optional support
@@ -61,7 +61,7 @@ target_include_directories(
         ${CMAKE_CURRENT_SOURCE_DIR}/../../linux-shared
         ${Protobuf_INCLUDE_DIRS}
 )
-target_link_libraries(fcitx5-hazkey PRIVATE Fcitx5::Core Fcitx5::Config ${Protobuf_LITE_LIBRARIES})
+target_link_libraries(fcitx5-hazkey PRIVATE Fcitx5::Core Fcitx5::Config Fcitx5::Utils ${Protobuf_LITE_LIBRARIES})
 
 
 set_target_properties(fcitx5-hazkey PROPERTIES PREFIX "" OUTPUT_NAME "fcitx5-grimodex")

@@ -15,6 +15,7 @@
 #include "hazkey_candidate_display.h"
 #include "hazkey_engine.h"
 #include "hazkey_server_connector.h"
+#include "hazkey_text_offset.h"
 
 namespace fcitx {
 
@@ -364,9 +365,13 @@ void HazkeyState::updateSurroundingText(std::string appendText) {
     if (ic_->capabilityFlags().test(CapabilityFlag::SurroundingText) &&
         ic_->surroundingText().isValid()) {
         auto& surroundingText = ic_->surroundingText();
-        server_.setContext(
-            surroundingText.text() + appendText,
-            surroundingText.anchor() + appendText.length());
+        const auto anchor = hazkeyAnchorAfterAppend(surroundingText.anchor(),
+                                                    appendText);
+        if (!anchor.has_value()) {
+            server_.setContext("", 0);
+            return;
+        }
+        server_.setContext(surroundingText.text() + appendText, *anchor);
     } else {
         server_.setContext("", 0);
     }

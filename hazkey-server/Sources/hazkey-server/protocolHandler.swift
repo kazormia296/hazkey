@@ -119,7 +119,7 @@ class ProtocolHandler {
         switch payload {
         case .setContext(let req):
             let anchorIndex = Int(req.anchor)
-            if anchorIndex < 0 || anchorIndex > req.context.count {
+            if anchorIndex < 0 || anchorIndex > req.context.unicodeScalars.count {
                 response = invalidRequestResponse("Context anchor is out of range")
             } else {
                 response = state.setContext(
