@@ -164,7 +164,12 @@ final class GrimodexSessionStateTests: XCTestCase {
   func testSecureTransitionRevokesAnActiveCompositionImmediately() {
     var pin = GrimodexCompositionGenerationPin()
     let active = revision(3, projectID: "project-a")
-    let revoked = GrimodexIntegrationRevision(generation: 3, payload: nil)
+    let revoked = GrimodexIntegrationRevision(
+      generation: 3,
+      payload: nil,
+      allowsLearning: false,
+      secureInput: true
+    )
     _ = pin.beginComposition(latest: active)
     XCTAssertTrue(pin.isComposing)
 
@@ -173,6 +178,22 @@ final class GrimodexSessionStateTests: XCTestCase {
     XCTAssertNil(pin.pinned)
     XCTAssertNil(pin.pending)
     XCTAssertEqual(pin.applied, revoked)
+    XCTAssertFalse(pin.applied?.allowsLearning ?? true)
+    XCTAssertTrue(pin.applied?.secureInput ?? false)
+  }
+
+  func testImmediateRevocationAlwaysForcesSecureFlags() {
+    var pin = GrimodexCompositionGenerationPin()
+    _ = pin.beginComposition(latest: revision(1, projectID: "project-a"))
+
+    let revoked = pin.revokeImmediately(
+      GrimodexIntegrationRevision(generation: 1, payload: nil)
+    )
+
+    XCTAssertFalse(revoked?.allowsLearning ?? true)
+    XCTAssertTrue(revoked?.secureInput ?? false)
+    XCTAssertFalse(pin.applied?.allowsLearning ?? true)
+    XCTAssertTrue(pin.applied?.secureInput ?? false)
   }
 
   func testRepeatedEndCompositionIsIdempotentAndCanApplyANewerRevision() {
