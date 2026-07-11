@@ -296,7 +296,7 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
     }
   }
 
-  func testObjectShapedConfigFallsBackWithoutTerminatingServer() throws {
+  func testObjectShapedConfigFallsBackAndRemainsRecoverableThroughProtocol() throws {
     try withTemporaryConfigHome { configHome in
       let configDirectory = configHome.appendingPathComponent(
         GrimodexProductPaths.packageName,
@@ -306,14 +306,51 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
         at: configDirectory,
         withIntermediateDirectories: true
       )
-      try Data(#"{"profiles":[]}"#.utf8).write(
-        to: configDirectory.appendingPathComponent("config.json")
-      )
+      let malformedConfig = Data(#"{"profiles":[]}"#.utf8)
+      let configPath = configDirectory.appendingPathComponent("config.json")
+      try malformedConfig.write(to: configPath)
 
       let config = HazkeyServerConfig()
+      let handler = ProtocolHandler(
+        sessionRegistry: HazkeySessionRegistry(serverConfig: config)
+      )
+
+      let fallbackResponse = try process(
+        Hazkey_RequestEnvelope.with { $0.getConfig = .init() },
+        handler: handler,
+        clientFd: 20
+      )
 
       XCTAssertEqual(config.profiles.count, 1)
       XCTAssertEqual(config.currentProfile.profileName, "Default")
+      XCTAssertEqual(fallbackResponse.status, .success)
+      XCTAssertEqual(fallbackResponse.currentConfig.profiles.map(\.profileName), ["Default"])
+      XCTAssertEqual(try Data(contentsOf: configPath), malformedConfig)
+
+      var recoveredProfile = HazkeyServerConfig.genDefaultConfig()
+      recoveredProfile.profileName = "recovered-profile"
+      let saveResponse = try process(
+        Hazkey_RequestEnvelope.with {
+          $0.setConfig = Hazkey_Config_SetConfig.with {
+            $0.profiles = [recoveredProfile]
+          }
+        },
+        handler: handler,
+        clientFd: 20
+      )
+      let recoveredResponse = try process(
+        Hazkey_RequestEnvelope.with { $0.getConfig = .init() },
+        handler: handler,
+        clientFd: 20
+      )
+
+      XCTAssertEqual(saveResponse.status, .success)
+      XCTAssertEqual(recoveredResponse.status, .success)
+      XCTAssertEqual(
+        recoveredResponse.currentConfig.profiles.map(\.profileName),
+        ["recovered-profile"]
+      )
+      XCTAssertNotEqual(try Data(contentsOf: configPath), malformedConfig)
     }
   }
 
