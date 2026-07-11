@@ -25,6 +25,7 @@ enum Hazkey_StatusCode: SwiftProtobuf.Enum, Swift.CaseIterable {
   case unspecified // = 0
   case success // = 1
   case failed // = 2
+  case sessionNotFound // = 3
   case UNRECOGNIZED(Int)
 
   init() {
@@ -36,6 +37,7 @@ enum Hazkey_StatusCode: SwiftProtobuf.Enum, Swift.CaseIterable {
     case 0: self = .unspecified
     case 1: self = .success
     case 2: self = .failed
+    case 3: self = .sessionNotFound
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -45,6 +47,7 @@ enum Hazkey_StatusCode: SwiftProtobuf.Enum, Swift.CaseIterable {
     case .unspecified: return 0
     case .success: return 1
     case .failed: return 2
+    case .sessionNotFound: return 3
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -54,14 +57,78 @@ enum Hazkey_StatusCode: SwiftProtobuf.Enum, Swift.CaseIterable {
     .unspecified,
     .success,
     .failed,
+    .sessionNotFound,
   ]
 
+}
+
+struct Hazkey_ClientContext: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var program: String = String()
+
+  var frontend: String = String()
+
+  var secureInput: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Hazkey_OpenSession: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var client: Hazkey_ClientContext {
+    get {return _client ?? Hazkey_ClientContext()}
+    set {_client = newValue}
+  }
+  /// Returns true if `client` has been explicitly set.
+  var hasClient: Bool {return self._client != nil}
+  /// Clears the value of `client`. Subsequent reads from it will return its default value.
+  mutating func clearClient() {self._client = nil}
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+
+  fileprivate var _client: Hazkey_ClientContext? = nil
+}
+
+struct Hazkey_OpenSessionResult: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var sessionID: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Hazkey_CloseSession: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var sessionID: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
 }
 
 struct Hazkey_RequestEnvelope: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
+
+  var sessionID: String = String()
 
   var payload: Hazkey_RequestEnvelope.OneOf_Payload? = nil
 
@@ -209,6 +276,22 @@ struct Hazkey_RequestEnvelope: Sendable {
     set {payload = .reloadZenzaiModel(newValue)}
   }
 
+  var openSession: Hazkey_OpenSession {
+    get {
+      if case .openSession(let v)? = payload {return v}
+      return Hazkey_OpenSession()
+    }
+    set {payload = .openSession(newValue)}
+  }
+
+  var closeSession: Hazkey_CloseSession {
+    get {
+      if case .closeSession(let v)? = payload {return v}
+      return Hazkey_CloseSession()
+    }
+    set {payload = .closeSession(newValue)}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   enum OneOf_Payload: Equatable, Sendable {
@@ -230,6 +313,8 @@ struct Hazkey_RequestEnvelope: Sendable {
     case getDefaultProfile(Hazkey_Config_GetDefaultProfile)
     case clearAllHistory_p(Hazkey_Config_ClearAllHistory)
     case reloadZenzaiModel(Hazkey_Config_ReloadZenzaiModel)
+    case openSession(Hazkey_OpenSession)
+    case closeSession(Hazkey_CloseSession)
 
   }
 
@@ -287,6 +372,14 @@ struct Hazkey_ResponseEnvelope: Sendable {
     set {payload = .currentConfig(newValue)}
   }
 
+  var openSessionResult: Hazkey_OpenSessionResult {
+    get {
+      if case .openSessionResult(let v)? = payload {return v}
+      return Hazkey_OpenSessionResult()
+    }
+    set {payload = .openSessionResult(newValue)}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   enum OneOf_Payload: Equatable, Sendable {
@@ -295,6 +388,7 @@ struct Hazkey_ResponseEnvelope: Sendable {
     case textWithCursor(Hazkey_Commands_TextWithCursor)
     case currentInputModeInfo(Hazkey_Commands_CurrentInputModeInfo)
     case currentConfig(Hazkey_Config_CurrentConfig)
+    case openSessionResult(Hazkey_OpenSessionResult)
 
   }
 
@@ -310,12 +404,158 @@ extension Hazkey_StatusCode: SwiftProtobuf._ProtoNameProviding {
     0: .same(proto: "UNSPECIFIED"),
     1: .same(proto: "SUCCESS"),
     2: .same(proto: "FAILED"),
+    3: .same(proto: "SESSION_NOT_FOUND"),
   ]
+}
+
+extension Hazkey_ClientContext: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ClientContext"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "program"),
+    2: .same(proto: "frontend"),
+    3: .standard(proto: "secure_input"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.program) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.frontend) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.secureInput) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.program.isEmpty {
+      try visitor.visitSingularStringField(value: self.program, fieldNumber: 1)
+    }
+    if !self.frontend.isEmpty {
+      try visitor.visitSingularStringField(value: self.frontend, fieldNumber: 2)
+    }
+    if self.secureInput != false {
+      try visitor.visitSingularBoolField(value: self.secureInput, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_ClientContext, rhs: Hazkey_ClientContext) -> Bool {
+    if lhs.program != rhs.program {return false}
+    if lhs.frontend != rhs.frontend {return false}
+    if lhs.secureInput != rhs.secureInput {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_OpenSession: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".OpenSession"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "client"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._client) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._client {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_OpenSession, rhs: Hazkey_OpenSession) -> Bool {
+    if lhs._client != rhs._client {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_OpenSessionResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".OpenSessionResult"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "session_id"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.sessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_OpenSessionResult, rhs: Hazkey_OpenSessionResult) -> Bool {
+    if lhs.sessionID != rhs.sessionID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_CloseSession: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".CloseSession"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "session_id"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.sessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_CloseSession, rhs: Hazkey_CloseSession) -> Bool {
+    if lhs.sessionID != rhs.sessionID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Hazkey_RequestEnvelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RequestEnvelope"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    200: .standard(proto: "session_id"),
     1: .standard(proto: "new_composing_text"),
     2: .standard(proto: "set_context"),
     3: .standard(proto: "input_char"),
@@ -334,6 +574,8 @@ extension Hazkey_RequestEnvelope: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     102: .standard(proto: "get_default_profile"),
     103: .standard(proto: "clear_all_history"),
     104: .standard(proto: "reload_zenzai_model"),
+    201: .standard(proto: "open_session"),
+    202: .standard(proto: "close_session"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -576,6 +818,33 @@ extension Hazkey_RequestEnvelope: SwiftProtobuf.Message, SwiftProtobuf._MessageI
           self.payload = .reloadZenzaiModel(v)
         }
       }()
+      case 200: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      case 201: try {
+        var v: Hazkey_OpenSession?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .openSession(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .openSession(v)
+        }
+      }()
+      case 202: try {
+        var v: Hazkey_CloseSession?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .closeSession(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .closeSession(v)
+        }
+      }()
       default: break
       }
     }
@@ -659,12 +928,27 @@ extension Hazkey_RequestEnvelope: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       guard case .reloadZenzaiModel(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 104)
     }()
-    case nil: break
+    default: break
+    }
+    if !self.sessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 200)
+    }
+    switch self.payload {
+    case .openSession?: try {
+      guard case .openSession(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 201)
+    }()
+    case .closeSession?: try {
+      guard case .closeSession(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 202)
+    }()
+    default: break
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Hazkey_RequestEnvelope, rhs: Hazkey_RequestEnvelope) -> Bool {
+    if lhs.sessionID != rhs.sessionID {return false}
     if lhs.payload != rhs.payload {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
@@ -681,6 +965,7 @@ extension Hazkey_ResponseEnvelope: SwiftProtobuf.Message, SwiftProtobuf._Message
     5: .standard(proto: "text_with_cursor"),
     6: .standard(proto: "current_input_mode_info"),
     100: .standard(proto: "current_config"),
+    200: .standard(proto: "open_session_result"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -751,6 +1036,19 @@ extension Hazkey_ResponseEnvelope: SwiftProtobuf.Message, SwiftProtobuf._Message
           self.payload = .currentConfig(v)
         }
       }()
+      case 200: try {
+        var v: Hazkey_OpenSessionResult?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .openSessionResult(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .openSessionResult(v)
+        }
+      }()
       default: break
       }
     }
@@ -787,6 +1085,10 @@ extension Hazkey_ResponseEnvelope: SwiftProtobuf.Message, SwiftProtobuf._Message
     case .currentConfig?: try {
       guard case .currentConfig(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 100)
+    }()
+    case .openSessionResult?: try {
+      guard case .openSessionResult(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 200)
     }()
     case nil: break
     }
