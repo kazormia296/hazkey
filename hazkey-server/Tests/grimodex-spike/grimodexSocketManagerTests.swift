@@ -85,12 +85,12 @@ final class GrimodexSocketManagerTests: XCTestCase {
     }
 
     firstFd = try connectClient(socketPath)
-    XCTAssertEqual(try transact(firstFd, payload: Data("first-1".utf8)), Data("first-1".utf8))
+    XCTAssertEqual(try Self.transact(firstFd, payload: Data("first-1".utf8)), Data("first-1".utf8))
 
     secondFd = try connectClient(socketPath)
-    XCTAssertEqual(try transact(secondFd, payload: Data("second".utf8)), Data("second".utf8))
+    XCTAssertEqual(try Self.transact(secondFd, payload: Data("second".utf8)), Data("second".utf8))
 
-    XCTAssertEqual(try transact(firstFd, payload: Data("first-2".utf8)), Data("first-2".utf8))
+    XCTAssertEqual(try Self.transact(firstFd, payload: Data("first-2".utf8)), Data("first-2".utf8))
     XCTAssertEqual(delegate.connected.count, 2)
   }
 
@@ -131,8 +131,8 @@ final class GrimodexSocketManagerTests: XCTestCase {
     let completed = DispatchSemaphore(value: 0)
     let result = AsyncSocketResult()
     let fd = healthyFd
-    DispatchQueue.global().async { [self] in
-      result.store(Result { try transact(fd, payload: Data("healthy".utf8)) })
+    DispatchQueue.global().async {
+      result.store(Result { try Self.transact(fd, payload: Data("healthy".utf8)) })
       completed.signal()
     }
 
@@ -177,7 +177,7 @@ final class GrimodexSocketManagerTests: XCTestCase {
     return fd
   }
 
-  private func transact(_ fd: Int32, payload: Data) throws -> Data {
+  private static func transact(_ fd: Int32, payload: Data) throws -> Data {
     var length = UInt32(payload.count).bigEndian
     try writeData(to: fd, data: withUnsafeBytes(of: &length) { Data($0) })
     try writeData(to: fd, data: payload)
