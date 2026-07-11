@@ -1,6 +1,18 @@
 name: Build
 
 on:
+  pull_request:
+    paths:
+      - "CMakeLists.txt"
+      - "fcitx5-hazkey/**"
+      - "hazkey-server/**"
+      - "hazkey-settings/**"
+      - "linux-shared/**"
+      - "protocol/**"
+      - "LICENSE"
+      - "NOTICE.md"
+      - "packaging/**"
+      - ".github/workflows/build.yml"
   push:
     tags:
       - "*"
