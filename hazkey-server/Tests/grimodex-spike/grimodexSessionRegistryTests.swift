@@ -104,6 +104,42 @@ final class GrimodexSessionRegistryTests: XCTestCase {
     XCTAssertTrue(secure.secureInput)
   }
 
+  func testScopeStoreUpdatesExistingRevisionProviders() {
+    let snapshot = FixedGrimodexSnapshotProvider(snapshot: publishedSnapshot())
+    let scopeStore = GrimodexScopeModeStore(.grimodexOnly)
+    let provider = GrimodexSessionRevisionProvider(
+      snapshotProvider: snapshot,
+      scopeModeProvider: scopeStore,
+      clientContext: context(program: "grimodex")
+    )
+
+    XCTAssertNotNil(provider.latest().payload)
+
+    scopeStore.update(.off)
+    XCTAssertNil(provider.latest().payload)
+    XCTAssertTrue(provider.latest().allowsLearning)
+
+    scopeStore.update(.allApplications)
+    let firefoxProvider = GrimodexSessionRevisionProvider(
+      snapshotProvider: snapshot,
+      scopeModeProvider: scopeStore,
+      clientContext: context(program: "firefox")
+    )
+    XCTAssertNotNil(firefoxProvider.latest().payload)
+  }
+
+  func testServerConfigMapsEveryWireScopeMode() {
+    let config = HazkeyServerConfig()
+    for (wire, expected) in [
+      (Hazkey_Config_Profile.GrimodexScopeMode.grimodexOnly, GrimodexScopeMode.grimodexOnly),
+      (.grimodexOff, .off),
+      (.grimodexAllApplications, .allApplications),
+    ] {
+      config.currentProfile.grimodexScopeMode = wire
+      XCTAssertEqual(config.grimodexScopeMode, expected)
+    }
+  }
+
   func testSecureSessionIsRevokedBeforeItsFirstCommand() {
     let snapshot = FixedGrimodexSnapshotProvider(snapshot: publishedSnapshot())
     let registry = HazkeySessionRegistry(

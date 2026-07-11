@@ -62,4 +62,15 @@ final class GrimodexSessionProtocolTests: XCTestCase {
     XCTAssertEqual(decoded.status.rawValue, 3)
     XCTAssertEqual(decoded.openSessionResult.sessionID, "replacement-session")
   }
+
+  func testGrimodexScopeDefaultsFailClosedAndRoundTripsExplicitAllApps() throws {
+    var profile = Hazkey_Config_Profile()
+    XCTAssertEqual(profile.grimodexScopeMode, .grimodexOnly)
+
+    profile.grimodexScopeMode = .grimodexAllApplications
+    let decoded = try Hazkey_Config_Profile(serializedBytes: profile.serializedData())
+
+    XCTAssertTrue(decoded.hasGrimodexScopeMode)
+    XCTAssertEqual(decoded.grimodexScopeMode, .grimodexAllApplications)
+  }
 }

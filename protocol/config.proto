@@ -33,6 +33,12 @@ message BackendDevice {
 }
 
 message Profile {
+    enum GrimodexScopeMode {
+        GRIMODEX_ONLY = 0;
+        GRIMODEX_OFF = 1;
+        GRIMODEX_ALL_APPLICATIONS = 2;
+    }
+
     enum AutoConvertMode {
         AUTO_CONVERT_MODE_UNSPECIFIED = 0;
         AUTO_CONVERT_DISABLED = 1;
@@ -122,6 +128,8 @@ message Profile {
     optional string zenzai_topic = 121;
     optional string zenzai_style = 122;
     optional string zenzai_preference = 123;
+
+    optional GrimodexScopeMode grimodex_scope_mode = 130;
 }
 
 // Request messages
