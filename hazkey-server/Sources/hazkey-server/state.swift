@@ -114,6 +114,12 @@ class HazkeyServerState {
     }
 
     func setContext(surroundingText: String, anchorIndex: Int) -> Hazkey_ResponseEnvelope {
+        guard anchorIndex >= 0, anchorIndex <= surroundingText.count else {
+            return Hazkey_ResponseEnvelope.with {
+                $0.status = .failed
+                $0.errorMessage = "Context anchor is out of range"
+            }
+        }
         let leftContext = String(surroundingText.prefix(anchorIndex))
         let latestRevision = grimodexRevisionProvider.latest()
         if latestRevision.secureInput || grimodexIntegration.secureInput {
@@ -276,7 +282,7 @@ class HazkeyServerState {
     }
 
     func completePrefix(candidateIndex: Int) -> Hazkey_ResponseEnvelope {
-        if let completedCandidate = currentCandidateList?[candidateIndex] {
+        if let completedCandidate = currentCandidateList?[safe: candidateIndex] {
             composingText.value.prefixComplete(composingCount: completedCandidate.composingCount)
             candidateLearning.setCompletedData(completedCandidate)
             if grimodexIntegration.allowsLearning {
@@ -570,4 +576,10 @@ class HazkeyServerState {
         NSLog("State configuration reinitialized successfully")
     }
 
+}
+
+private extension Array {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
 }

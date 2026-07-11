@@ -5,6 +5,17 @@ import SwiftProtobuf
 let KEYMAP_FILE_SIZE_LIMIT = 1024 * 1024  //1MB
 let TABLE_FILE_SIZE_LIMIT = 1024 * 1024  //1MB
 
+private enum HazkeyServerConfigError: LocalizedError {
+    case emptyProfiles
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyProfiles:
+            "Configuration profiles must not be empty"
+        }
+    }
+}
+
 let builtInKeymaps = [
     "JIS Kana",
     "Japanese Symbol",
@@ -202,6 +213,12 @@ class HazkeyServerConfig {
         _ profiles: [Hazkey_Config_Profile],
         state: HazkeyServerState? = nil
     ) -> Hazkey_ResponseEnvelope {
+        guard !profiles.isEmpty else {
+            return Hazkey_ResponseEnvelope.with {
+                $0.status = .failed
+                $0.errorMessage = HazkeyServerConfigError.emptyProfiles.localizedDescription
+            }
+        }
         do {
             try saveConfig(profiles, state: state)
         } catch {
@@ -284,6 +301,9 @@ class HazkeyServerConfig {
         _ newProfiles: [Hazkey_Config_Profile],
         state: HazkeyServerState? = nil
     ) throws {
+        guard !newProfiles.isEmpty else {
+            throw HazkeyServerConfigError.emptyProfiles
+        }
         let configDir = Self.getConfigDirectory()
         let configPath = configDir.appendingPathComponent("config.json")
 
@@ -303,7 +323,7 @@ class HazkeyServerConfig {
         let jsonData = try JSONSerialization.data(
             withJSONObject: jsonObjects, options: [.prettyPrinted, .sortedKeys])
 
-        try jsonData.write(to: configPath)
+        try jsonData.write(to: configPath, options: .atomic)
 
         NSLog("Config saved to: \(configPath.path)")
 

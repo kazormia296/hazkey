@@ -63,13 +63,17 @@ class ProtocolHandler {
             }
             response = configResponse
         case .setConfig(let request):
-            response = sessionRegistry.serverConfig.setCurrentConfig(
-                request.fileHashes,
-                request.profiles
-            )
-            if response.status == .success {
-                onConfigurationChanged(sessionRegistry.serverConfig)
-                sessionRegistry.reinitializeAll()
+            if request.profiles.isEmpty {
+                response = invalidRequestResponse("Configuration profiles must not be empty")
+            } else {
+                response = sessionRegistry.serverConfig.setCurrentConfig(
+                    request.fileHashes,
+                    request.profiles
+                )
+                if response.status == .success {
+                    onConfigurationChanged(sessionRegistry.serverConfig)
+                    sessionRegistry.reinitializeAll()
+                }
             }
         case .clearAllHistory_p:
             sessionRegistry.clearAllLearningData()
@@ -106,8 +110,13 @@ class ProtocolHandler {
         let response: Hazkey_ResponseEnvelope
         switch payload {
         case .setContext(let req):
-            response = state.setContext(
-                surroundingText: req.context, anchorIndex: Int(req.anchor))
+            let anchorIndex = Int(req.anchor)
+            if anchorIndex < 0 || anchorIndex > req.context.count {
+                response = invalidRequestResponse("Context anchor is out of range")
+            } else {
+                response = state.setContext(
+                    surroundingText: req.context, anchorIndex: anchorIndex)
+            }
         case .newComposingText:
             response = state.createComposingTextInstanse()
         case .inputChar(let req):
@@ -119,7 +128,11 @@ class ProtocolHandler {
         case .deleteRight:
             response = state.deleteRight()
         case .prefixComplete(let req):
-            response = state.completePrefix(candidateIndex: Int(req.index))
+            if req.index < 0 {
+                response = invalidRequestResponse("Candidate index is out of range")
+            } else {
+                response = state.completePrefix(candidateIndex: Int(req.index))
+            }
         case .moveCursor(let req):
             response = state.moveCursor(offset: Int(req.offset))
         case .getHiraganaWithCursor:
@@ -151,6 +164,13 @@ class ProtocolHandler {
         Hazkey_ResponseEnvelope.with {
             $0.status = .sessionNotFound
             $0.errorMessage = "Session not found"
+        }
+    }
+
+    private func invalidRequestResponse(_ message: String) -> Hazkey_ResponseEnvelope {
+        Hazkey_ResponseEnvelope.with {
+            $0.status = .failed
+            $0.errorMessage = message
         }
     }
 
