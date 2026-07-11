@@ -236,7 +236,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: kazormia296/Grimodex
-          ref: f45f05895c8bf35b9945e12b16b0da98d6dfa54a
+          ref: eaa795c0009ffd48715ddebf12a08e880092a529
           path: grimodex-consumer-e2e
           submodules: false
 
