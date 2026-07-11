@@ -11,3 +11,6 @@
 /CMakeCache.txt
 
 /compile_commands.json
+# Python test and tooling caches
+__pycache__/
+*.py[cod]
