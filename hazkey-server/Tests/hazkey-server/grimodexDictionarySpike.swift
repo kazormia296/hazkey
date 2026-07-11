@@ -56,6 +56,10 @@ final class GrimodexDictionarySpikeTests: XCTestCase {
       XCTAssertEqual(entries.count, count)
       XCTAssertEqual(Set(entries.map(\.ruby)).count, count)
       XCTAssertEqual(Set(entries.map(\.word)).count, count)
+      XCTAssertEqual(entries[0].ruby, "セツナ")
+      XCTAssertEqual(entries[0].word, "刹那")
+      XCTAssertEqual(entries[1].ruby, "リュウセイコウ")
+      XCTAssertEqual(entries[1].word, "龍星港")
     }
   }
 
