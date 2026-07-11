@@ -6,9 +6,40 @@ protocol GrimodexSnapshotProviding: Sendable {
 
 extension GrimodexSnapshotManager: GrimodexSnapshotProviding {}
 
+protocol GrimodexScopeModeProviding: Sendable {
+    func current() -> GrimodexScopeMode
+}
+
+private struct GrimodexFixedScopeModeProvider: GrimodexScopeModeProviding, Sendable {
+    let value: GrimodexScopeMode
+
+    func current() -> GrimodexScopeMode { value }
+}
+
+final class GrimodexScopeModeStore: GrimodexScopeModeProviding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: GrimodexScopeMode
+
+    init(_ value: GrimodexScopeMode) {
+        self.value = value
+    }
+
+    func current() -> GrimodexScopeMode {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func update(_ value: GrimodexScopeMode) {
+        lock.lock()
+        self.value = value
+        lock.unlock()
+    }
+}
+
 struct GrimodexSessionRevisionProvider: GrimodexRevisionProviding, Sendable {
     private let snapshotProvider: any GrimodexSnapshotProviding
-    private let scopeMode: GrimodexScopeMode
+    private let scopeModeProvider: any GrimodexScopeModeProviding
     private let clientContext: GrimodexClientContext
 
     init(
@@ -17,7 +48,17 @@ struct GrimodexSessionRevisionProvider: GrimodexRevisionProviding, Sendable {
         clientContext: GrimodexClientContext
     ) {
         self.snapshotProvider = snapshotProvider
-        self.scopeMode = scopeMode
+        self.scopeModeProvider = GrimodexFixedScopeModeProvider(value: scopeMode)
+        self.clientContext = clientContext
+    }
+
+    init(
+        snapshotProvider: any GrimodexSnapshotProviding,
+        scopeModeProvider: any GrimodexScopeModeProviding,
+        clientContext: GrimodexClientContext
+    ) {
+        self.snapshotProvider = snapshotProvider
+        self.scopeModeProvider = scopeModeProvider
         self.clientContext = clientContext
     }
 
@@ -25,7 +66,7 @@ struct GrimodexSessionRevisionProvider: GrimodexRevisionProviding, Sendable {
         GrimodexIntegrationRevision(
             snapshot: snapshotProvider.latest(),
             decision: GrimodexScopePolicy.evaluate(
-                mode: scopeMode,
+                mode: scopeModeProvider.current(),
                 context: clientContext
             )
         )

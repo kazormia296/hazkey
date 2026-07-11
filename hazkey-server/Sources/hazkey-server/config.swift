@@ -40,6 +40,19 @@ class HazkeyServerConfig {
     var zenzaiModelPath: URL?
     var ggmlBackendDevices: [GGMLBackendDevice]
 
+    var grimodexScopeMode: GrimodexScopeMode {
+        switch currentProfile.grimodexScopeMode {
+        case .grimodexOnly:
+            .grimodexOnly
+        case .grimodexOff:
+            .off
+        case .grimodexAllApplications:
+            .allApplications
+        case .UNRECOGNIZED:
+            .off
+        }
+    }
+
     init() {
         do {
             profiles = try Self.loadConfig()
@@ -261,6 +274,7 @@ class HazkeyServerConfig {
         newConf.zenzaiInferLimit = 10
         newConf.zenzaiContextualMode = true
         newConf.zenzaiProfile = ""
+        newConf.grimodexScopeMode = .grimodexOnly
         return newConf
     }
 

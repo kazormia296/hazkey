@@ -53,19 +53,26 @@ class HazkeyServer: SocketManagerDelegate {
             NSLog("Failed to start hazkey-server: \(error)")
             exit(1)
         }
-        let grimodexRuntime = GrimodexLinuxRuntime(version: hazkeyVersion)
+        let serverConfig = HazkeyServerConfig()
+        let grimodexRuntime = GrimodexLinuxRuntime(
+            version: hazkeyVersion,
+            initialScopeMode: serverConfig.grimodexScopeMode
+        )
         grimodexRuntime.start()
         self.grimodexRuntime = grimodexRuntime
         let sessionRegistry = HazkeySessionRegistry(
+            serverConfig: serverConfig,
             revisionProviderFactory: { clientContext in
-                grimodexRuntime.revisionProvider(
-                    scopeMode: .defaultValue,
-                    clientContext: clientContext
-                )
+                grimodexRuntime.revisionProvider(clientContext: clientContext)
             }
         )
         self.sessionRegistry = sessionRegistry
-        self.protocolHandler = ProtocolHandler(sessionRegistry: sessionRegistry)
+        self.protocolHandler = ProtocolHandler(
+            sessionRegistry: sessionRegistry,
+            onConfigurationChanged: { config in
+                grimodexRuntime.updateScopeMode(config.grimodexScopeMode)
+            }
+        )
         do {
             try socketManager.setupSocket()
         } catch {

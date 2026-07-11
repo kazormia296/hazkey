@@ -5,17 +5,20 @@ final class GrimodexLinuxRuntime {
 
     private let watcher: GrimodexSnapshotWatcher
     private let registrar: GrimodexConsumerRegistrar
+    private let scopeModeStore: GrimodexScopeModeStore
     private let lifecycleLock = NSLock()
     private var started = false
 
     init(
         rootURL: URL = GrimodexPathResolver.resolve(),
-        version: String
+        version: String,
+        initialScopeMode: GrimodexScopeMode = .defaultValue
     ) {
         let manager = GrimodexSnapshotManager(
             loader: GrimodexSnapshotLoader(rootURL: rootURL)
         )
         snapshotManager = manager
+        scopeModeStore = GrimodexScopeModeStore(initialScopeMode)
         watcher = GrimodexSnapshotWatcher(rootURL: rootURL) {
             manager.reload().diagnostic.isRetryable
         }
@@ -69,5 +72,19 @@ final class GrimodexLinuxRuntime {
             scopeMode: scopeMode,
             clientContext: clientContext
         )
+    }
+
+    func revisionProvider(
+        clientContext: GrimodexClientContext
+    ) -> GrimodexSessionRevisionProvider {
+        GrimodexSessionRevisionProvider(
+            snapshotProvider: snapshotManager,
+            scopeModeProvider: scopeModeStore,
+            clientContext: clientContext
+        )
+    }
+
+    func updateScopeMode(_ scopeMode: GrimodexScopeMode) {
+        scopeModeStore.update(scopeMode)
     }
 }

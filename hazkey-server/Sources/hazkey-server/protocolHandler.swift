@@ -3,9 +3,14 @@ import SwiftProtobuf
 
 class ProtocolHandler {
     private let sessionRegistry: HazkeySessionRegistry
+    private let onConfigurationChanged: (HazkeyServerConfig) -> Void
 
-    init(sessionRegistry: HazkeySessionRegistry) {
+    init(
+        sessionRegistry: HazkeySessionRegistry,
+        onConfigurationChanged: @escaping (HazkeyServerConfig) -> Void = { _ in }
+    ) {
         self.sessionRegistry = sessionRegistry
+        self.onConfigurationChanged = onConfigurationChanged
     }
 
     func processProto(data: Data, clientFd: Int32) -> Data {
@@ -54,6 +59,7 @@ class ProtocolHandler {
                 request.profiles
             )
             if response.status == .success {
+                onConfigurationChanged(sessionRegistry.serverConfig)
                 sessionRegistry.reinitializeAll()
             }
         case .clearAllHistory_p:
