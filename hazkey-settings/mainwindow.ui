@@ -1829,7 +1829,7 @@
                   </size>
                  </property>
                  <property name="pixmap">
-                  <pixmap resource="hazkey-icon.qrc">:/images/hazkey.svg</pixmap>
+                  <pixmap resource="hazkey-icon.qrc">:/images/grimodex.svg</pixmap>
                  </property>
                  <property name="scaledContents">
                   <bool>true</bool>

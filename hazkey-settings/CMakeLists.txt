@@ -154,7 +154,7 @@ if(GRIMODEX_FLATPAK OR HAZKEY_FLATPAK)
     set(GRIMODEX_ICON_NAME "org.grimodex.Grimodex")
     set(GRIMODEX_SETTINGS_DESKTOP_FILE_NAME org.grimodex.Grimodex.IME.Settings)
 else()
-    set(GRIMODEX_ICON_NAME "grimodex")
+    set(GRIMODEX_ICON_NAME "fcitx5-grimodex")
     set(GRIMODEX_SETTINGS_DESKTOP_FILE_NAME fcitx5-grimodex-settings)
 endif()
 
