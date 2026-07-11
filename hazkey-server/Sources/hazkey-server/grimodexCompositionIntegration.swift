@@ -53,12 +53,11 @@ final class GrimodexCompositionIntegrationController {
     }
 
     func endOrReset(latest: GrimodexIntegrationRevision) {
-        applier.stopComposition()
         if latest.secureInput, !secureInput {
-            guard let revoked = generationPin.revokeImmediately(latest) else { return }
-            apply(revoked)
+            revokeImmediately(latest)
             return
         }
+        applier.stopComposition()
         let revision = secureRevisionIfNeeded(latest)
         guard let revisionToApply = generationPin.endComposition(latest: revision) else {
             return

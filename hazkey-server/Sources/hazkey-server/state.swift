@@ -114,7 +114,8 @@ class HazkeyServerState {
 
     func setContext(surroundingText: String, anchorIndex: Int) -> Hazkey_ResponseEnvelope {
         let leftContext = String(surroundingText.prefix(anchorIndex))
-        currentLeftContext = leftContext
+        grimodexIntegration.observe(grimodexRevisionProvider.latest())
+        updateSurroundingContext(leftContext)
         refreshZenzaiMode()
 
         return Hazkey_ResponseEnvelope.with {
@@ -124,7 +125,16 @@ class HazkeyServerState {
 
     func refreshGrimodexIntegration() {
         grimodexIntegration.observe(grimodexRevisionProvider.latest())
+        updateSurroundingContext()
         refreshZenzaiMode()
+    }
+
+    private func updateSurroundingContext(_ newValue: String? = nil) {
+        if grimodexIntegration.secureInput {
+            currentLeftContext = ""
+        } else if let newValue {
+            currentLeftContext = newValue
+        }
     }
 
     private func refreshZenzaiMode() {
@@ -147,6 +157,7 @@ class HazkeyServerState {
 
     func createComposingTextInstanse() -> Hazkey_ResponseEnvelope {
         grimodexIntegration.endOrReset(latest: grimodexRevisionProvider.latest())
+        updateSurroundingContext()
         composingText = ComposingTextBox()
         currentCandidateList = nil
         isSubInputMode = false
@@ -166,6 +177,7 @@ class HazkeyServerState {
         }
         if !grimodexIntegration.isComposing {
             grimodexIntegration.prepareFirstInput(latest: grimodexRevisionProvider.latest())
+            updateSurroundingContext()
             refreshZenzaiMode()
         }
         isSubInputMode =
