@@ -11,6 +11,38 @@ permissions:
   contents: read
 
 jobs:
+  linux-client-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Fcitx and protobuf build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential cmake gettext ninja-build \
+            libfcitx5config-dev libfcitx5core-dev libfcitx5utils-dev \
+            libprotobuf-dev protobuf-compiler
+
+      - name: Build Fcitx addon
+        run: |
+          cmake -S fcitx5-hazkey -B fcitx5-hazkey/build-ci \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF
+          cmake --build fcitx5-hazkey/build-ci --parallel 2
+
+      - name: Build session client tests
+        run: |
+          cmake -S fcitx5-hazkey/tests -B fcitx5-hazkey/session-tests-ci \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build fcitx5-hazkey/session-tests-ci --parallel 2
+
+      - name: Run session client tests
+        run: ctest --test-dir fcitx5-hazkey/session-tests-ci --output-on-failure
+
   swift-tests:
     runs-on: ubuntu-24.04
     steps:
