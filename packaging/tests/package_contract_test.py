@@ -76,6 +76,8 @@ REQUIRED_PACKAGED_PATHS = (
     "/usr/lib/{,*/}fcitx5/fcitx5-grimodex.so",
     "/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-server",
     "/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-settings",
+    "/usr/lib/{,*/}fcitx5-grimodex/AzooKeyKanaKanjiConverter_EfficientNGram.resources/tokenizer/tokenizer.json",
+    "/usr/lib/{,*/}fcitx5-grimodex/swift-transformers_Hub.resources/gpt2_tokenizer_config.json",
     "/usr/share/applications/fcitx5-grimodex-settings.desktop",
     "/usr/share/fcitx5/addon/grimodex.conf",
     "/usr/share/fcitx5/inputmethod/grimodex.conf",
@@ -376,6 +378,36 @@ class PackageMetadataContractTests(unittest.TestCase):
         )
         self.assertIsNone(relationship_pattern.search(pkgbuild))
         self.assertIsNone(relationship_pattern.search(srcinfo))
+
+    def test_aur_network_gate_scans_binary_payloads_case_insensitively(self) -> None:
+        pkgbuild = (AUR_DIRECTORY / "PKGBUILD").read_text(encoding="utf-8")
+        command = re.search(
+            r"if grep (?P<flags>-\w+) '(?P<pattern>[^']+)' \\\n"
+            r'\s+"\$\{pkgdir\}/usr"',
+            pkgbuild,
+        )
+        self.assertIsNotNone(command, "cannot find AUR artifact network gate")
+        assert command is not None
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "usr"
+            root.mkdir()
+            (root / "server").write_bytes(b"\x7fELF\x00urlsession\x00")
+            result = subprocess.run(
+                [
+                    "grep",
+                    command.group("flags"),
+                    command.group("pattern"),
+                    str(root),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                "AUR network gate skipped a lowercase marker in a binary payload",
+            )
 
     def test_installed_and_uninstalled_paths_are_identical_and_isolated(self) -> None:
         installed = parse_path_manifest(INSTALL_MANIFEST)
