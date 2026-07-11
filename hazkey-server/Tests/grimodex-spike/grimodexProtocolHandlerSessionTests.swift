@@ -296,6 +296,27 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
     }
   }
 
+  func testObjectShapedConfigFallsBackWithoutTerminatingServer() throws {
+    try withTemporaryConfigHome { configHome in
+      let configDirectory = configHome.appendingPathComponent(
+        GrimodexProductPaths.packageName,
+        isDirectory: true
+      )
+      try FileManager.default.createDirectory(
+        at: configDirectory,
+        withIntermediateDirectories: true
+      )
+      try Data(#"{"profiles":[]}"#.utf8).write(
+        to: configDirectory.appendingPathComponent("config.json")
+      )
+
+      let config = HazkeyServerConfig()
+
+      XCTAssertEqual(config.profiles.count, 1)
+      XCTAssertEqual(config.currentProfile.profileName, "Default")
+    }
+  }
+
   private func openSession(
     handler: ProtocolHandler,
     clientFd: Int32,
