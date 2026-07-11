@@ -30,6 +30,7 @@ private final class RecordingHazkeyCandidateLearning: HazkeyCandidateLearning {
   private(set) var setCompletedDataCount = 0
   private(set) var updateLearningDataCount = 0
   private(set) var commitCount = 0
+  private(set) var synchronizeCount = 0
 
   func setCompletedData(_ candidate: Candidate) {
     setCompletedDataCount += 1
@@ -42,9 +43,73 @@ private final class RecordingHazkeyCandidateLearning: HazkeyCandidateLearning {
   func commitUpdateLearningData() {
     commitCount += 1
   }
+
+  func synchronizePersistedLearningData() {
+    synchronizeCount += 1
+  }
 }
 
 final class GrimodexStateIntegrationTests: XCTestCase {
+  func testCompositionBoundaryPublishesPendingLearningBeforeExternalCacheSync() {
+    let enabled = GrimodexIntegrationRevision(generation: 1, payload: nil)
+    let disabled = GrimodexIntegrationRevision(
+      generation: 2,
+      payload: nil,
+      allowsLearning: false,
+      secureInput: false
+    )
+    let store = HazkeyLearningRevisionStore()
+    let providerA = MutableGrimodexRevisionProvider(enabled)
+    let learningA = RecordingHazkeyCandidateLearning()
+    let learningB = RecordingHazkeyCandidateLearning()
+    let learningC = RecordingHazkeyCandidateLearning()
+    let stateA = HazkeyServerState(
+      revisionProvider: providerA,
+      candidateLearning: learningA,
+      learningRevisionStore: store
+    )
+    let stateB = HazkeyServerState(
+      revisionProvider: MutableGrimodexRevisionProvider(enabled),
+      candidateLearning: learningB,
+      learningRevisionStore: store
+    )
+    let stateC = HazkeyServerState(
+      revisionProvider: MutableGrimodexRevisionProvider(enabled),
+      candidateLearning: learningC,
+      learningRevisionStore: store
+    )
+
+    _ = stateA.inputChar(inputString: "a")
+    _ = stateB.inputChar(inputString: "i")
+    stateA.learningDataNeedsCommit = true
+    stateB.learningDataNeedsCommit = true
+
+    XCTAssertEqual(stateB.saveLearningData().status, .success)
+    XCTAssertEqual(store.current(), 1)
+
+    providerA.update(disabled)
+    XCTAssertEqual(stateA.createComposingTextInstanse().status, .success)
+
+    XCTAssertEqual(
+      learningA.commitCount,
+      1,
+      "pending learning must use the policy pinned for the composition that produced it"
+    )
+    XCTAssertEqual(learningA.synchronizeCount, 0)
+    XCTAssertEqual(store.current(), 2, "both sessions must publish distinct commits")
+    XCTAssertFalse(stateA.learningDataNeedsCommit)
+    XCTAssertFalse(stateA.grimodexAllowsLearning)
+
+    XCTAssertEqual(stateC.createComposingTextInstanse().status, .success)
+    XCTAssertEqual(
+      learningC.synchronizeCount,
+      1,
+      "a third long-lived session must observe the revision containing both commits"
+    )
+    XCTAssertEqual(stateC.createComposingTextInstanse().status, .success)
+    XCTAssertEqual(learningC.synchronizeCount, 1, "an observed revision must not reload twice")
+  }
+
   func testSetContextUsesFcitxUnicodeScalarPrefix() {
     let state = HazkeyServerState()
     state.serverConfig.zenzaiAvailable = true
