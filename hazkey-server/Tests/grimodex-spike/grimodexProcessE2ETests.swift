@@ -33,6 +33,7 @@ final class GrimodexProcessE2ETests: XCTestCase {
     )
     try server.start()
     defer { server.stop() }
+    try server.assertPrivateIPC()
 
     let client = try GrimodexProcessClient.connect(to: server.socketURL)
     defer { client.close() }

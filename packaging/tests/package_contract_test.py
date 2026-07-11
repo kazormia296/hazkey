@@ -30,6 +30,8 @@ HAZKEY_REFERENCE_MANIFEST = (
     REPOSITORY_ROOT / "packaging/manifests/fcitx5-hazkey.reference-paths"
 )
 BUILD_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/build.yml"
+PACKAGE_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/grimodex-package-ci.yml"
+INTEGRATION_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/grimodex-spike-ci.yml"
 
 FORBIDDEN_ARTIFACT_MARKERS = (
     b"qt6network",
@@ -144,6 +146,42 @@ def validate_staged_root(root: Path, entries: list[tuple[str, str]]) -> None:
 
 
 class PackageMetadataContractTests(unittest.TestCase):
+    def test_release_gates_watch_every_staged_install_input(self) -> None:
+        package_workflow = PACKAGE_WORKFLOW.read_text(encoding="utf-8")
+        integration_workflow = INTEGRATION_WORKFLOW.read_text(encoding="utf-8")
+
+        for path_filter in (
+            "CMakeLists.txt",
+            "fcitx5-hazkey/**",
+            "hazkey-server/**",
+            "hazkey-settings/**",
+            "linux-shared/**",
+            "protocol/**",
+            "LICENSE",
+            "NOTICE.md",
+        ):
+            with self.subTest(path_filter=path_filter):
+                self.assertIn(f'- "{path_filter}"', package_workflow)
+
+        self.assertIn("pull_request:", integration_workflow)
+
+    def test_integration_ci_validates_reused_real_cmake_installs(self) -> None:
+        workflow = INTEGRATION_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("cmake --install fcitx5-hazkey/build-ci", workflow)
+        self.assertIn("cmake --install hazkey-settings/build-ci", workflow)
+        self.assertIn("cmake --install hazkey-server/build-ci", workflow)
+        self.assertIn("grimodex-staged-client-${{ github.sha }}", workflow)
+        self.assertIn("grimodex-staged-server-${{ github.sha }}", workflow)
+        self.assertIn("real-staged-package-contract:", workflow)
+        self.assertIn("needs: [linux-client-tests, swift-tests]", workflow)
+        self.assertIn(
+            "GRIMODEX_STAGED_ROOT: ${{ runner.temp }}/grimodex-staged-root",
+            workflow,
+        )
+        self.assertIn("python3 packaging/tests/package_contract_test.py", workflow)
+        self.assertEqual(workflow.count("--target build_hazkey_server"), 1)
+
     def test_debian_source_and_binary_identity(self) -> None:
         paragraphs = parse_debian_paragraphs(DEBIAN_CONTROL)
         source = next(paragraph for paragraph in paragraphs if "source" in paragraph)
@@ -278,6 +316,27 @@ class ProductArtifactContractTests(unittest.TestCase):
                     with self.assertRaisesRegex(AssertionError, "forbidden"):
                         validate_artifact_bytes(Path(artifact.name))
 
+    def test_staged_install_and_uninstall_manifests_own_the_real_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            server = root / "usr/bin/fcitx5-grimodex-server"
+            server.parent.mkdir(parents=True)
+            server.write_bytes(b"real staged server")
+            entries = [("required", "/usr/bin/fcitx5-grimodex-server")]
+
+            validate_staged_install_and_uninstall(root, entries, entries)
+
+    def test_staged_install_rejects_a_path_not_owned_on_uninstall(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            server = root / "usr/bin/fcitx5-grimodex-server"
+            server.parent.mkdir(parents=True)
+            server.write_bytes(b"real staged server")
+            install_entries = [("required", "/usr/bin/fcitx5-grimodex-server")]
+
+            with self.assertRaisesRegex(AssertionError, "uninstall manifest"):
+                validate_staged_install_and_uninstall(root, install_entries, [])
+
     def test_optional_release_artifacts(self) -> None:
         configured = os.environ.get("GRIMODEX_PRODUCT_ARTIFACTS", "")
         for raw_path in filter(None, configured.split(os.pathsep)):
@@ -288,7 +347,11 @@ class ProductArtifactContractTests(unittest.TestCase):
     def test_optional_staged_install(self) -> None:
         configured = os.environ.get("GRIMODEX_STAGED_ROOT")
         if configured:
-            validate_staged_root(Path(configured), parse_path_manifest(INSTALL_MANIFEST))
+            validate_staged_install_and_uninstall(
+                Path(configured),
+                parse_path_manifest(INSTALL_MANIFEST),
+                parse_path_manifest(UNINSTALL_MANIFEST),
+            )
 
 
 if __name__ == "__main__":
