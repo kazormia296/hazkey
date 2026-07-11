@@ -203,6 +203,13 @@ jobs:
           ninja -j$(nproc)
           env DESTDIR=${{ github.workspace }}/workdir ninja install
 
+      - name: Audit pinned local-only Swift Hub dependency
+        run: |
+          python3 packaging/scripts/audit_swift_hub_offline.py \
+            --package-resolved hazkey-server/Package.resolved \
+            --checkout hazkey-server/build/swift-build/checkouts/swift-tokenizers \
+            --expected-revision 4a606f66e0cc4d7d9f0197649e812f7fc86a4c34
+
       - name: Strip binaries
         run: |
           find ${{ github.workspace }}/workdir/usr/ -type f -print0 | xargs -0 file -i | grep -E "application/(x-pie-executable|x-sharedlib)" | cut -d: -f1 | xargs -I{} strip "{}"

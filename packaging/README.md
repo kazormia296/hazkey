@@ -43,9 +43,12 @@ To inspect a real staged install, set `GRIMODEX_STAGED_ROOT` to its DESTDIR.
 To inspect individual unpacked executables or libraries, set
 `GRIMODEX_PRODUCT_ARTIFACTS` to an `os.pathsep`-separated list. Staged files and
 provided product artifacts are rejected if they expose old Hazkey paths or
-embed Qt Network/Hugging Face download-client markers. These checks complement,
-rather than replace, package manager install/uninstall tests on Debian and Arch
-runners.
+embed concrete Qt, Foundation, Swift NIO, or libcurl network-client APIs. A
+separate fail-closed source audit verifies that the exact pinned
+`swift-tokenizers` checkout still uses its historical Hub module only for local
+JSON configuration; provider-domain metadata by itself is not treated as a
+network capability. These checks complement, rather than replace, package
+manager install/uninstall tests on Debian and Arch runners.
 
 The integration workflow installs the already-built Fcitx addon, Qt settings
 application, and Swift server with CMake into two DESTDIR trees, merges those

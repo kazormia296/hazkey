@@ -49,9 +49,13 @@ FORBIDDEN_ARTIFACT_MARKERS = (
     b"qnetworkaccessmanager",
     b"qnetworkrequest",
     b"qnetworkreply",
-    b"huggingface",
-    b"huggingface.co",
-    b"hf.co",
+    b"foundationnetworking",
+    b"urlsession",
+    b"nsurlconnection",
+    b"asynchttpclient",
+    b"niohttpclient",
+    b"curl_easy_",
+    b"libcurl.so",
 )
 
 REQUIRED_PACKAGED_PATHS = (
@@ -351,6 +355,9 @@ class PackageMetadataContractTests(unittest.TestCase):
         self.assertIn("license=('MIT')", pkgbuild)
         self.assertIn("license = MIT", srcinfo)
         self.assertIn("fcitx5-grimodex", pkgbuild)
+        self.assertIn("URLSession", pkgbuild)
+        self.assertIn("FoundationNetworking", pkgbuild)
+        self.assertNotRegex(pkgbuild, r"(?i)huggingface|hf\.co")
 
         relationship_pattern = re.compile(
             r"(?im)^(?:conflicts|replaces|provides)(?:\s*=|=).*fcitx5-hazkey"
@@ -617,6 +624,8 @@ class ProductArtifactContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             hub = Path(temporary_directory) / "Sources/Hub"
             hub.mkdir(parents=True)
+            for name in ("Downloader.swift", "Hub.swift"):
+                (hub / name).write_text("import Foundation\n", encoding="utf-8")
             (hub / "HubApi.swift").write_text(
                 'let endpoint = "https://huggingface.co"\n'
                 "let data = try Data(contentsOf: fileURL)\n",
@@ -636,6 +645,8 @@ class ProductArtifactContractTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as temporary_directory:
                     hub = Path(temporary_directory) / "Sources/Hub"
                     hub.mkdir(parents=True)
+                    for name in ("Downloader.swift", "Hub.swift"):
+                        (hub / name).write_text("import Foundation\n", encoding="utf-8")
                     (hub / "HubApi.swift").write_text(source, encoding="utf-8")
                     with self.assertRaisesRegex(
                         auditor.OfflineHubAuditError,
@@ -649,6 +660,8 @@ class ProductArtifactContractTests(unittest.TestCase):
             checkout = root / "checkouts/swift-tokenizers"
             hub = checkout / "Sources/Hub"
             hub.mkdir(parents=True)
+            for name in ("Downloader.swift", "Hub.swift"):
+                (hub / name).write_text("import Foundation\n", encoding="utf-8")
             (hub / "HubApi.swift").write_text(
                 "let data = try Data(contentsOf: fileURL)\n",
                 encoding="utf-8",

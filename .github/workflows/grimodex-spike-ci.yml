@@ -216,6 +216,13 @@ jobs:
       - name: Build Hazkey and llama
         run: cmake --build hazkey-server/build-ci --target build_hazkey_server --parallel 2
 
+      - name: Audit pinned local-only Swift Hub dependency
+        run: |
+          python3 packaging/scripts/audit_swift_hub_offline.py \
+            --package-resolved hazkey-server/Package.resolved \
+            --checkout hazkey-server/build-ci/swift-build/checkouts/swift-tokenizers \
+            --expected-revision 4a606f66e0cc4d7d9f0197649e812f7fc86a4c34
+
       - name: Stage real server CMake install
         run: |
           mkdir -p "$RUNNER_TEMP/grimodex-staged-server"
