@@ -10,10 +10,12 @@ os.pathsep-separated list of release artifacts for binary-content checks.
 from __future__ import annotations
 
 import fnmatch
+import json
 import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -33,6 +35,9 @@ HAZKEY_REFERENCE_MANIFEST = (
 BUILD_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/build.yml"
 PACKAGE_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/grimodex-package-ci.yml"
 INTEGRATION_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/grimodex-spike-ci.yml"
+LICENSE_COLLECTOR = (
+    REPOSITORY_ROOT / "packaging/scripts/collect_third_party_licenses.py"
+)
 
 FORBIDDEN_ARTIFACT_MARKERS = (
     b"qt6network",
@@ -47,15 +52,21 @@ FORBIDDEN_ARTIFACT_MARKERS = (
 REQUIRED_PACKAGED_PATHS = (
     "/usr/bin/fcitx5-grimodex-server",
     "/usr/bin/fcitx5-grimodex-settings",
-    "/usr/lib/*/fcitx5/fcitx5-grimodex.so",
-    "/usr/lib/*/fcitx5-grimodex/fcitx5-grimodex-server",
-    "/usr/lib/*/fcitx5-grimodex/fcitx5-grimodex-settings",
+    "/usr/lib/{,*/}fcitx5/fcitx5-grimodex.so",
+    "/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-server",
+    "/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-settings",
     "/usr/share/applications/fcitx5-grimodex-settings.desktop",
     "/usr/share/fcitx5/addon/grimodex.conf",
     "/usr/share/fcitx5/inputmethod/grimodex.conf",
     "/usr/share/icons/hicolor/scalable/apps/fcitx5-grimodex.svg",
     "/usr/share/licenses/fcitx5-grimodex/LICENSE",
     "/usr/share/licenses/fcitx5-grimodex/NOTICE.md",
+    "/usr/share/licenses/fcitx5-grimodex/third-party/azookey-dictionary/*",
+    "/usr/share/licenses/fcitx5-grimodex/third-party/azookey-emoji/*",
+    "/usr/share/licenses/fcitx5-grimodex/third-party/llama.cpp/*",
+    "/usr/share/licenses/fcitx5-grimodex/third-party/protobuf/*",
+    "/usr/share/licenses/fcitx5-grimodex/third-party/swift-packages/*",
+    "/usr/share/licenses/fcitx5-grimodex/third-party/swift-runtime/*",
     "/usr/share/metainfo/com.miyakey.grimodex.ime.fcitx5.metainfo.xml",
 )
 
@@ -330,6 +341,87 @@ class PackageMetadataContractTests(unittest.TestCase):
         self.assertNotIn("packages/fcitx5-hazkey-", workflow)
         self.assertNotIn("name: fcitx5-hazkey-", workflow)
 
+    def test_release_workflow_collects_licenses_and_validates_canonical_tree(self) -> None:
+        workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
+
+        collector = "python3 packaging/scripts/collect_third_party_licenses.py"
+        validator = "python3 packaging/tests/package_contract_test.py"
+        archive = 'tar --zstd -cf "${{ github.workspace }}/packages/$archive" ./usr'
+        self.assertIn(collector, workflow)
+        self.assertIn("hazkey-server/build/swift-build/checkouts", workflow)
+        self.assertIn("swift-6.2-RELEASE/LICENSE.txt", workflow)
+        self.assertIn("protobuf/v21.12/LICENSE", workflow)
+        self.assertLess(workflow.index(collector), workflow.index(validator))
+        self.assertLess(workflow.index(validator), workflow.index(archive))
+
+    def test_license_collector_copies_every_resolved_and_bundled_license(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            repository = root / "repository"
+            checkouts = root / "checkouts"
+            destination = root / "stage"
+            (repository / "hazkey-server/azooKey_dictionary_storage").mkdir(parents=True)
+            (repository / "hazkey-server/azooKey_dictionary_storage/LICENSE").write_text("dictionary")
+            (repository / "hazkey-server/azooKey_emoji_dictionary_storage/data").mkdir(parents=True)
+            (repository / "hazkey-server/azooKey_emoji_dictionary_storage/data/README.md").write_text("emoji notice")
+            (repository / "hazkey-server/llama.cpp").mkdir(parents=True)
+            (repository / "hazkey-server/llama.cpp/LICENSE").write_text("llama")
+            (repository / "hazkey-server/Package.resolved").write_text(
+                json.dumps({"pins": [{"identity": "converter"}, {"identity": "swift-util"}]}),
+                encoding="utf-8",
+            )
+            for identity in ("converter", "swift-util"):
+                (checkouts / identity).mkdir(parents=True)
+                (checkouts / identity / "LICENSE").write_text(identity)
+            inputs = {}
+            for name in ("swift", "protobuf", "mozc", "unicode"):
+                inputs[name] = root / f"{name}-LICENSE"
+                inputs[name].write_text(name)
+
+            result = subprocess.run(
+                [
+                    "python3", str(LICENSE_COLLECTOR),
+                    "--repository-root", str(repository),
+                    "--swift-checkouts", str(checkouts),
+                    "--swift-runtime-license", str(inputs["swift"]),
+                    "--protobuf-license", str(inputs["protobuf"]),
+                    "--emoji-mozc-license", str(inputs["mozc"]),
+                    "--emoji-unicode-license", str(inputs["unicode"]),
+                    "--destination-root", str(destination),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            license_root = destination / "usr/share/licenses/fcitx5-grimodex/third-party"
+            for relative_path in (
+                "azookey-dictionary/LICENSE",
+                "azookey-emoji/SOURCE-NOTICE.md",
+                "azookey-emoji/MOZC-LICENSE",
+                "azookey-emoji/UNICODE-LICENSE",
+                "llama.cpp/LICENSE",
+                "protobuf/LICENSE",
+                "swift-runtime/LICENSE.txt",
+                "swift-packages/converter/LICENSE",
+                "swift-packages/swift-util/LICENSE",
+            ):
+                self.assertTrue((license_root / relative_path).is_file(), relative_path)
+
+    def test_license_collector_fails_closed_when_a_resolved_license_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            repository = root / "repository"
+            (repository / "hazkey-server").mkdir(parents=True)
+            (repository / "hazkey-server/Package.resolved").write_text(
+                json.dumps({"pins": [{"identity": "missing"}]}), encoding="utf-8"
+            )
+            result = subprocess.run(
+                ["python3", str(LICENSE_COLLECTOR), "--repository-root", str(repository)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+
     def test_settings_and_desktop_use_the_packaged_grimodex_icon(self) -> None:
         settings_cmake = (
             REPOSITORY_ROOT / "hazkey-settings/CMakeLists.txt"
@@ -349,16 +441,18 @@ class PackageMetadataContractTests(unittest.TestCase):
 
 
 class ProductArtifactContractTests(unittest.TestCase):
-    def test_staged_validator_accepts_grimodex_paths(self) -> None:
+    def test_staged_validator_accepts_canonical_and_multiarch_grimodex_paths(self) -> None:
         entries = parse_path_manifest(INSTALL_MANIFEST)
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            for pattern in REQUIRED_PACKAGED_PATHS:
-                path = pattern.replace("*", "x86_64-linux-gnu")
-                destination = root / path.removeprefix("/")
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_bytes(b"local Grimodex product")
-            validate_staged_root(root, entries)
+        for multiarch in ("", "x86_64-linux-gnu/"):
+            with self.subTest(multiarch=multiarch):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    for pattern in REQUIRED_PACKAGED_PATHS:
+                        path = pattern.replace("{,*/}", multiarch).replace("*", "fixture")
+                        destination = root / path.removeprefix("/")
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        destination.write_bytes(b"local Grimodex product")
+                    validate_staged_root(root, entries)
 
     def test_staged_validator_rejects_hazkey_public_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
