@@ -20,6 +20,10 @@ class HazkeyServerState {
         self.serverConfig = HazkeyServerConfig()
 
         self.converter = KanaKanjiConverter.init(dictionaryURL: serverConfig.dictionaryPath)
+        let grimodexSpikeCount = GrimodexDictionarySpike.injectIfEnabled(into: converter)
+        if grimodexSpikeCount > 0 {
+            NSLog("Injected \(grimodexSpikeCount) fixed Grimodex dictionary spike entries")
+        }
 
         // Initialize keymap and table
         self.keymap = serverConfig.loadKeymap()
@@ -59,6 +63,17 @@ class HazkeyServerState {
 
         // Initialize base convert options
         self.baseConvertRequestOptions = serverConfig.genBaseConvertRequestOptions()
+        if let report = GrimodexDictionarySpike.runBenchmarkIfConfigured(
+            converter: converter,
+            options: baseConvertRequestOptions
+        ) {
+            let rss = report.residentMemoryKilobytes.map { String($0) } ?? "unavailable"
+            NSLog(
+                "Grimodex dictionary benchmark entries=\(report.entryCount) "
+                    + "import_ms=\(report.importMilliseconds) "
+                    + "warm_p95_ms=\(report.warmP95Milliseconds) rss_kib=\(rss)"
+            )
+        }
     }
 
     func setContext(surroundingText: String, anchorIndex: Int) -> Hazkey_ResponseEnvelope {
