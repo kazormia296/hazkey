@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@ --buildsystem=cmake+ninja
+
+override_dh_auto_configure:
+	test -d hazkey-server/azooKey_dictionary_storage/Dictionary
+	test -f hazkey-server/azooKey_emoji_dictionary_storage/EmojiDictionary/emoji_all_E16.0.txt
+	test -f hazkey-server/llama.cpp/CMakeLists.txt
+	dh_auto_configure -- \
+		-DCMAKE_BUILD_TYPE=RelWithDebInfo \
+		-DCMAKE_INSTALL_PREFIX=/usr \
+		-DGGML_NATIVE=OFF \
+		-DGGML_VULKAN=OFF \
+		-DHAZKEY_SERVER_STATIC_SWIFT_STDLIB=ON
+
+override_dh_missing:
+	dh_missing --fail-missing

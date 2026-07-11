@@ -1,0 +1,28 @@
+pkgbase = fcitx5-grimodex-bin
+	pkgdesc = Project-aware Japanese input method for Grimodex and Fcitx5 (binary release)
+	pkgver = 0.2.1
+	pkgrel = 1
+	url = https://github.com/kazormia296/hazkey
+	install = fcitx5-grimodex.install
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	depends = fcitx5
+	depends = glibc
+	depends = gcc-libs
+	depends = protobuf
+	depends = qt6-base
+	optdepends = grimodex: publish project dictionaries and local conversion conditions
+	provides = fcitx5-grimodex=0.2.1
+	conflicts = fcitx5-grimodex
+	options = !strip
+	source_x86_64 = fcitx5-grimodex-0.2.1-x86_64.tar.zst::https://github.com/kazormia296/hazkey/releases/download/v0.2.1/fcitx5-grimodex-0.2.1-x86_64.tar.zst
+	source_x86_64 = fcitx5-grimodex-0.2.1-x86_64.tar.zst.sha256::https://github.com/kazormia296/hazkey/releases/download/v0.2.1/fcitx5-grimodex-0.2.1-x86_64.tar.zst.sha256
+	sha256sums_x86_64 = SKIP
+	sha256sums_x86_64 = SKIP
+	source_aarch64 = fcitx5-grimodex-0.2.1-aarch64.tar.zst::https://github.com/kazormia296/hazkey/releases/download/v0.2.1/fcitx5-grimodex-0.2.1-aarch64.tar.zst
+	source_aarch64 = fcitx5-grimodex-0.2.1-aarch64.tar.zst.sha256::https://github.com/kazormia296/hazkey/releases/download/v0.2.1/fcitx5-grimodex-0.2.1-aarch64.tar.zst.sha256
+	sha256sums_aarch64 = SKIP
+	sha256sums_aarch64 = SKIP
+
+pkgname = fcitx5-grimodex-bin

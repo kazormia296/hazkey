@@ -1,0 +1,37 @@
+Source: fcitx5-grimodex
+Section: utils
+Priority: optional
+Maintainer: Grimodex Project <kazormia296@users.noreply.github.com>
+Rules-Requires-Root: no
+Build-Depends:
+ debhelper-compat (= 13),
+ cmake (>= 3.21),
+ gettext,
+ libfcitx5config-dev,
+ libfcitx5core-dev,
+ libfcitx5utils-dev,
+ libprotobuf-dev (>= 3.12),
+ ninja-build,
+ pkg-config,
+ protobuf-compiler (>= 3.12),
+ qt6-base-dev,
+ qt6-tools-dev,
+ swiftlang (>= 6.1)
+Standards-Version: 4.7.0
+Homepage: https://github.com/kazormia296/hazkey
+Vcs-Browser: https://github.com/kazormia296/hazkey
+Vcs-Git: https://github.com/kazormia296/hazkey.git
+
+Package: fcitx5-grimodex
+Architecture: amd64 arm64
+Depends:
+ fcitx5,
+ ${misc:Depends},
+ ${shlibs:Depends}
+Description: project-aware Japanese input method for Grimodex and Fcitx5
+ fcitx5-grimodex is a standalone Japanese input method derived from Hazkey.
+ It consumes Grimodex project dictionaries and local conversion conditions
+ while keeping per-input-context sessions isolated.
+ .
+ The package uses its own addon, input method, server, settings, runtime,
+ configuration, and data identities so it can be installed alongside Hazkey.

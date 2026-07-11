@@ -1,0 +1,11 @@
+post_install() {
+  echo 'fcitx5-grimodex installed. Restart Fcitx5, then enable Grimodex in Input Method Configuration.'
+}
+
+post_upgrade() {
+  echo 'fcitx5-grimodex upgraded. Restart Fcitx5 before continuing an active composition.'
+}
+
+post_remove() {
+  echo 'fcitx5-grimodex removed. User data under XDG directories was left untouched.'
+}
