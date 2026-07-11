@@ -161,6 +161,31 @@ final class GrimodexSessionStateTests: XCTestCase {
     XCTAssertNil(pin.applied?.payload)
   }
 
+  func testSecureTransitionRevokesAnActiveCompositionImmediately() {
+    var pin = GrimodexCompositionGenerationPin()
+    let active = revision(3, projectID: "project-a")
+    let revoked = GrimodexIntegrationRevision(generation: 3, payload: nil)
+    _ = pin.beginComposition(latest: active)
+    XCTAssertTrue(pin.isComposing)
+
+    XCTAssertEqual(pin.revokeImmediately(revoked), revoked)
+    XCTAssertFalse(pin.isComposing)
+    XCTAssertNil(pin.pinned)
+    XCTAssertNil(pin.pending)
+    XCTAssertEqual(pin.applied, revoked)
+  }
+
+  func testRepeatedEndCompositionIsIdempotentAndCanApplyANewerRevision() {
+    var pin = GrimodexCompositionGenerationPin()
+    let generation1 = revision(1, projectID: "project-a")
+    let generation2 = revision(2, projectID: "project-b")
+
+    XCTAssertEqual(pin.endComposition(latest: generation1), generation1)
+    XCTAssertNil(pin.endComposition(latest: generation1))
+    XCTAssertEqual(pin.endComposition(latest: generation2), generation2)
+    XCTAssertEqual(pin.applied, generation2)
+  }
+
   func testScopeChangeWithTheSameGenerationStillApplies() {
     let snapshot = GrimodexPublishedSnapshot(
       generation: 4,
