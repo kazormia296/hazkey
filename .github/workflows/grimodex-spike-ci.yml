@@ -1,6 +1,21 @@
 name: Grimodex IME spike
 
 on:
+  pull_request:
+    paths:
+      - "CMakeLists.txt"
+      - "fcitx5-hazkey/**"
+      - "hazkey-server/**"
+      - "hazkey-settings/**"
+      - "linux-shared/**"
+      - "protocol/**"
+      - "LICENSE"
+      - "NOTICE.md"
+      - "debian/**"
+      - "packaging/**"
+      - ".github/workflows/build.yml"
+      - ".github/workflows/grimodex-package-ci.yml"
+      - ".github/workflows/grimodex-spike-ci.yml"
   push:
     branches:
       - codex/grimodex-ime-phase3-linux-spike
@@ -31,6 +46,7 @@ jobs:
           cmake -S fcitx5-hazkey -B fcitx5-hazkey/build-ci \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
             -DBUILD_TESTING=OFF
           cmake --build fcitx5-hazkey/build-ci --parallel 2
 
@@ -49,11 +65,30 @@ jobs:
           cmake -S hazkey-settings -B hazkey-settings/build-ci \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
             -DBUILD_TESTING=ON
           cmake --build hazkey-settings/build-ci --parallel 2
 
       - name: Run settings tests
         run: ctest --test-dir hazkey-settings/build-ci --output-on-failure
+
+      - name: Stage real Fcitx and settings CMake installs
+        run: |
+          mkdir -p "$RUNNER_TEMP/grimodex-staged-client"
+          DESTDIR="$RUNNER_TEMP/grimodex-staged-client" \
+            cmake --install fcitx5-hazkey/build-ci
+          DESTDIR="$RUNNER_TEMP/grimodex-staged-client" \
+            cmake --install hazkey-settings/build-ci
+          tar -C "$RUNNER_TEMP/grimodex-staged-client" \
+            -czf "$RUNNER_TEMP/grimodex-staged-client.tar.gz" .
+
+      - name: Upload real Fcitx and settings staged install
+        uses: actions/upload-artifact@v6
+        with:
+          name: grimodex-staged-client-${{ github.sha }}
+          path: ${{ runner.temp }}/grimodex-staged-client.tar.gz
+          if-no-files-found: error
+          retention-days: 7
 
   swift-tests:
     runs-on: ubuntu-24.04
@@ -169,6 +204,7 @@ jobs:
           cmake -S hazkey-server -B hazkey-server/build-ci \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
             -DGGML_VULKAN=OFF \
             -DHAZKEY_SERVER_ENABLE_ZENZAI=ON \
             -DHAZKEY_SERVER_BUILD_LLAMA_LIBS=ON \
@@ -179,6 +215,22 @@ jobs:
 
       - name: Build Hazkey and llama
         run: cmake --build hazkey-server/build-ci --target build_hazkey_server --parallel 2
+
+      - name: Stage real server CMake install
+        run: |
+          mkdir -p "$RUNNER_TEMP/grimodex-staged-server"
+          DESTDIR="$RUNNER_TEMP/grimodex-staged-server" \
+            cmake --install hazkey-server/build-ci
+          tar -C "$RUNNER_TEMP/grimodex-staged-server" \
+            -czf "$RUNNER_TEMP/grimodex-staged-server.tar.gz" .
+
+      - name: Upload real server staged install
+        uses: actions/upload-artifact@v6
+        with:
+          name: grimodex-staged-server-${{ github.sha }}
+          path: ${{ runner.temp }}/grimodex-staged-server.tar.gz
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Checkout pinned Grimodex consumer E2E
         uses: actions/checkout@v6
@@ -212,3 +264,35 @@ jobs:
             --traits ZenzaiSupport \
             -Xlinker -L${{ github.workspace }}/hazkey-server/build-ci/bin \
             --filter Grimodex
+
+  real-staged-package-contract:
+    needs: [linux-client-tests, swift-tests]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+
+      - name: Download real Fcitx and settings staged install
+        uses: actions/download-artifact@v6
+        with:
+          name: grimodex-staged-client-${{ github.sha }}
+          path: ${{ runner.temp }}/grimodex-staged-parts/client
+
+      - name: Download real server staged install
+        uses: actions/download-artifact@v6
+        with:
+          name: grimodex-staged-server-${{ github.sha }}
+          path: ${{ runner.temp }}/grimodex-staged-parts/server
+
+      - name: Merge and validate real DESTDIR tree
+        env:
+          GRIMODEX_STAGED_ROOT: ${{ runner.temp }}/grimodex-staged-root
+        run: |
+          mkdir -p "$GRIMODEX_STAGED_ROOT"
+          tar -C "$GRIMODEX_STAGED_ROOT" -xzf \
+            "$RUNNER_TEMP/grimodex-staged-parts/client/grimodex-staged-client.tar.gz"
+          tar -C "$GRIMODEX_STAGED_ROOT" -xzf \
+            "$RUNNER_TEMP/grimodex-staged-parts/server/grimodex-staged-server.tar.gz"
+          python3 packaging/tests/package_contract_test.py

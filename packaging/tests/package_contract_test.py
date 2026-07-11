@@ -13,6 +13,7 @@ import fnmatch
 import os
 from pathlib import Path
 import re
+import shutil
 import tempfile
 import unittest
 
@@ -143,6 +144,42 @@ def validate_staged_root(root: Path, entries: list[tuple[str, str]]) -> None:
     for path in root.rglob("*"):
         if path.is_file() and not path.is_symlink():
             validate_artifact_bytes(path)
+
+
+def validate_staged_install_and_uninstall(
+    root: Path,
+    install_entries: list[tuple[str, str]],
+    uninstall_entries: list[tuple[str, str]],
+) -> None:
+    """Validate both ownership manifests against a real staged install tree."""
+    validate_staged_root(root, install_entries)
+    paths = staged_public_paths(root)
+
+    uninstall_patterns = [pattern for _, pattern in uninstall_entries]
+    for path in paths:
+        if not any(
+            fnmatch.fnmatchcase(path, pattern) for pattern in uninstall_patterns
+        ):
+            raise AssertionError(f"uninstall manifest does not own staged path: {path}")
+
+    for kind, pattern in uninstall_entries:
+        if kind == "required" and not any(
+            fnmatch.fnmatchcase(path, pattern) for path in paths
+        ):
+            raise AssertionError(f"required uninstall path is missing: {pattern}")
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        simulated_root = Path(temporary_directory) / "root"
+        shutil.copytree(root, simulated_root, symlinks=True)
+        for path in paths:
+            (simulated_root / path.removeprefix("/")).unlink()
+
+        remaining_paths = staged_public_paths(simulated_root)
+        if remaining_paths:
+            raise AssertionError(
+                "manifest uninstall left staged path(s): "
+                + ", ".join(remaining_paths)
+            )
 
 
 class PackageMetadataContractTests(unittest.TestCase):

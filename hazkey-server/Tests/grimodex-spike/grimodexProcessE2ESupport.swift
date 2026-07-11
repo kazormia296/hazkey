@@ -194,6 +194,32 @@ final class GrimodexProcessHarness {
     try? FileManager.default.removeItem(at: sandboxURL)
   }
 
+  func assertPrivateIPC() throws {
+    let runtimeURL = socketURL.deletingLastPathComponent()
+    let runtimeAttributes = try FileManager.default.attributesOfItem(
+      atPath: runtimeURL.path
+    )
+    let socketAttributes = try FileManager.default.attributesOfItem(
+      atPath: socketURL.path
+    )
+    guard
+      let runtimeMode = runtimeAttributes[.posixPermissions] as? NSNumber,
+      runtimeMode.intValue & 0o777 == 0o700
+    else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "real server runtime directory is not mode 0700"
+      )
+    }
+    guard
+      let socketMode = socketAttributes[.posixPermissions] as? NSNumber,
+      socketMode.intValue & 0o777 == 0o600
+    else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "real server socket is not mode 0600"
+      )
+    }
+  }
+
   private func waitForSocket(timeout: TimeInterval) throws {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {

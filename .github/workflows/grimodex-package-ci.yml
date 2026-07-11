@@ -3,17 +3,37 @@ name: Grimodex package contract
 on:
   pull_request:
     paths:
+      - "CMakeLists.txt"
+      - "fcitx5-hazkey/**"
+      - "hazkey-server/**"
+      - "hazkey-settings/**"
+      - "linux-shared/**"
+      - "protocol/**"
+      - "LICENSE"
+      - "NOTICE.md"
       - "debian/**"
       - "packaging/**"
+      - ".github/workflows/build.yml"
       - ".github/workflows/grimodex-package-ci.yml"
+      - ".github/workflows/grimodex-spike-ci.yml"
   push:
     branches:
       - main
       - "codex/**"
     paths:
+      - "CMakeLists.txt"
+      - "fcitx5-hazkey/**"
+      - "hazkey-server/**"
+      - "hazkey-settings/**"
+      - "linux-shared/**"
+      - "protocol/**"
+      - "LICENSE"
+      - "NOTICE.md"
       - "debian/**"
       - "packaging/**"
+      - ".github/workflows/build.yml"
       - ".github/workflows/grimodex-package-ci.yml"
+      - ".github/workflows/grimodex-spike-ci.yml"
   workflow_dispatch:
 
 permissions:
