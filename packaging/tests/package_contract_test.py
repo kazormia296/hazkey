@@ -117,6 +117,15 @@ def parse_path_manifest(path: Path) -> list[tuple[str, str]]:
     return entries
 
 
+def expand_manifest_pattern(pattern: str) -> list[str]:
+    marker = "{,*/}"
+    if marker not in pattern:
+        return [pattern]
+    if pattern.count(marker) != 1:
+        raise AssertionError(f"manifest pattern has multiple optional libdir markers: {pattern}")
+    return [pattern.replace(marker, ""), pattern.replace(marker, "*/")]
+
+
 def staged_public_paths(root: Path) -> list[str]:
     return sorted(
         "/" + path.relative_to(root).as_posix()
@@ -139,7 +148,11 @@ def validate_staged_root(root: Path, entries: list[tuple[str, str]]) -> None:
     if not paths:
         raise AssertionError(f"staged root is empty: {root}")
 
-    patterns = [pattern for _, pattern in entries]
+    patterns = [
+        expanded
+        for _, pattern in entries
+        for expanded in expand_manifest_pattern(pattern)
+    ]
     for path in paths:
         if "hazkey" in path.lower():
             raise AssertionError(f"Hazkey public path leaked into Grimodex package: {path}")
@@ -147,8 +160,11 @@ def validate_staged_root(root: Path, entries: list[tuple[str, str]]) -> None:
             raise AssertionError(f"unowned staged package path: {path}")
 
     for kind, pattern in entries:
+        expanded_patterns = expand_manifest_pattern(pattern)
         if kind == "required" and not any(
-            fnmatch.fnmatchcase(path, pattern) for path in paths
+            fnmatch.fnmatchcase(path, expanded)
+            for path in paths
+            for expanded in expanded_patterns
         ):
             raise AssertionError(f"required packaged path is missing: {pattern}")
 
@@ -166,7 +182,11 @@ def validate_staged_install_and_uninstall(
     validate_staged_root(root, install_entries)
     paths = staged_public_paths(root)
 
-    uninstall_patterns = [pattern for _, pattern in uninstall_entries]
+    uninstall_patterns = [
+        expanded
+        for _, pattern in uninstall_entries
+        for expanded in expand_manifest_pattern(pattern)
+    ]
     for path in paths:
         if not any(
             fnmatch.fnmatchcase(path, pattern) for pattern in uninstall_patterns
@@ -174,8 +194,11 @@ def validate_staged_install_and_uninstall(
             raise AssertionError(f"uninstall manifest does not own staged path: {path}")
 
     for kind, pattern in uninstall_entries:
+        expanded_patterns = expand_manifest_pattern(pattern)
         if kind == "required" and not any(
-            fnmatch.fnmatchcase(path, pattern) for path in paths
+            fnmatch.fnmatchcase(path, expanded)
+            for path in paths
+            for expanded in expanded_patterns
         ):
             raise AssertionError(f"required uninstall path is missing: {pattern}")
 

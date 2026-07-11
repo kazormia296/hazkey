@@ -93,7 +93,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends wget gnupg2 \
+          sudo apt-get install -y --no-install-recommends wget curl gnupg2 \
             build-essential gettext fakeroot libfcitx5core-dev libfcitx5config-dev libfcitx5utils-dev \
             ninja-build qt6-base-dev qt6-tools-dev qt6-tools-dev-tools libqt6widgets6 libqt6gui6 qt6-l10n-tools libglx-dev libgl1-mesa-dev libxkbcommon-dev zstd
 
@@ -194,6 +194,51 @@ jobs:
       - name: Strip binaries
         run: |
           find ${{ github.workspace }}/workdir/usr/ -type f -print0 | xargs -0 file -i | grep -E "application/(x-pie-executable|x-sharedlib)" | cut -d: -f1 | xargs -I{} strip "{}"
+
+      - name: Fetch pinned redistribution licenses
+        if: matrix.release_asset
+        shell: bash
+        run: |
+          license_dir="$RUNNER_TEMP/grimodex-license-inputs"
+          mkdir -p "$license_dir"
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/swiftlang/swift/swift-6.2-RELEASE/LICENSE.txt \
+            --output "$license_dir/swift-LICENSE.txt"
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/protocolbuffers/protobuf/v21.12/LICENSE \
+            --output "$license_dir/protobuf-LICENSE"
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/google/mozc/0651fbcae495ff98f6ae17bb59e2bee0e3a79661/LICENSE \
+            --output "$license_dir/mozc-LICENSE"
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/unicode-org/cldr/b3bfdd73897b32f6a3e7cb39f7f09aadfafaabf8/LICENSE \
+            --output "$license_dir/unicode-LICENSE"
+          cd "$license_dir"
+          sha256sum --check <<'CHECKSUMS'
+          770af8291f708538d8ff885a0bbc4e045cd700531741c4f99528d435c14d7f55  swift-LICENSE.txt
+          6e5e117324afd944dcf67f36cf329843bc1a92229a8cd9bb573d7a83130fea7d  protobuf-LICENSE
+          44cdd923b91ea9199293abecc2762c70c87dbf1e581c027a94c416368d1a648c  mozc-LICENSE
+          65eb33419e22a297550a811b5b535f5e532f9a7e0114b516c0ea18afd53c3804  unicode-LICENSE
+          CHECKSUMS
+
+      - name: Collect complete third-party license set
+        if: matrix.release_asset
+        shell: bash
+        run: |
+          python3 packaging/scripts/collect_third_party_licenses.py \
+            --repository-root "${{ github.workspace }}" \
+            --swift-checkouts "${{ github.workspace }}/hazkey-server/build/swift-build/checkouts" \
+            --swift-runtime-license "$RUNNER_TEMP/grimodex-license-inputs/swift-LICENSE.txt" \
+            --protobuf-license "$RUNNER_TEMP/grimodex-license-inputs/protobuf-LICENSE" \
+            --emoji-mozc-license "$RUNNER_TEMP/grimodex-license-inputs/mozc-LICENSE" \
+            --emoji-unicode-license "$RUNNER_TEMP/grimodex-license-inputs/unicode-LICENSE" \
+            --destination-root "${{ github.workspace }}/workdir"
+
+      - name: Validate canonical release tree
+        if: matrix.release_asset
+        env:
+          GRIMODEX_STAGED_ROOT: ${{ github.workspace }}/workdir
+        run: python3 packaging/tests/package_contract_test.py
 
       - name: Create immutable Grimodex release assets
         if: matrix.release_asset
