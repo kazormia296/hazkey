@@ -17,16 +17,16 @@ enum ProcessManagerError: Error {
 struct ProcessIdentityVerifier {
     let procRoot: URL
     let uid: uid_t
-    let expectedExecutableName: String
+    let expectedExecutablePath: String
 
     init(
         procRoot: URL = URL(fileURLWithPath: "/proc", isDirectory: true),
         uid: uid_t = getuid(),
-        expectedExecutableName: String = GrimodexProductPaths.serverExecutableName
+        expectedExecutablePath: String
     ) {
         self.procRoot = procRoot
         self.uid = uid
-        self.expectedExecutableName = expectedExecutableName
+        self.expectedExecutablePath = Self.normalizeExecutablePath(expectedExecutablePath)
     }
 
     func canTerminate(pid: pid_t) -> Bool {
@@ -48,10 +48,16 @@ struct ProcessIdentityVerifier {
         ) else {
             return false
         }
+        guard !expectedExecutablePath.isEmpty else { return false }
+        return Self.normalizeExecutablePath(destination) == expectedExecutablePath
+    }
+
+    private static func normalizeExecutablePath(_ path: String) -> String {
         let deletedSuffix = " (deleted)"
-        let normalized = destination.hasSuffix(deletedSuffix)
-            ? String(destination.dropLast(deletedSuffix.count)) : destination
-        return URL(fileURLWithPath: normalized).lastPathComponent == expectedExecutableName
+        let withoutDeletedSuffix = path.hasSuffix(deletedSuffix)
+            ? String(path.dropLast(deletedSuffix.count)) : path
+        guard !withoutDeletedSuffix.isEmpty else { return "" }
+        return URL(fileURLWithPath: withoutDeletedSuffix).standardizedFileURL.path
     }
 }
 
@@ -62,12 +68,11 @@ class ProcessManager {
 
     init(lockFilePath: String) {
         self.lockFilePath = lockFilePath
-        let currentExecutable = (try? FileManager.default.destinationOfSymbolicLink(
+        let currentExecutablePath = (try? FileManager.default.destinationOfSymbolicLink(
             atPath: "/proc/self/exe"
-        )).map { URL(fileURLWithPath: $0).lastPathComponent }
-            ?? GrimodexProductPaths.serverExecutableName
+        )) ?? ""
         self.processVerifier = ProcessIdentityVerifier(
-            expectedExecutableName: currentExecutable
+            expectedExecutablePath: currentExecutablePath
         )
     }
 
