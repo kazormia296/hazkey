@@ -23,6 +23,15 @@ final class GrimodexCompositionIntegrationController {
     }
 
     func prepareFirstInput(latest: GrimodexIntegrationRevision) {
+        if latest.secureInput {
+            if !secureInput {
+                revokeImmediately(latest)
+            }
+            if let applied = generationPin.applied {
+                _ = generationPin.beginComposition(latest: applied)
+            }
+            return
+        }
         let revision = secureRevisionIfNeeded(latest)
         guard let revisionToApply = generationPin.beginComposition(latest: revision) else {
             return
@@ -33,7 +42,9 @@ final class GrimodexCompositionIntegrationController {
 
     func observe(_ revision: GrimodexIntegrationRevision) {
         if revision.secureInput {
-            revokeImmediately(revision)
+            if !secureInput {
+                revokeImmediately(revision)
+            }
             return
         }
         guard let revisionToApply = generationPin.observe(revision) else { return }
@@ -43,6 +54,11 @@ final class GrimodexCompositionIntegrationController {
 
     func endOrReset(latest: GrimodexIntegrationRevision) {
         applier.stopComposition()
+        if latest.secureInput, !secureInput {
+            guard let revoked = generationPin.revokeImmediately(latest) else { return }
+            apply(revoked)
+            return
+        }
         let revision = secureRevisionIfNeeded(latest)
         guard let revisionToApply = generationPin.endComposition(latest: revision) else {
             return

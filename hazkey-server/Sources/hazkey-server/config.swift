@@ -385,14 +385,29 @@ class HazkeyServerConfig {
         return homeDir.appendingPathComponent(".cache").appendingPathComponent("hazkey")
     }
 
-    func genZenzaiMode(leftContext: String)
+    func genZenzaiMode(
+        leftContext: String,
+        projectConditions: GrimodexProjectConditions = .empty,
+        zenzaiAllowed: Bool = true
+    )
         -> ConvertRequestOptions.ZenzaiMode
     {
         let deviceName =
             currentProfile.zenzaiBackendDeviceName.isEmpty
             ? "CPU" : currentProfile.zenzaiBackendDeviceName
+        let resolved = GrimodexZenzaiConditionResolver.resolve(
+            profile: currentProfile.zenzaiProfile,
+            topic: currentProfile.zenzaiTopic,
+            style: currentProfile.zenzaiStyle,
+            preference: currentProfile.zenzaiPreference,
+            project: projectConditions
+        )
 
-        if zenzaiAvailable, let zenzaiModelPath = zenzaiModelPath, currentProfile.zenzaiEnable {
+        if zenzaiAllowed,
+            zenzaiAvailable,
+            let zenzaiModelPath = zenzaiModelPath,
+            currentProfile.zenzaiEnable
+        {
             return ConvertRequestOptions.ZenzaiMode.on(
                 weight: zenzaiModelPath,
                 inferenceLimit: Int(currentProfile.zenzaiInferLimit),
@@ -400,10 +415,10 @@ class HazkeyServerConfig {
                 personalizationMode: nil,
                 versionDependentMode: .v3(
                     ConvertRequestOptions.ZenzaiV3DependentMode.init(
-                        profile: currentProfile.zenzaiProfile,
-                        topic: currentProfile.zenzaiTopic,
-                        style: currentProfile.zenzaiStyle,
-                        preference: currentProfile.zenzaiPreference,
+                        profile: resolved.profile,
+                        topic: resolved.topic,
+                        style: resolved.style,
+                        preference: resolved.preference,
                         leftSideContext: currentProfile.zenzaiContextualMode
                             ? leftContext : nil
                     )),

@@ -5,6 +5,8 @@ import SwiftUtils
 class HazkeyServerState {
     let serverConfig: HazkeyServerConfig
     let converter: KanaKanjiConverter
+    private let grimodexRevisionProvider: any GrimodexRevisionProviding
+    private let candidateLearning: any HazkeyCandidateLearning
     var currentCandidateList: [Candidate]?
     var composingText: ComposingTextBox = ComposingTextBox()
 
@@ -15,11 +17,40 @@ class HazkeyServerState {
     var keymap: Keymap
     var currentTableName: String
     var baseConvertRequestOptions: ConvertRequestOptions
+    private var currentLeftContext = ""
+    private lazy var grimodexIntegration = GrimodexCompositionIntegrationController(
+        applier: GrimodexStateCompositionApplier(state: self)
+    )
+    private(set) var grimodexResolvedZenzaiConditions: GrimodexResolvedZenzaiConditions? = nil
 
-    init() {
-        self.serverConfig = HazkeyServerConfig()
+    var grimodexAppliedRevision: GrimodexIntegrationRevision? {
+        grimodexIntegration.appliedRevision
+    }
+    var grimodexPinnedRevision: GrimodexIntegrationRevision? {
+        grimodexIntegration.pinnedRevision
+    }
+    var grimodexActiveConditions: GrimodexProjectConditions {
+        grimodexIntegration.activeConditions
+    }
+    var grimodexAllowsLearning: Bool {
+        grimodexIntegration.allowsLearning
+    }
+    var grimodexSecureInput: Bool {
+        grimodexIntegration.secureInput
+    }
 
-        self.converter = KanaKanjiConverter.init(dictionaryURL: serverConfig.dictionaryPath)
+    init(
+        revisionProvider: any GrimodexRevisionProviding = GrimodexDisabledRevisionProvider(),
+        candidateLearning: (any HazkeyCandidateLearning)? = nil
+    ) {
+        self.grimodexRevisionProvider = revisionProvider
+        let serverConfig = HazkeyServerConfig()
+        self.serverConfig = serverConfig
+
+        let converter = KanaKanjiConverter.init(dictionaryURL: serverConfig.dictionaryPath)
+        self.converter = converter
+        self.candidateLearning = candidateLearning
+            ?? HazkeyKanaKanjiCandidateLearning(converter: converter)
         let grimodexSpikeCount = GrimodexDictionarySpike.injectIfEnabled(into: converter)
         if grimodexSpikeCount > 0 {
             NSLog("Injected \(grimodexSpikeCount) fixed Grimodex dictionary spike entries")
@@ -81,21 +112,44 @@ class HazkeyServerState {
 
     func setContext(surroundingText: String, anchorIndex: Int) -> Hazkey_ResponseEnvelope {
         let leftContext = String(surroundingText.prefix(anchorIndex))
-        baseConvertRequestOptions.zenzaiMode = serverConfig.genZenzaiMode(
-            leftContext: leftContext)
+        currentLeftContext = leftContext
+        refreshZenzaiMode()
 
         return Hazkey_ResponseEnvelope.with {
             $0.status = .success
         }
     }
 
+    func refreshGrimodexIntegration() {
+        grimodexIntegration.observe(grimodexRevisionProvider.latest())
+        refreshZenzaiMode()
+    }
+
+    private func refreshZenzaiMode() {
+        let conditions = grimodexIntegration.activeConditions
+        grimodexResolvedZenzaiConditions = GrimodexZenzaiConditionResolver.resolve(
+            profile: serverConfig.currentProfile.zenzaiProfile,
+            topic: serverConfig.currentProfile.zenzaiTopic,
+            style: serverConfig.currentProfile.zenzaiStyle,
+            preference: serverConfig.currentProfile.zenzaiPreference,
+            project: conditions
+        )
+        baseConvertRequestOptions.zenzaiMode = serverConfig.genZenzaiMode(
+            leftContext: currentLeftContext,
+            projectConditions: conditions,
+            zenzaiAllowed: !grimodexIntegration.secureInput
+        )
+    }
+
     /// ComposingText
 
     func createComposingTextInstanse() -> Hazkey_ResponseEnvelope {
+        grimodexIntegration.endOrReset(latest: grimodexRevisionProvider.latest())
         composingText = ComposingTextBox()
         currentCandidateList = nil
         isSubInputMode = false
         isShiftPressedAlone = false
+        refreshZenzaiMode()
         return Hazkey_ResponseEnvelope.with {
             $0.status = .success
         }
@@ -107,6 +161,10 @@ class HazkeyServerState {
                 $0.status = .failed
                 $0.errorMessage = "failed to get first unicode character"
             }
+        }
+        if !grimodexIntegration.isComposing {
+            grimodexIntegration.prepareFirstInput(latest: grimodexRevisionProvider.latest())
+            refreshZenzaiMode()
         }
         isSubInputMode =
             isSubInputMode
@@ -174,8 +232,10 @@ class HazkeyServerState {
     }
 
     func saveLearningData() -> Hazkey_ResponseEnvelope {
-        if learningDataNeedsCommit {
-            converter.commitUpdateLearningData()
+        if learningDataNeedsCommit, grimodexIntegration.allowsLearning {
+            candidateLearning.commitUpdateLearningData()
+            learningDataNeedsCommit = false
+        } else if !grimodexIntegration.allowsLearning {
             learningDataNeedsCommit = false
         }
         return Hazkey_ResponseEnvelope.with {
@@ -200,9 +260,11 @@ class HazkeyServerState {
     func completePrefix(candidateIndex: Int) -> Hazkey_ResponseEnvelope {
         if let completedCandidate = currentCandidateList?[candidateIndex] {
             composingText.value.prefixComplete(composingCount: completedCandidate.composingCount)
-            converter.setCompletedData(completedCandidate)
-            converter.updateLearningData(completedCandidate)
-            learningDataNeedsCommit = true
+            candidateLearning.setCompletedData(completedCandidate)
+            if grimodexIntegration.allowsLearning {
+                candidateLearning.updateLearningData(completedCandidate)
+                learningDataNeedsCommit = true
+            }
         } else {
             return Hazkey_ResponseEnvelope.with {
                 $0.status = .failed
@@ -325,6 +387,12 @@ class HazkeyServerState {
         }
 
         var options = baseConvertRequestOptions
+        if !grimodexIntegration.allowsLearning {
+            options.learningType = .nothing
+        }
+        if grimodexIntegration.secureInput {
+            options.zenzaiMode = .off
+        }
         let N_best = {
             if is_suggest
                 && serverConfig.currentProfile.suggestionListMode
@@ -453,6 +521,7 @@ class HazkeyServerState {
 
     func reinitializeConfiguration() {
         NSLog("Reinitializing state configuration...")
+        grimodexIntegration.endOrReset(latest: grimodexRevisionProvider.latest())
 
         self.keymap = serverConfig.loadKeymap()
 
@@ -461,6 +530,7 @@ class HazkeyServerState {
         self.currentTableName = newTableName
 
         self.baseConvertRequestOptions = serverConfig.genBaseConvertRequestOptions()
+        refreshZenzaiMode()
 
         self.composingText = ComposingTextBox()
         self.currentCandidateList = nil

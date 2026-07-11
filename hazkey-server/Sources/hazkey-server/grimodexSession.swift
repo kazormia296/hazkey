@@ -118,6 +118,16 @@ struct GrimodexIntegrationRevision: Equatable, Sendable {
     }
 }
 
+protocol GrimodexRevisionProviding: Sendable {
+    func latest() -> GrimodexIntegrationRevision
+}
+
+struct GrimodexDisabledRevisionProvider: GrimodexRevisionProviding, Sendable {
+    func latest() -> GrimodexIntegrationRevision {
+        GrimodexIntegrationRevision(generation: 0, payload: nil)
+    }
+}
+
 struct GrimodexCompositionGenerationPin: Equatable, Sendable {
     private(set) var applied: GrimodexIntegrationRevision?
     private(set) var pending: GrimodexIntegrationRevision?
