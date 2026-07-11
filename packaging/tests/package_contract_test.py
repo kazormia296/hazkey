@@ -10,6 +10,7 @@ os.pathsep-separated list of release artifacts for binary-content checks.
 from __future__ import annotations
 
 import fnmatch
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -38,6 +39,10 @@ INTEGRATION_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/grimodex-spike-ci.ym
 LICENSE_COLLECTOR = (
     REPOSITORY_ROOT / "packaging/scripts/collect_third_party_licenses.py"
 )
+SWIFT_HUB_AUDITOR = (
+    REPOSITORY_ROOT / "packaging/scripts/audit_swift_hub_offline.py"
+)
+SWIFT_TOKENIZERS_REVISION = "4a606f66e0cc4d7d9f0197649e812f7fc86a4c34"
 
 FORBIDDEN_ARTIFACT_MARKERS = (
     b"qt6network",
@@ -407,6 +412,24 @@ class PackageMetadataContractTests(unittest.TestCase):
         self.assertLess(workflow.index(collector), workflow.index(validator))
         self.assertLess(workflow.index(validator), workflow.index(archive))
 
+    def test_real_swift_builds_audit_the_exact_pinned_hub_sources(self) -> None:
+        auditor = "python3 packaging/scripts/audit_swift_hub_offline.py"
+        for workflow_path, checkout in (
+            (
+                BUILD_WORKFLOW,
+                "hazkey-server/build/swift-build/checkouts/swift-tokenizers",
+            ),
+            (
+                INTEGRATION_WORKFLOW,
+                "hazkey-server/build-ci/swift-build/checkouts/swift-tokenizers",
+            ),
+        ):
+            with self.subTest(workflow=workflow_path.name):
+                workflow = workflow_path.read_text(encoding="utf-8")
+                self.assertIn(auditor, workflow)
+                self.assertIn(checkout, workflow)
+                self.assertIn(SWIFT_TOKENIZERS_REVISION, workflow)
+
     def test_license_collector_copies_every_resolved_and_bundled_license(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -574,13 +597,128 @@ class ProductArtifactContractTests(unittest.TestCase):
                     [("required", "/usr/lib/{,*/}fcitx5/fcitx5-grimodex.so")],
                 )
 
-    def test_artifact_validator_rejects_network_clients_and_huggingface(self) -> None:
+    def test_artifact_validator_accepts_domain_only_dependency_metadata(self) -> None:
+        with tempfile.NamedTemporaryFile() as artifact:
+            Path(artifact.name).write_bytes(
+                b"docs\0https://huggingface.co/Miwa-Keita/zenz-v3-small-gguf\0"
+            )
+            validate_artifact_bytes(Path(artifact.name))
+
+    def test_artifact_validator_rejects_concrete_network_clients(self) -> None:
         for marker in FORBIDDEN_ARTIFACT_MARKERS:
             with self.subTest(marker=marker):
                 with tempfile.NamedTemporaryFile() as artifact:
                     Path(artifact.name).write_bytes(b"prefix\0" + marker + b"\0suffix")
                     with self.assertRaisesRegex(AssertionError, "forbidden"):
                         validate_artifact_bytes(Path(artifact.name))
+
+    def test_swift_hub_source_audit_accepts_local_config_with_domain_metadata(self) -> None:
+        auditor = self._load_swift_hub_auditor()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            hub = Path(temporary_directory) / "Sources/Hub"
+            hub.mkdir(parents=True)
+            (hub / "HubApi.swift").write_text(
+                'let endpoint = "https://huggingface.co"\n'
+                "let data = try Data(contentsOf: fileURL)\n",
+                encoding="utf-8",
+            )
+            auditor.audit_hub_sources(hub)
+
+    def test_swift_hub_source_audit_rejects_network_capabilities(self) -> None:
+        auditor = self._load_swift_hub_auditor()
+        for source in (
+            "let task = URLSession.shared.dataTask(with: request)\n",
+            "import FoundationNetworking\n",
+            "let client = HTTPClient(eventLoopGroupProvider: .createNew)\n",
+            "curl_easy_perform(handle)\n",
+        ):
+            with self.subTest(source=source):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    hub = Path(temporary_directory) / "Sources/Hub"
+                    hub.mkdir(parents=True)
+                    (hub / "HubApi.swift").write_text(source, encoding="utf-8")
+                    with self.assertRaisesRegex(
+                        auditor.OfflineHubAuditError,
+                        "network capability",
+                    ):
+                        auditor.audit_hub_sources(hub)
+
+    def test_swift_hub_checkout_audit_is_exact_and_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            checkout = root / "checkouts/swift-tokenizers"
+            hub = checkout / "Sources/Hub"
+            hub.mkdir(parents=True)
+            (hub / "HubApi.swift").write_text(
+                "let data = try Data(contentsOf: fileURL)\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "init", "-q", checkout], check=True)
+            subprocess.run(
+                ["git", "-C", checkout, "config", "user.email", "ci@example.invalid"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", checkout, "config", "user.name", "CI"],
+                check=True,
+            )
+            subprocess.run(["git", "-C", checkout, "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", checkout, "commit", "-q", "-m", "fixture"],
+                check=True,
+            )
+            revision = subprocess.run(
+                ["git", "-C", checkout, "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            resolved = root / "Package.resolved"
+            resolved.write_text(
+                json.dumps(
+                    {
+                        "pins": [
+                            {
+                                "identity": "swift-tokenizers",
+                                "state": {"revision": revision},
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            command = [
+                "python3",
+                str(SWIFT_HUB_AUDITOR),
+                "--package-resolved",
+                str(resolved),
+                "--checkout",
+                str(checkout),
+                "--expected-revision",
+                revision,
+            ]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            wrong_revision = "0" * 40
+            rejected = subprocess.run(
+                [*command[:-1], wrong_revision], capture_output=True, text=True
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("revision", rejected.stderr.lower())
+
+    @staticmethod
+    def _load_swift_hub_auditor():
+        spec = importlib.util.spec_from_file_location(
+            "audit_swift_hub_offline",
+            SWIFT_HUB_AUDITOR,
+        )
+        if spec is None or spec.loader is None:
+            raise AssertionError(f"cannot load {SWIFT_HUB_AUDITOR}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
 
     def test_staged_install_and_uninstall_manifests_own_the_real_tree(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
