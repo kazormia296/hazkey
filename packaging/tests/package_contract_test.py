@@ -231,6 +231,23 @@ class PackageMetadataContractTests(unittest.TestCase):
         self.assertNotIn("packages/fcitx5-hazkey-", workflow)
         self.assertNotIn("name: fcitx5-hazkey-", workflow)
 
+    def test_settings_and_desktop_use_the_packaged_grimodex_icon(self) -> None:
+        settings_cmake = (
+            REPOSITORY_ROOT / "hazkey-settings/CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        resource = (REPOSITORY_ROOT / "hazkey-settings/hazkey-icon.qrc").read_text(
+            encoding="utf-8"
+        )
+        window = (REPOSITORY_ROOT / "hazkey-settings/mainwindow.ui").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('set(GRIMODEX_ICON_NAME "fcitx5-grimodex")', settings_cmake)
+        self.assertIn('alias="grimodex.svg"', resource)
+        self.assertNotIn("<file>hazkey.svg</file>", resource)
+        self.assertIn(":/images/grimodex.svg", window)
+        self.assertNotIn(":/images/hazkey.svg", window)
+
 
 class ProductArtifactContractTests(unittest.TestCase):
     def test_staged_validator_accepts_grimodex_paths(self) -> None:
