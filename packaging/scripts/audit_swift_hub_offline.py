@@ -38,6 +38,22 @@ NETWORK_CAPABILITY_PATTERNS = (
         "libcurl",
         re.compile(r"\bcurl_(?:easy|multi|share|url)_[A-Za-z0-9_]+\b"),
     ),
+    (
+        "POSIX or platform sockets",
+        re.compile(
+            r"\bimport\s+(?:Glibc|Musl|Darwin|WinSDK|CWinSock)\b|"
+            r"\b(?:AF_INET6?|PF_INET6?|sockaddr_in6?|getaddrinfo|getnameinfo|"
+            r"gethostbyname2?|inet_(?:addr|aton|ntoa|ntop|pton)|syscall)\b|"
+            r"\b(?:socket|connect|sendto|recvfrom)\s*\("
+        ),
+    ),
+    (
+        "external process execution",
+        re.compile(
+            r"\b(?:Process|NSTask)\s*\(|"
+            r"\b(?:posix_spawnp?|popen|system|exec[lv]p?e?)\s*\("
+        ),
+    ),
 )
 
 

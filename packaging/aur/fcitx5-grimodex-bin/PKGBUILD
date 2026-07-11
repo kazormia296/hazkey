@@ -63,7 +63,7 @@ package() {
     printf 'Release archive contains a public Hazkey path\n' >&2
     return 1
   fi
-  if grep -aIRlE 'Qt6Network|QNetwork(AccessManager|Request|Reply)|FoundationNetworking|URLSession|NSURLConnection|AsyncHTTPClient|NIOHTTPClient|curl_easy_|libcurl\.so' \
+  if grep -aiRlE 'Qt6Network|QNetwork(AccessManager|Request|Reply)|FoundationNetworking|URLSession|NSURLConnection|AsyncHTTPClient|NIOHTTP(Client|1)|curl_(easy|multi|share|url)_|libcurl\.so' \
     "${pkgdir}/usr" >/dev/null; then
     printf 'Release archive contains a forbidden network/download marker\n' >&2
     return 1
