@@ -194,6 +194,50 @@ final class GrimodexCompositionIntegrationTests: XCTestCase {
     XCTAssertFalse(controller.secureInput)
   }
 
+  func testSecureRevisionRevokesEvenWhenItsGenerationIsStale() {
+    let applier = RecordingGrimodexDictionaryApplier()
+    let controller = GrimodexCompositionIntegrationController(applier: applier)
+    let active = makeRevision(9, projectID: "project-a", surface: "刹那")
+    controller.prepareFirstInput(latest: active)
+    controller.endOrReset(latest: active)
+    applier.clear()
+
+    controller.prepareFirstInput(
+      latest: GrimodexIntegrationRevision(
+        generation: 8,
+        payload: nil,
+        allowsLearning: false,
+        secureInput: true
+      )
+    )
+
+    XCTAssertEqual(applier.events, [.abortSessionComposition, .replace([])])
+    XCTAssertTrue(controller.isComposing)
+    XCTAssertFalse(controller.allowsLearning)
+    XCTAssertTrue(controller.secureInput)
+    XCTAssertEqual(controller.appliedRevision?.generation, 9)
+    XCTAssertEqual(controller.pinnedRevision, controller.appliedRevision)
+  }
+
+  func testRepeatedSecureNotificationDoesNotAbortSecureComposition() {
+    let applier = RecordingGrimodexDictionaryApplier()
+    let controller = GrimodexCompositionIntegrationController(applier: applier)
+    let secure = GrimodexIntegrationRevision(
+      generation: 5,
+      payload: nil,
+      allowsLearning: false,
+      secureInput: true
+    )
+    controller.prepareFirstInput(latest: secure)
+    applier.clear()
+
+    controller.observe(secure)
+
+    XCTAssertTrue(applier.events.isEmpty)
+    XCTAssertTrue(controller.isComposing)
+    XCTAssertTrue(controller.secureInput)
+  }
+
   private func makeRevision(
     _ generation: UInt64,
     projectID: String,
