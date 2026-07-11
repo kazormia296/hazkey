@@ -43,6 +43,18 @@ SWIFT_HUB_AUDITOR = (
     REPOSITORY_ROOT / "packaging/scripts/audit_swift_hub_offline.py"
 )
 SWIFT_TOKENIZERS_REVISION = "4a606f66e0cc4d7d9f0197649e812f7fc86a4c34"
+SERVER_CMAKE = REPOSITORY_ROOT / "hazkey-server/CMakeLists.txt"
+
+SWIFT_RUNTIME_RESOURCES = (
+    (
+        "AzooKeyKanaKanjiConverter_EfficientNGram.resources",
+        "tokenizer/tokenizer.json",
+    ),
+    (
+        "swift-transformers_Hub.resources",
+        "gpt2_tokenizer_config.json",
+    ),
+)
 
 FORBIDDEN_ARTIFACT_MARKERS = (
     b"qt6network",
@@ -436,6 +448,36 @@ class PackageMetadataContractTests(unittest.TestCase):
                 self.assertIn(auditor, workflow)
                 self.assertIn(checkout, workflow)
                 self.assertIn(SWIFT_TOKENIZERS_REVISION, workflow)
+
+    def test_swift_runtime_resources_are_installed_and_owned(self) -> None:
+        cmake = SERVER_CMAKE.read_text(encoding="utf-8")
+        install_entries = parse_path_manifest(INSTALL_MANIFEST)
+        uninstall_entries = parse_path_manifest(UNINSTALL_MANIFEST)
+
+        self.assertIn("HAZKEY_SERVER_SWIFT_RESOURCE_BUNDLES", cmake)
+        self.assertIn(
+            "${CMAKE_CURRENT_BINARY_DIR}/swift-build/${SWIFT_BUILD_TYPE}/${_bundle}",
+            cmake,
+        )
+        self.assertIn(
+            "DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR}/fcitx5-grimodex",
+            cmake,
+        )
+
+        for bundle, sentinel in SWIFT_RUNTIME_RESOURCES:
+            with self.subTest(bundle=bundle):
+                self.assertIn(bundle, cmake)
+                recursive = (
+                    f"/usr/lib/{{,*/}}fcitx5-grimodex/{bundle}/**"
+                )
+                required = (
+                    "required",
+                    f"/usr/lib/{{,*/}}fcitx5-grimodex/{bundle}/{sentinel}",
+                )
+                self.assertIn(("optional", recursive), install_entries)
+                self.assertIn(required, install_entries)
+                self.assertIn(("optional", recursive), uninstall_entries)
+                self.assertIn(required, uninstall_entries)
 
     def test_license_collector_copies_every_resolved_and_bundled_license(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
