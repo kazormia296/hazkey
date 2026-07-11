@@ -219,6 +219,14 @@ class PackageMetadataContractTests(unittest.TestCase):
         self.assertIn("python3 packaging/tests/package_contract_test.py", workflow)
         self.assertEqual(workflow.count("--target build_hazkey_server"), 1)
 
+    def test_integration_ci_records_release_benchmark_telemetry(self) -> None:
+        workflow = INTEGRATION_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("--configuration release", workflow)
+        self.assertIn("GRIMODEX_BENCHMARK entries=", workflow)
+        self.assertIn('test "$benchmark_count" -eq 5', workflow)
+        self.assertIn("$GITHUB_STEP_SUMMARY", workflow)
+
     def test_debian_source_and_binary_identity(self) -> None:
         paragraphs = parse_debian_paragraphs(DEBIAN_CONTROL)
         source = next(paragraph for paragraph in paragraphs if "source" in paragraph)
