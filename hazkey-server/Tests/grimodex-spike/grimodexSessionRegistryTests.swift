@@ -11,6 +11,18 @@ private struct FixedGrimodexSnapshotProvider: GrimodexSnapshotProviding, Sendabl
   }
 }
 
+private final class MutableSessionClock: @unchecked Sendable {
+  var now: Date
+
+  init(_ now: Date) {
+    self.now = now
+  }
+
+  func advance(_ seconds: TimeInterval) {
+    now = now.addingTimeInterval(seconds)
+  }
+}
+
 final class GrimodexSessionRegistryTests: XCTestCase {
   func testEachSessionOwnsIndependentCompositionState() {
     let config = HazkeyServerConfig()
@@ -71,6 +83,41 @@ final class GrimodexSessionRegistryTests: XCTestCase {
     XCTAssertNil(registry.state(for: sessionA, ownerFd: 10))
     XCTAssertNotNil(registry.state(for: sessionB, ownerFd: 11))
     XCTAssertEqual(registry.count, 1)
+  }
+
+  func testRegistryBoundsSessionsAndExpiresIdleOwners() {
+    let clock = MutableSessionClock(Date(timeIntervalSince1970: 1_000))
+    let registry = HazkeySessionRegistry(
+      maximumSessions: 2,
+      idleTimeout: 60,
+      now: { clock.now }
+    )
+    let sessionA = registry.open(
+      clientContext: context(program: "grimodex"),
+      ownerFd: 10
+    )
+    clock.advance(10)
+    let sessionB = registry.open(
+      clientContext: context(program: "grimodex"),
+      ownerFd: 11
+    )
+    clock.advance(10)
+    XCTAssertNotNil(registry.state(for: sessionA, ownerFd: 10))
+    clock.advance(10)
+    let sessionC = registry.open(
+      clientContext: context(program: "grimodex"),
+      ownerFd: 12
+    )
+
+    XCTAssertNotNil(registry.state(for: sessionA, ownerFd: 10))
+    XCTAssertNil(registry.state(for: sessionB, ownerFd: 11))
+    XCTAssertNotNil(registry.state(for: sessionC, ownerFd: 12))
+    XCTAssertEqual(registry.count, 2)
+
+    clock.advance(61)
+    XCTAssertNil(registry.state(for: sessionA, ownerFd: 10))
+    XCTAssertNil(registry.state(for: sessionC, ownerFd: 12))
+    XCTAssertEqual(registry.count, 0)
   }
 
   func testSessionRevisionProviderAppliesScopeAndSecurePolicy() {
