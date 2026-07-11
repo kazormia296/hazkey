@@ -12,14 +12,10 @@ class HazkeyServer: SocketManagerDelegate {
     private let lockFilePath: String
 
     init() {
-        let uid = getuid()
-        self.runtimeDir = URL(
-            fileURLWithPath:
-                ProcessInfo.processInfo.environment["XDG_RUNTIME_DIR"]
-                ?? "/tmp/hazkey-runtime-\(uid)", isDirectory: true)
-
-        self.socketPath = "\(runtimeDir.path)/hazkey-server.\(uid).sock"
-        self.lockFilePath = "\(runtimeDir.path)/hazkey-server.\(uid).lock"
+        let paths = GrimodexProductPaths()
+        self.runtimeDir = paths.runtimeDirectory
+        self.socketPath = paths.socketURL.path
+        self.lockFilePath = paths.lockURL.path
 
         self.processManager = ProcessManager(lockFilePath: lockFilePath)
         self.socketManager = SocketManager(socketPath: socketPath)
@@ -50,7 +46,7 @@ class HazkeyServer: SocketManagerDelegate {
             // expected exit
             return
         } catch {
-            NSLog("Failed to start hazkey-server: \(error)")
+            NSLog("Failed to start \(GrimodexProductPaths.serverExecutableName): \(error)")
             exit(1)
         }
         let serverConfig = HazkeyServerConfig()

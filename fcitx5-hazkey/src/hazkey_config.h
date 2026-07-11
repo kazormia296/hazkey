@@ -8,6 +8,7 @@
 #include <fcitx/menu.h>
 
 #include "hazkey_constants.h"
+#include "grimodex_product_identity.h"
 
 namespace fcitx {
 
@@ -19,8 +20,8 @@ FCITX_CONFIGURATION(HazkeyEngineConfig,
                     Option<bool> showTabToSelect{
                         this, "showTabToSelect",
                         _("Show [Press Tab to Select] indicator"), true};
-                    ExternalOption openHazkeySettings{
-                        this, "openHazkeySettings", _("Open Hazkey Settings"),
-                        stringutils::concat("hazkey-settings")};);
+                    ExternalOption openGrimodexSettings{
+                        this, "openGrimodexSettings", _("Open Grimodex IME Settings"),
+                        std::string(grimodex::ime::kSettingsExecutable)};);
 }  // namespace fcitx
 #endif  // _FCITX5_HAZKEY_HAZKEY_CONFIG_H_

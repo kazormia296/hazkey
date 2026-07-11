@@ -24,6 +24,7 @@
 
 #include "base.pb.h"
 #include "commands.pb.h"
+#include "grimodex_product_identity.h"
 
 static std::mutex transact_mutex;
 
@@ -111,20 +112,14 @@ hazkey::commands::CandidatesResult HazkeyServerSession::getCandidates(
 }
 
 std::string HazkeyServerConnector::getSocketPath() {
-    const char* xdg_runtime_dir = std::getenv("XDG_RUNTIME_DIR");
-    uid_t uid = getuid();
-    std::string sockname = "hazkey-server." + std::to_string(uid) + ".sock";
-    if (xdg_runtime_dir && xdg_runtime_dir[0] != '\0') {
-        return std::string(xdg_runtime_dir) + "/" + sockname;
-    } else {
-        return "/tmp/" + sockname;
-    }
+    return grimodex::ime::resolveRuntimePaths(std::getenv("XDG_RUNTIME_DIR"), getuid())
+        .socket;
 }
 
 void HazkeyServerConnector::startHazkeyServer(bool force_restart) {
     std::vector<std::string> args;
     args.reserve(2);
-    args.push_back("hazkey-server");
+    args.push_back(std::string(grimodex::ime::kServerExecutable));
     if (force_restart) {
         args.push_back("-r");
     }
@@ -237,7 +232,7 @@ void HazkeyServerConnector::connectServer() {
                 }
             }
         }
-        FCITX_INFO() << "Failed to connect hazkey-server, retry "
+        FCITX_INFO() << "Failed to connect Grimodex IME server, retry "
                      << (attempt + 1);
         close(sock_);
         sock_ = -1;
@@ -249,7 +244,7 @@ void HazkeyServerConnector::connectServer() {
         std::this_thread::sleep_for(
             std::chrono::milliseconds(RETRY_INTERVAL_MS));
     }
-    FCITX_INFO() << "Failed to connect hazkey-server after " << MAX_RETRIES
+    FCITX_INFO() << "Failed to connect Grimodex IME server after " << MAX_RETRIES
                  << " attempts";
 }
 
@@ -286,7 +281,7 @@ std::optional<hazkey::ResponseEnvelope> HazkeyServerConnector::transact(
         if (tryConnect) {
             FCITX_INFO()
                 << "Failed to communicate with server while writing data length. "
-                   "reconnecting to hazkey-server...";
+                   "reconnecting to Grimodex IME server...";
             
             connectServer();
         }
@@ -299,7 +294,7 @@ std::optional<hazkey::ResponseEnvelope> HazkeyServerConnector::transact(
         sock_ = -1;
         if (tryConnect) {
             FCITX_INFO() << "Failed to communicate with server while writing data. "
-                            "reconnecting to hazkey-server...";
+                            "reconnecting to Grimodex IME server...";
             connectServer();
         }
         return std::nullopt;

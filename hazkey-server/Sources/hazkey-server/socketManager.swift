@@ -107,7 +107,9 @@ class SocketManager {
     private func setupSignalHandlers() {
         signal(SIGPIPE, SIG_IGN)
 
-        let signalQueue = DispatchQueue(label: "dev.hiira.hazkey.server.socketmanager.signals")
+        let signalQueue = DispatchQueue(
+            label: "com.miyakey.grimodex.ime.fcitx5.server.socketmanager.signals"
+        )
         let signals = [SIGINT, SIGTERM, SIGHUP]
 
         for sig in signals {

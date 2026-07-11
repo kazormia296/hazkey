@@ -13,14 +13,14 @@ HazkeyEngine::HazkeyEngine(Instance *instance)
     : instance_(instance), factory_([this](InputContext &ic) {
           return new HazkeyState(this, &ic);
       }) {
-    instance->inputContextManager().registerProperty("hazkeyState", &factory_);
+    instance->inputContextManager().registerProperty("grimodexState", &factory_);
     capabilityWatcher_ = instance->watchEvent(
         EventType::InputContextCapabilityAboutToChange,
         EventWatcherPhase::ReservedFirst, [this](Event& event) {
             auto& capabilityEvent =
                 static_cast<CapabilityAboutToChangeEvent&>(event);
             auto* inputContext = capabilityEvent.inputContext();
-            if (instance_->inputMethod(inputContext) != "hazkey") {
+            if (instance_->inputMethod(inputContext) != "grimodex") {
                 return;
             }
             inputContext->propertyFor(&factory_)->capabilityAboutToChange(
@@ -42,7 +42,7 @@ void HazkeyEngine::keyEvent([[maybe_unused]] const InputMethodEntry &entry,
 void HazkeyEngine::activate([[maybe_unused]] const InputMethodEntry &entry,
                             InputContextEvent &event) {
     FCITX_DEBUG() << &entry;
-    FCITX_DEBUG() << "HazkeyEngine activate";
+    FCITX_DEBUG() << "Grimodex IME activate";
     auto inputContext = event.inputContext();
     auto state = inputContext->propertyFor(&factory_);
     state->reset();
@@ -52,7 +52,7 @@ void HazkeyEngine::activate([[maybe_unused]] const InputMethodEntry &entry,
 
 void HazkeyEngine::deactivate([[maybe_unused]] const InputMethodEntry &entry,
                               InputContextEvent &event) {
-    FCITX_DEBUG() << "HazkeyEngine deactivate";
+    FCITX_DEBUG() << "Grimodex IME deactivate";
     auto inputContext = event.inputContext();
     auto state = inputContext->propertyFor(&factory_);
     state->commitPreedit();
@@ -63,12 +63,12 @@ void HazkeyEngine::deactivate([[maybe_unused]] const InputMethodEntry &entry,
 
 void HazkeyEngine::setConfig(const RawConfig &config) {
     config_.load(config, true);
-    safeSaveAsIni(config_, "conf/hazkey.conf");
+    safeSaveAsIni(config_, "conf/grimodex.conf");
     reloadConfig();
 }
 
 void HazkeyEngine::reloadConfig() {
-    readAsIni(config_, "conf/hazkey.conf");
+    readAsIni(config_, "conf/grimodex.conf");
 
     std::string lastVersion = config_.lastVersion.value();
 
@@ -77,7 +77,7 @@ void HazkeyEngine::reloadConfig() {
         server_.startHazkeyServer(true);
 
         config_.lastVersion.setValue(HAZKEY_VERSION);
-        safeSaveAsIni(config_, "conf/hazkey.conf");
+        safeSaveAsIni(config_, "conf/grimodex.conf");
     }
 }
 

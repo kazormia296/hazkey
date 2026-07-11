@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Grimodex IME">
+  <rect width="512" height="512" rx="112" fill="#18181b"/>
+  <path d="M112 104h112c48 0 72 26 72 66v238c-15-18-39-28-72-28H112z" fill="#fafafa"/>
+  <path d="M400 104H288c-48 0-72 26-72 66v238c15-18 39-28 72-28h112z" fill="#e4e4e7"/>
+  <path d="M256 152v228" fill="none" stroke="#a78bfa" stroke-width="20" stroke-linecap="round"/>
+  <path d="M140 168h56M140 216h56M316 168h56M316 216h56" fill="none" stroke="#71717a" stroke-width="16" stroke-linecap="round"/>
+</svg>

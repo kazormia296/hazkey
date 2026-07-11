@@ -54,16 +54,22 @@ endif()
 
 configure_file(hazkey_constants.h.in hazkey_constants.h @ONLY)
 
-target_include_directories(fcitx5-hazkey PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${Protobuf_INCLUDE_DIRS})
+target_include_directories(
+    fcitx5-hazkey
+    PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../linux-shared
+        ${Protobuf_INCLUDE_DIRS}
+)
 target_link_libraries(fcitx5-hazkey PRIVATE Fcitx5::Core Fcitx5::Config ${Protobuf_LITE_LIBRARIES})
 
 
-set_target_properties(fcitx5-hazkey PROPERTIES PREFIX "")
+set_target_properties(fcitx5-hazkey PROPERTIES PREFIX "" OUTPUT_NAME "fcitx5-grimodex")
 install(TARGETS fcitx5-hazkey DESTINATION "${FCITX_INSTALL_LIBDIR}/fcitx5")
 
 configure_file(hazkey-addon.conf.in.in hazkey-addon.conf.in @ONLY)
 fcitx5_translate_desktop_file("${CMAKE_CURRENT_BINARY_DIR}/hazkey-addon.conf.in" "hazkey-addon.conf")
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/hazkey-addon.conf" RENAME hazkey.conf DESTINATION "${FCITX_INSTALL_PKGDATADIR}/addon")
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/hazkey-addon.conf" RENAME grimodex.conf DESTINATION "${FCITX_INSTALL_PKGDATADIR}/addon")
 
 fcitx5_translate_desktop_file(hazkey-im.conf.in hazkey-im.conf)
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/hazkey-im.conf" RENAME hazkey.conf DESTINATION "${FCITX_INSTALL_PKGDATADIR}/inputmethod")
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/hazkey-im.conf" RENAME grimodex.conf DESTINATION "${FCITX_INSTALL_PKGDATADIR}/inputmethod")

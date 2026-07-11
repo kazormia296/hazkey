@@ -8,24 +8,67 @@ import Musl
 #error("Unsupported platform")
 #endif
 
-import Glibc
-
 enum ProcessManagerError: Error {
     case lockCreationFailed
     case anotherInstanceRunning
     case terminationFailed
 }
 
+struct ProcessIdentityVerifier {
+    let procRoot: URL
+    let uid: uid_t
+    let expectedExecutableName: String
+
+    init(
+        procRoot: URL = URL(fileURLWithPath: "/proc", isDirectory: true),
+        uid: uid_t = getuid(),
+        expectedExecutableName: String = GrimodexProductPaths.serverExecutableName
+    ) {
+        self.procRoot = procRoot
+        self.uid = uid
+        self.expectedExecutableName = expectedExecutableName
+    }
+
+    func canTerminate(pid: pid_t) -> Bool {
+        guard pid > 1 else { return false }
+        let processDirectory = procRoot.appendingPathComponent(String(pid), isDirectory: true)
+        let statusURL = processDirectory.appendingPathComponent("status", isDirectory: false)
+        guard let status = try? String(contentsOf: statusURL, encoding: .utf8),
+            let uidLine = status.split(separator: "\n").first(where: { $0.hasPrefix("Uid:") }),
+            let realUID = uidLine.split(whereSeparator: { $0 == "\t" || $0 == " " })
+                .dropFirst().first.flatMap({ uid_t($0) }),
+            realUID == uid
+        else {
+            return false
+        }
+
+        let executableURL = processDirectory.appendingPathComponent("exe", isDirectory: false)
+        guard let destination = try? FileManager.default.destinationOfSymbolicLink(
+            atPath: executableURL.path
+        ) else {
+            return false
+        }
+        let deletedSuffix = " (deleted)"
+        let normalized = destination.hasSuffix(deletedSuffix)
+            ? String(destination.dropLast(deletedSuffix.count)) : destination
+        return URL(fileURLWithPath: normalized).lastPathComponent == expectedExecutableName
+    }
+}
+
 class ProcessManager {
-    private let uid: uid_t
-    private let pid: pid_t
     private let lockFilePath: String
+    private let processVerifier: ProcessIdentityVerifier
     private var lockFd: Int32 = -1
 
     init(lockFilePath: String) {
-        self.uid = getuid()
-        self.pid = getpid()
         self.lockFilePath = lockFilePath
+        let currentExecutable = (try? FileManager.default.destinationOfSymbolicLink(
+            atPath: "/proc/self/exe"
+        )).map { URL(fileURLWithPath: $0).lastPathComponent }
+            ?? GrimodexProductPaths.serverExecutableName
+        self.processVerifier = ProcessIdentityVerifier(
+            expectedExecutableName: currentExecutable
+        )
     }
 
     deinit {
@@ -48,7 +91,7 @@ class ProcessManager {
             // lock fail
             if let (oldPid, versionMatch) = readLockFile() {
                 if !force, versionMatch {
-                    NSLog("Another hazkey-server is already running.")
+                    NSLog("Another \(GrimodexProductPaths.serverExecutableName) is already running.")
                     NSLog("Use -r or --replace option to replace the existing server.")
                     throw ProcessManagerError.anotherInstanceRunning
                 }
@@ -57,14 +100,21 @@ class ProcessManager {
                     NSLog("Version mismatch detected. Terminating old server...")
                 }
 
-                // terminate process
-                if kill(oldPid, 0) == 0 {
+                // A lock file is user-writable and its PID may have been
+                // recycled. Never signal anything until /proc confirms both
+                // the current user and the exact Grimodex server executable.
+                if kill(oldPid, 0) == 0 && processVerifier.canTerminate(pid: oldPid) {
                     try terminateAnotherServer(pid: oldPid)
+                } else if kill(oldPid, 0) == 0 {
+                    NSLog("Refusing to terminate an unverified lock owner with PID \(oldPid)")
+                    throw ProcessManagerError.anotherInstanceRunning
                 }
             } else {
-                // broken lockfile
-                NSLog("Failed to read existing lock info.")
-                terminateOtherServers()
+                // Never scan or kill by process name. Besides PID reuse, Linux
+                // comm names are truncated and would collide with upstream
+                // Hazkey. A broken held lock must fail closed.
+                NSLog("Failed to read existing lock info; refusing unsafe replacement.")
+                throw ProcessManagerError.anotherInstanceRunning
             }
 
             // retry lock
@@ -112,28 +162,10 @@ class ProcessManager {
         fsync(lockFd)
     }
 
-    private func getOtherServerPIDs() throws -> [Int32] {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        task.arguments = ["pgrep", "-u", String(uid), "-x", "hazkey-server"]
-        let pipe = Pipe()
-        task.standardOutput = pipe
-
-        try task.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        task.waitUntilExit()
-
-        guard let output = String(data: data, encoding: .utf8) else { return [] }
-
-        let pidString = String(pid)
-
-        return output.components(separatedBy: .newlines)
-            .compactMap { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && $0 != pidString }
-            .compactMap { Int32($0) }
-    }
-
     private func terminateAnotherServer(pid: pid_t) throws {
+        guard processVerifier.canTerminate(pid: pid) else {
+            throw ProcessManagerError.terminationFailed
+        }
         NSLog("Terminating existing server with PID \(pid)...")
 
         // Send SIGTERM to gracefully terminate
@@ -149,6 +181,9 @@ class ProcessManager {
             }
 
             if attempt == 15 {  // try SIGKILL
+                guard processVerifier.canTerminate(pid: pid) else {
+                    throw ProcessManagerError.terminationFailed
+                }
                 NSLog("Server didn't respond to SIGTERM, sending SIGKILL...")
                 kill(pid, SIGKILL)
             }
@@ -161,21 +196,5 @@ class ProcessManager {
         }
 
         NSLog("Existing server terminated")
-    }
-
-    private func terminateOtherServers() {
-        let otherPids: [Int32]
-        // terminate processes running without lock
-        do {
-            otherPids = try getOtherServerPIDs()
-        } catch {
-            // continue even if getOtherServerPIDs() fails.
-            // generally no problem because servers are already terminated.
-            NSLog("getOtherServerPIDs failed: \(error)")
-            otherPids = []
-        }
-        for killPid in otherPids {
-            try? terminateAnotherServer(pid: killPid)
-        }
     }
 }

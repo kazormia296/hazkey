@@ -1,7 +1,7 @@
 import Foundation
 
 do {
-    NSLog("Starting hazkey-server...")
+    NSLog("Starting \(GrimodexProductPaths.serverExecutableName)...")
     let server = HazkeyServer()
 
     try server.start()

@@ -7,12 +7,12 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
         "To clean up, remove CMakeCache.txt and CMakeFiles/ directory.")
 endif()
 
-project(fcitx5-hazkey VERSION 0.2.1)
+project(fcitx5-grimodex VERSION 0.2.1)
 include(GNUInstallDirs)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_definitions(-DFCITX_GETTEXT_DOMAIN=\"fcitx5-hazkey\")
+add_definitions(-DFCITX_GETTEXT_DOMAIN=\"fcitx5-grimodex\")
 
 find_package(Protobuf REQUIRED)
 
@@ -27,15 +27,15 @@ fcitx5_add_i18n_definition()
 find_package(Gettext REQUIRED)
 
 if(HAZKEY_FLATPAK)
-    set(HAZKEY_ICON_NAME "org.hazkey.Fcitx5.Addon.Hazkey")
+    set(HAZKEY_ICON_NAME "com.miyakey.grimodex.ime.fcitx5")
 else()
-    set(HAZKEY_ICON_NAME "hazkey")
+    set(HAZKEY_ICON_NAME "fcitx5-grimodex")
 endif()
 
 add_subdirectory(po)
 add_subdirectory(src)
 
 fcitx5_translate_desktop_file(org.fcitx.Fcitx5.Addon.Hazkey.metainfo.xml.in
-                              org.fcitx.Fcitx5.Addon.Hazkey.metainfo.xml XML)
+                              com.miyakey.grimodex.ime.fcitx5.metainfo.xml XML)
 
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/org.fcitx.Fcitx5.Addon.Hazkey.metainfo.xml" DESTINATION "${CMAKE_INSTALL_FULL_DATADIR}/metainfo")
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/com.miyakey.grimodex.ime.fcitx5.metainfo.xml" DESTINATION "${CMAKE_INSTALL_FULL_DATADIR}/metainfo")

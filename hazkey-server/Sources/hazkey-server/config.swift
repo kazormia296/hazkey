@@ -69,7 +69,9 @@ class HazkeyServerConfig {
 
         // set dictionary path
         dictionaryPath = {
-            if let envPath = ProcessInfo.processInfo.environment["HAZKEY_DICTIONARY"],
+            if let envPath = ProcessInfo.processInfo.environment[
+                "FCITX5_GRIMODEX_DICTIONARY"
+            ],
                 fileManager.fileExists(atPath: envPath)
             {
                 return URL(filePath: envPath)
@@ -350,53 +352,19 @@ class HazkeyServerConfig {
     }
 
     static func getConfigDirectory() -> URL {
-        if let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"],
-            !xdgConfigHome.isEmpty
-        {
-            return URL(fileURLWithPath: xdgConfigHome).appendingPathComponent("hazkey")
-        }
-
-        // Fallback to ~/.config/hazkey
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        return homeDir.appendingPathComponent(".config").appendingPathComponent("hazkey")
+        GrimodexProductPaths().configDirectory
     }
 
     static func getDataDirectory() -> URL {
-        if let xdgDataHome = ProcessInfo.processInfo.environment["XDG_DATA_HOME"],
-            !xdgDataHome.isEmpty
-        {
-            return URL(fileURLWithPath: xdgDataHome).appendingPathComponent("hazkey")
-        }
-
-        // Fallback to ~/.local/share/hazkey
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        return homeDir.appendingPathComponent(".local").appendingPathComponent("share")
-            .appendingPathComponent("hazkey")
+        GrimodexProductPaths().dataDirectory
     }
 
     static func getStateDirectory() -> URL {
-        if let xdgStateHome = ProcessInfo.processInfo.environment["XDG_STATE_HOME"],
-            !xdgStateHome.isEmpty
-        {
-            return URL(fileURLWithPath: xdgStateHome).appendingPathComponent("hazkey")
-        }
-
-        // Fallback to ~/.local/state/hazkey
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        return homeDir.appendingPathComponent(".local").appendingPathComponent("state")
-            .appendingPathComponent("hazkey")
+        GrimodexProductPaths().stateDirectory
     }
 
     static func getCacheDirectory() -> URL {
-        if let xdgCacheHome = ProcessInfo.processInfo.environment["XDG_CACHE_HOME"],
-            !xdgCacheHome.isEmpty
-        {
-            return URL(fileURLWithPath: xdgCacheHome).appendingPathComponent("hazkey")
-        }
-
-        // Fallback to ~/.cache/hazkey
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        return homeDir.appendingPathComponent(".cache").appendingPathComponent("hazkey")
+        GrimodexProductPaths().cacheDirectory
     }
 
     func genZenzaiMode(
@@ -490,7 +458,9 @@ class HazkeyServerConfig {
             specialCandidateProviders: specialCandidateProviders,
             zenzaiMode: zenzaiMode,
             preloadDictionary: false,
-            metadata: ConvertRequestOptions.Metadata.init(versionString: "Hazkey \(hazkeyVersion)")
+            metadata: ConvertRequestOptions.Metadata.init(
+                versionString: "Grimodex IME \(hazkeyVersion)"
+            )
         )
     }
 
@@ -629,7 +599,9 @@ func getZenzaiModelPath() -> URL? {
         .appendingPathComponent("zenzai.gguf", isDirectory: false)
 
     let paths: [URL] = [
-        ProcessInfo.processInfo.environment["HAZKEY_ZENZAI_MODEL"].map { URL(filePath: $0) },
+        ProcessInfo.processInfo.environment["FCITX5_GRIMODEX_ZENZAI_MODEL"].map {
+            URL(filePath: $0)
+        },
         userZenzaiModelPath,
         systemZenzaiModelPath,
     ].compactMap { $0 }
