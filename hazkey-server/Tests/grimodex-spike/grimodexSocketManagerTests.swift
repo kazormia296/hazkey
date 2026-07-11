@@ -104,7 +104,8 @@ final class GrimodexSocketManagerTests: XCTestCase {
 
     let socketPath = root.appendingPathComponent("server.sock").path
     let manager = SocketManager(socketPath: socketPath)
-    manager.delegate = EchoSocketManagerDelegate()
+    let delegate = EchoSocketManagerDelegate()
+    manager.delegate = delegate
     try manager.setupSocket()
     let runner = SocketManagerRunner(manager: manager)
     DispatchQueue.global().async {

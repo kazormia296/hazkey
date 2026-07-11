@@ -27,8 +27,12 @@ HazkeyClientContextTransition evaluateHazkeyClientContextTransition(
 
 class HazkeyClientSession {
    public:
-    explicit HazkeyClientSession(HazkeyClientContext context)
-        : context_(std::move(context)) {}
+    using RecoveryHandler = std::function<void()>;
+
+    explicit HazkeyClientSession(HazkeyClientContext context,
+                                 RecoveryHandler recoveryHandler = {})
+        : context_(std::move(context)),
+          recoveryHandler_(std::move(recoveryHandler)) {}
 
     const HazkeyClientContext& context() const { return context_; }
     const std::string& id() const { return id_; }
@@ -38,6 +42,7 @@ class HazkeyClientSession {
 
     HazkeyClientContext context_;
     std::string id_;
+    RecoveryHandler recoveryHandler_;
 };
 
 class HazkeySessionClient {

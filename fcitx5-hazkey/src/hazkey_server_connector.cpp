@@ -44,8 +44,10 @@ HazkeyServerConnector::~HazkeyServerConnector() {
 }
 
 HazkeyServerSession::HazkeyServerSession(HazkeyServerConnector& connector,
-                                         HazkeyClientContext context)
-    : connector_(connector), session_(std::move(context)) {
+                                         HazkeyClientContext context,
+                                         HazkeyClientSession::RecoveryHandler recoveryHandler)
+    : connector_(connector),
+      session_(std::move(context), std::move(recoveryHandler)) {
     (void)connector_.sessionClient_.open(session_);
 }
 

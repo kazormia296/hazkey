@@ -87,8 +87,10 @@ final class HazkeySessionRegistry {
     let serverConfig: HazkeyServerConfig
     private let revisionProviderFactory: RevisionProviderFactory
     private let maximumSessions: Int
+    private let maximumSessionsPerOwner: Int
     private let idleTimeout: TimeInterval
     private let now: () -> Date
+    private let idleLearningDataClearer: () -> Void
     private var sessions: [String: Session] = [:]
 
     var count: Int {
@@ -102,14 +104,24 @@ final class HazkeySessionRegistry {
             _ in GrimodexDisabledRevisionProvider()
         },
         maximumSessions: Int = 128,
+        maximumSessionsPerOwner: Int = 16,
         idleTimeout: TimeInterval = 30 * 60,
-        now: @escaping () -> Date = { Date() }
+        now: @escaping () -> Date = { Date() },
+        idleLearningDataClearer: (() -> Void)? = nil
     ) {
         self.serverConfig = serverConfig
         self.revisionProviderFactory = revisionProviderFactory
         self.maximumSessions = max(1, maximumSessions)
+        self.maximumSessionsPerOwner = max(
+            1,
+            min(maximumSessionsPerOwner, max(1, maximumSessions))
+        )
         self.idleTimeout = max(1, idleTimeout)
         self.now = now
+        self.idleLearningDataClearer = idleLearningDataClearer ?? {
+            let state = HazkeyServerState(serverConfig: serverConfig)
+            _ = state.clearProfileLearningData()
+        }
     }
 
     @discardableResult
@@ -118,14 +130,23 @@ final class HazkeySessionRegistry {
         ownerFd: Int32
     ) -> String {
         pruneExpiredSessions()
+        while sessions.values.lazy.filter({ $0.ownerFd == ownerFd }).count
+            >= maximumSessionsPerOwner
+        {
+            guard let leastRecentlyUsed = leastRecentlyUsedSession(ownerFd: ownerFd) else {
+                break
+            }
+            removeSession(sessionID: leastRecentlyUsed)
+        }
         while sessions.count >= maximumSessions {
-            guard let leastRecentlyUsed = sessions.min(by: { left, right in
-                if left.value.lastAccess == right.value.lastAccess {
-                    return left.key < right.key
-                }
-                return left.value.lastAccess < right.value.lastAccess
-            }) else { break }
-            removeSession(sessionID: leastRecentlyUsed.key)
+            // A single connection must not evict another application's active
+            // composition by opening sessions repeatedly. Prefer replacing
+            // the requester's own oldest session once the global bound is hit.
+            guard let leastRecentlyUsed =
+                leastRecentlyUsedSession(ownerFd: ownerFd)
+                ?? leastRecentlyUsedSession(ownerFd: nil)
+            else { break }
+            removeSession(sessionID: leastRecentlyUsed)
         }
         let sessionID = UUID().uuidString.lowercased()
         let state = HazkeyServerState(
@@ -191,6 +212,10 @@ final class HazkeySessionRegistry {
     }
 
     func clearAllLearningData() {
+        if sessions.isEmpty {
+            idleLearningDataClearer()
+            return
+        }
         for session in sessions.values {
             _ = session.state.clearProfileLearningData()
         }
@@ -215,5 +240,17 @@ final class HazkeySessionRegistry {
     private func removeSession(sessionID: String) {
         guard let session = sessions.removeValue(forKey: sessionID) else { return }
         _ = session.state.saveLearningData()
+    }
+
+    private func leastRecentlyUsedSession(ownerFd: Int32?) -> String? {
+        sessions
+            .filter { ownerFd == nil || $0.value.ownerFd == ownerFd }
+            .min { left, right in
+                if left.value.lastAccess == right.value.lastAccess {
+                    return left.key < right.key
+                }
+                return left.value.lastAccess < right.value.lastAccess
+            }?
+            .key
     }
 }

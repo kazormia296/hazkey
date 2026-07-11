@@ -8,10 +8,11 @@ HazkeyClientContextTransition evaluateHazkeyClientContextTransition(
         previous.program != next.program || previous.frontend != next.frontend ||
         previous.secureInput != next.secureInput;
     const bool enteredSecure = !previous.secureInput && next.secureInput;
+    const bool crossedSecureBoundary = previous.secureInput != next.secureInput;
     return HazkeyClientContextTransition{
         .contextChanged = contextChanged,
         .enteredSecure = enteredSecure,
-        .clearPreedit = enteredSecure,
+        .clearPreedit = crossedSecureBoundary,
         .reopenSession = contextChanged,
         .allowSurroundingText = !next.secureInput,
     };
@@ -78,6 +79,9 @@ std::optional<hazkey::ResponseEnvelope> HazkeySessionClient::transact(
     session.id_.clear();
     if (!open(session, tryConnect)) {
         return response;
+    }
+    if (session.recoveryHandler_) {
+        session.recoveryHandler_();
     }
     request.set_session_id(session.id_);
     return transport_(request, tryConnect);

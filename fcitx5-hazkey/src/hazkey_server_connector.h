@@ -15,7 +15,8 @@ class HazkeyServerConnector;
 class HazkeyServerSession {
    public:
     HazkeyServerSession(HazkeyServerConnector& connector,
-                        HazkeyClientContext context);
+                        HazkeyClientContext context,
+                        HazkeyClientSession::RecoveryHandler recoveryHandler = {});
     ~HazkeyServerSession();
 
     HazkeyServerSession(const HazkeyServerSession&) = delete;

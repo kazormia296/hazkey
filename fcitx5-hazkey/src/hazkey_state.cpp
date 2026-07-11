@@ -34,7 +34,8 @@ HazkeyClientContext makeClientContext(InputContext* inputContext,
 HazkeyState::HazkeyState(HazkeyEngine* engine, InputContext* ic)
     : engine_(engine),
       ic_(ic),
-      server_(engine->server(), makeClientContext(ic, ic->capabilityFlags())),
+      server_(engine->server(), makeClientContext(ic, ic->capabilityFlags()),
+              [this] { discardLocalComposition(); }),
       preedit_(HazkeyPreedit(ic)) {
     server_.newComposingText();
 }
@@ -48,14 +49,18 @@ void HazkeyState::capabilityAboutToChange(CapabilityFlags newFlags) {
     }
 
     if (transition.clearPreedit) {
-        isDirectConversionMode_ = false;
-        livePreeditIndex_ = -1;
-        isCursorMoving_ = false;
-        ic_->inputPanel().reset();
-        ic_->updatePreedit();
-        ic_->updateUserInterface(UserInterfaceComponent::InputPanel, true);
+        discardLocalComposition();
     }
     (void)server_.updateClientContext(std::move(nextContext));
+}
+
+void HazkeyState::discardLocalComposition() {
+    isDirectConversionMode_ = false;
+    livePreeditIndex_ = -1;
+    isCursorMoving_ = false;
+    ic_->inputPanel().reset();
+    ic_->updatePreedit();
+    ic_->updateUserInterface(UserInterfaceComponent::InputPanel, true);
 }
 
 bool HazkeyState::isInputableEvent(const KeyEvent& event) {

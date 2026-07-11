@@ -531,7 +531,19 @@ class HazkeyServerState {
     }
 
     func clearProfileLearningData() -> Hazkey_ResponseEnvelope {
+        // A freshly-created maintenance state has not issued a conversion
+        // request yet, so the converter's learning manager still has its
+        // default nil memory URL. Prime only the local learning configuration
+        // before reset; otherwise Clear History can report success without
+        // touching the persistent store when no conversion session is active.
+        var options = baseConvertRequestOptions
+        options.zenzaiMode = .off
+        var probe = ComposingText()
+        probe.insertAtCursorPosition("あ", inputStyle: .direct)
+        _ = converter.requestCandidates(probe, options: options)
+        converter.stopComposition()
         converter.resetMemory()
+        learningDataNeedsCommit = false
         return Hazkey_ResponseEnvelope.with {
             $0.status = .success
         }
