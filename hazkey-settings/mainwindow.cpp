@@ -23,8 +23,7 @@ MainWindow::MainWindow(QWidget* parent)
     : QWidget(parent),
       ui_(new Ui::MainWindow),
       server_(ServerConnector()),
-      currentProfile_(nullptr),
-      networkManager_(std::make_unique<QNetworkAccessManager>(this)) {
+      currentProfile_(nullptr) {
     ui_->setupUi(this);
 
     ui_->inputTableConfigModeTabWidget->tabBar()->setExpanding(true);
@@ -47,7 +46,7 @@ MainWindow::MainWindow(QWidget* parent)
         QMessageBox::critical(
             this, tr("Configuration Error"),
             tr("Failed to load configuration. Please check your connection to "
-               "the hazkey server."));
+               "the Grimodex IME service."));
     }
 }
 
@@ -61,8 +60,7 @@ void MainWindow::setupControllers() {
         std::make_unique<ConversionTabController>(ui_, this, &server_, this);
     inputStyleTab_ = std::make_unique<InputStyleTabController>(ui_, this);
     dictionaryTab_ = std::make_unique<DictionaryTabController>(this);
-    aiTab_ = std::make_unique<AiTabController>(ui_, this, networkManager_.get(),
-                                               this);
+    aiTab_ = std::make_unique<AiTabController>(ui_, this, this);
     aboutTab_ = std::make_unique<AboutTabController>(ui_, this);
 
     conversionTab_->connectSignals();

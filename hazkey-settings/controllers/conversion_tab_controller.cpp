@@ -152,7 +152,7 @@ void ConversionTabController::onClearLearningData() {
             QMessageBox::critical(window_, QObject::tr("Error"),
                                   QObject::tr("Failed to clear input history. "
                                               "Please check your connection "
-                                              "to the hazkey server."));
+                                              "to the Grimodex IME service."));
         }
     }
 }

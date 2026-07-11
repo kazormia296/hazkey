@@ -4,116 +4,80 @@
 <context>
     <name>AiTabController</name>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="109"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="199"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="211"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="218"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="229"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="237"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="269"/>
-        <source>Download Error</source>
-        <translation>ダウンロードエラー</translation>
+        <source>Select a local Zenzai model</source>
+        <translation>ローカルのZenzaiモデルを選択</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="110"/>
+        <source>GGUF model (*.gguf);;All files (*)</source>
+        <translation>GGUFモデル (*.gguf);;すべてのファイル (*)</translation>
+    </message>
+    <message>
+        <source>Model Import Error</source>
+        <translation>モデルのインポートエラー</translation>
+    </message>
+    <message>
         <source>Failed to create directory: %1</source>
         <translation>ディレクトリの作成に失敗しました: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="116"/>
-        <source>File Exists</source>
-        <translation>ファイルが存在します</translation>
+        <source>Failed to open model file: %1</source>
+        <translation>モデルファイルを開けませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="117"/>
-        <source>Overwrite the existing Zenzai model?</source>
-        <translation>既存のZenzaiモデルファイルを上書きしますか?</translation>
+        <source>Failed to prepare model file: %1</source>
+        <translation>モデルファイルを準備できませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="126"/>
-        <source>Downloading Zenzai model...</source>
-        <translation>Zenzaiモデルをダウンロード中...</translation>
+        <source>Failed to read model file: %1</source>
+        <translation>モデルファイルを読み込めませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="126"/>
-        <source>Cancel</source>
-        <translation>キャンセル</translation>
-    </message>
-    <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="164"/>
-        <source>Downloading Zenzai model... %1 MB / %2 MB</source>
-        <translation>Zenzaiモデルをダウンロード中... %1 MB / %2 MB</translation>
-    </message>
-    <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="200"/>
-        <source>Downloaded file verification failed. Checksum mismatch.
-Expected: %1
-Got: %2</source>
-        <translation>ダウンロードされたファイルの検証に失敗しました。チェックサムが一致しません。
-期待値: %1
-取得地: %2</translation>
-    </message>
-    <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="212"/>
-        <source>Failed to save model file: %1</source>
-        <translation>モデルファイルの保存に失敗しました: %1</translation>
-    </message>
-    <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="219"/>
         <source>Failed to write model file: %1</source>
-        <translation>モデルファイルの書き込みに失敗しました: %1</translation>
+        <translation>モデルファイルを書き込めませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="230"/>
-        <source>Failed to remove old model file.</source>
-        <translation>古いモデルファイルの削除に失敗しました。</translation>
+        <source>Failed to install model file: %1</source>
+        <translation>モデルファイルをインストールできませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="238"/>
-        <source>Failed to rename model file.</source>
-        <translation>モデルファイルの名前変更に失敗しました。</translation>
+        <source>Model Installed</source>
+        <translation>モデルをインストールしました</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="248"/>
-        <source>Download Complete</source>
-        <translation>ダウンロード完了</translation>
+        <source>The local model was installed at %1, but the Grimodex IME service could not reload it. Restart the input method or select Reload after the service starts.</source>
+        <translation>ローカルモデルを %1 にインストールしましたが、Grimodex IME サービスで再読み込みできませんでした。入力メソッドを再起動するか、サービスの起動後に「再読み込み」を選択してください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="249"/>
-        <source>Zenzai model has been downloaded successfully.
-Please push &apos;Reload&apos; to refresh the UI.</source>
-        <translation>Zenzaiモデルが正常にダウンロードされました。
-UIを更新するには再読み込みボタンを押してください。</translation>
+        <source>The local Zenzai model was installed at %1. Select Reload to refresh this window.</source>
+        <translation>ローカルのZenzaiモデルを %1 にインストールしました。この画面を更新するには「再読み込み」を選択してください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="270"/>
-        <source>Failed to download Zenzai model: %1</source>
-        <translation>Zenzaiモデルのダウンロードに失敗しました: %1</translation>
-    </message>
-    <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="311"/>
         <source>&lt;b&gt;Warning:&lt;/b&gt; Zenzai support not installed.</source>
         <translation>&lt;b&gt;警告:&lt;/b&gt; Zenzaiサポートがインストールされていません。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="321"/>
-        <source>&lt;b&gt;Warning:&lt;/b&gt; Zenzai model not found.</source>
-        <translation>&lt;b&gt;警告:&lt;/b&gt; Zenzaiモデルが見つかりません。</translation>
+        <source>&lt;b&gt;Warning:&lt;/b&gt; Zenzai model not found. Place a compatible GGUF file at &lt;code&gt;%1&lt;/code&gt;, or select a local file.</source>
+        <translation>&lt;b&gt;警告:&lt;/b&gt; Zenzaiモデルが見つかりません。互換性のあるGGUFファイルを &lt;code&gt;%1&lt;/code&gt; に配置するか、ローカルファイルを選択してください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="322"/>
-        <source>Download Model</source>
-        <translation>モデルをダウンロード</translation>
+        <source>Select Local Model</source>
+        <translation>ローカルモデルを選択</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="340"/>
-        <source>The current model is not the latest version.</source>
-        <translation>現在のZenzaiモデルは最新バージョンではありません。</translation>
+        <source>The current model differs from the tested Zenzai model.</source>
+        <translation>現在のモデルは動作確認済みのZenzaiモデルと異なります。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="341"/>
-        <source>Download Update</source>
-        <translation>更新をダウンロード</translation>
+        <source>Grimodex only (recommended)</source>
+        <translation>Grimodexのみ（推奨）</translation>
+    </message>
+    <message>
+        <source>Off</source>
+        <translation>オフ</translation>
+    </message>
+    <message>
+        <source>All applications</source>
+        <translation>すべてのアプリケーション</translation>
     </message>
 </context>
 <context>
@@ -204,8 +168,8 @@ UIを更新するには再読み込みボタンを押してください。</tran
     <name>MainWindow</name>
     <message>
         <location filename="mainwindow.ui" line="26"/>
-        <source>Hazkey Settings</source>
-        <translation>Hazkey 設定</translation>
+        <source>Grimodex IME Settings</source>
+        <translation>Grimodex IME 設定</translation>
     </message>
     <message>
         <location filename="mainwindow.ui" line="51"/>
@@ -342,8 +306,8 @@ UIを更新するには再読み込みボタンを押してください。</tran
     </message>
     <message>
         <location filename="mainwindow.ui" line="572"/>
-        <source>Hazkey version</source>
-        <translation>Hazkeyバージョン</translation>
+        <source>Hazkey-compatible variants</source>
+        <translation>Hazkey互換の異体字</translation>
     </message>
     <message>
         <location filename="mainwindow.ui" line="579"/>
@@ -517,8 +481,8 @@ UIを更新するには再読み込みボタンを押してください。</tran
     </message>
     <message>
         <location filename="mainwindow.ui" line="1101"/>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700; font-style:italic;&quot;&gt;Note:&lt;/span&gt;&lt;span style=&quot; font-style:italic;&quot;&gt; You can use custom Keymaps in TSV format, located in &lt;/span&gt;&lt;span style=&quot; font-weight:700; font-style:italic;&quot;&gt;$XDG_CONFIG_HOME/hazkey/keymap&lt;/span&gt;&lt;span style=&quot; font-style:italic;&quot;&gt;. &lt;/span&gt;&lt;a href=&quot;https://hazkey.hiira.dev/docs/settings/input-style-keymap&quot;&gt;&lt;span style=&quot; font-style:italic; text-decoration: underline; color:#2980b9;&quot;&gt;More info...&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700; font-style:italic;&quot;&gt;メモ:&lt;/span&gt;&lt;span style=&quot; font-style:italic;&quot;&gt; &lt;/span&gt;&lt;span style=&quot; font-weight:700; font-style:italic;&quot;&gt;$XDG_CONFIG_HOME/hazkey/keymap&lt;/span&gt;&lt;span style=&quot; font-style:italic;&quot;&gt; に配置されたTSV形式のキーマップを利用することができます。&lt;/span&gt;&lt;a href=&quot;https://hazkey.hiira.dev/docs/settings/input-style-keymap&quot;&gt;&lt;span style=&quot; font-style:italic; text-decoration: underline; color:#2980b9;&quot;&gt;詳細...&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700; font-style:italic;&quot;&gt;Note:&lt;/span&gt;&lt;span style=&quot; font-style:italic;&quot;&gt; You can use custom Keymaps in TSV format, located in &lt;/span&gt;&lt;span style=&quot; font-weight:700; font-style:italic;&quot;&gt;$XDG_CONFIG_HOME/fcitx5-grimodex/keymap&lt;/span&gt;&lt;span style=&quot; font-style:italic;&quot;&gt;.&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700; font-style:italic;&quot;&gt;メモ:&lt;/span&gt;&lt;span style=&quot; font-style:italic;&quot;&gt; &lt;/span&gt;&lt;span style=&quot; font-weight:700; font-style:italic;&quot;&gt;$XDG_CONFIG_HOME/fcitx5-grimodex/keymap&lt;/span&gt;&lt;span style=&quot; font-style:italic;&quot;&gt; に配置したTSV形式のキーマップを利用できます。&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <location filename="mainwindow.ui" line="1118"/>
@@ -537,8 +501,8 @@ UIを更新するには再読み込みボタンを押してください。</tran
     </message>
     <message>
         <location filename="mainwindow.ui" line="1301"/>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Note:&lt;/span&gt; You can use custom input tables in TSV format, located in &lt;span style=&quot; font-weight:700;&quot;&gt;$XDG_CONFIG_HOME/hazkey/table&lt;/span&gt;. &lt;a href=&quot;https://hazkey.hiira.dev/docs/settings/input-style-input-table&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;More info...&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;メモ:&lt;/span&gt; &lt;span style=&quot; font-weight:700;&quot;&gt;$XDG_CONFIG_HOME/hazkey/table&lt;/span&gt; に配置されたTSV形式の入力テーブルを利用することができます。&lt;a href=&quot;https://hazkey.hiira.dev/docs/settings/input-style-input-table&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;詳細...&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Note:&lt;/span&gt; You can use custom input tables in TSV format, located in &lt;span style=&quot; font-weight:700;&quot;&gt;$XDG_CONFIG_HOME/fcitx5-grimodex/table&lt;/span&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;メモ:&lt;/span&gt; &lt;span style=&quot; font-weight:700;&quot;&gt;$XDG_CONFIG_HOME/fcitx5-grimodex/table&lt;/span&gt; に配置したTSV形式の入力テーブルを利用できます。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <location filename="mainwindow.ui" line="1318"/>
@@ -676,8 +640,8 @@ UIを更新するには再読み込みボタンを押してください。</tran
     </message>
     <message>
         <location filename="mainwindow.cpp" line="49"/>
-        <source>Failed to load configuration. Please check your connection to the hazkey server.</source>
-        <translation>設定の読み込みに失敗しました。hazkeyサーバーへの接続を確認してください。</translation>
+        <source>Failed to load configuration. Please check your connection to the Grimodex IME service.</source>
+        <translation>設定の読み込みに失敗しました。Grimodex IME サービスへの接続を確認してください。</translation>
     </message>
     <message>
         <location filename="mainwindow.cpp" line="154"/>
@@ -796,8 +760,8 @@ UIを更新するには再読み込みボタンを押してください。</tran
     </message>
     <message>
         <location filename="controllers/conversion_tab_controller.cpp" line="153"/>
-        <source>Failed to clear input history. Please check your connection to the hazkey server.</source>
-        <translation>入力履歴の削除に失敗しました。hazkey-serverとの接続を確認してください。</translation>
+        <source>Failed to clear input history. Please check your connection to the Grimodex IME service.</source>
+        <translation>入力履歴の削除に失敗しました。Grimodex IME サービスへの接続を確認してください。</translation>
     </message>
 </context>
 </TS>

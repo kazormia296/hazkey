@@ -11,12 +11,12 @@ AboutTabController::AboutTabController(Ui::MainWindow* ui, QObject* parent)
     : QObject(parent), ui_(ui) {}
 
 void AboutTabController::initialize() {
-    QString hazkeyVersionText =
+    QString versionText =
         QString(
             "<html><head/><body><p><span style=\"font-size:18pt\">%1"
             "</span></p></body></html>")
-            .arg(HAZKEY_VERSION_STR);
-    ui_->aboutHazkeyTitleVersionText->setText(hazkeyVersionText);
+            .arg(GRIMODEX_IME_VERSION_STR);
+    ui_->aboutHazkeyTitleVersionText->setText(versionText);
 }
 
 }  // namespace hazkey::settings

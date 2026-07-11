@@ -1,21 +1,23 @@
 #include "controllers/ai_tab_controller.h"
 
-#include <QByteArray>
+#include <unistd.h>
+
+#include <cstdlib>
+
 #include <QComboBox>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QLayoutItem>
 #include <QMessageBox>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QNetworkRequest>
-#include <QProgressDialog>
+#include <QSaveFile>
 #include <QSignalBlocker>
-#include <QUrl>
 
 #include "config_macros.h"
 #include "controllers/warning_widget_factory.h"
+#include "settings_product_paths.h"
 #include "ui_mainwindow.h"
 
 namespace hazkey::settings {
@@ -26,15 +28,11 @@ constexpr char kZenzaiExpectedChecksum[] =
 }  // namespace
 
 AiTabController::AiTabController(Ui::MainWindow* ui, QWidget* window,
-                                 QNetworkAccessManager* networkManager,
                                  QObject* parent)
     : QObject(parent),
       ui_(ui),
       window_(window),
       context_(),
-      networkManager_(networkManager),
-      currentDownload_(nullptr),
-      downloadProgressDialog_(nullptr),
       isLoading_(false) {}
 
 void AiTabController::setContext(const TabContext& context) {
@@ -108,181 +106,89 @@ void AiTabController::saveToConfig() {
         selectedDevice.toStdString());
 }
 
-void AiTabController::onDownloadZenzaiModel() {
-    QString dataHome = qEnvironmentVariable("XDG_DATA_HOME");
-    if (dataHome.isEmpty()) {
-        dataHome = QDir::homePath() + "/.local/share";
-    }
-
-    QString zenzaiDir = dataHome + "/hazkey/zenzai";
-    zenzaiModelPath_ = zenzaiDir + "/zenzai.gguf";
-
-    QDir dir;
-    if (!dir.mkpath(zenzaiDir)) {
-        QMessageBox::critical(
-            window_, tr("Download Error"),
-            tr("Failed to create directory: %1").arg(zenzaiDir));
+void AiTabController::onSelectLocalZenzaiModel() {
+    const QString selectedPath = QFileDialog::getOpenFileName(
+        window_, tr("Select a local Zenzai model"), QDir::homePath(),
+        tr("GGUF model (*.gguf);;All files (*)"));
+    if (selectedPath.isEmpty()) {
         return;
     }
 
-    if (QFile::exists(zenzaiModelPath_)) {
-        QMessageBox::StandardButton reply =
-            QMessageBox::question(window_, tr("File Exists"),
-                                  tr("Overwrite the existing Zenzai model?"),
-                                  QMessageBox::Yes | QMessageBox::No);
+    const QString targetPath = managedZenzaiModelPath();
+    const QFileInfo targetInfo(targetPath);
+    if (!QDir().mkpath(targetInfo.absolutePath())) {
+        QMessageBox::critical(
+            window_, tr("Model Import Error"),
+            tr("Failed to create directory: %1")
+                .arg(targetInfo.absolutePath()));
+        return;
+    }
 
-        if (reply == QMessageBox::No) {
+    const QFileInfo selectedInfo(selectedPath);
+    if (selectedInfo.canonicalFilePath() != targetInfo.canonicalFilePath()) {
+        QFile source(selectedPath);
+        if (!source.open(QIODevice::ReadOnly)) {
+            QMessageBox::critical(
+                window_, tr("Model Import Error"),
+                tr("Failed to open model file: %1").arg(source.errorString()));
+            return;
+        }
+
+        QSaveFile destination(targetPath);
+        if (!destination.open(QIODevice::WriteOnly)) {
+            QMessageBox::critical(
+                window_, tr("Model Import Error"),
+                tr("Failed to prepare model file: %1")
+                    .arg(destination.errorString()));
+            return;
+        }
+
+        while (!source.atEnd()) {
+            const QByteArray chunk = source.read(1024 * 1024);
+            if (chunk.isEmpty() && source.error() != QFileDevice::NoError) {
+                destination.cancelWriting();
+                QMessageBox::critical(
+                    window_, tr("Model Import Error"),
+                    tr("Failed to read model file: %1")
+                        .arg(source.errorString()));
+                return;
+            }
+            if (destination.write(chunk) != chunk.size()) {
+                destination.cancelWriting();
+                QMessageBox::critical(
+                    window_, tr("Model Import Error"),
+                    tr("Failed to write model file: %1")
+                        .arg(destination.errorString()));
+                return;
+            }
+        }
+
+        if (!destination.commit()) {
+            QMessageBox::critical(
+                window_, tr("Model Import Error"),
+                tr("Failed to install model file: %1")
+                    .arg(destination.errorString()));
             return;
         }
     }
 
-    downloadProgressDialog_ = new QProgressDialog(
-        tr("Downloading Zenzai model..."), tr("Cancel"), 0, 100, window_);
-    downloadProgressDialog_->setWindowModality(Qt::WindowModal);
-    downloadProgressDialog_->setMinimumDuration(0);
-    downloadProgressDialog_->setValue(0);
-
-    connect(downloadProgressDialog_, &QProgressDialog::canceled, this,
-            [this]() {
-                if (currentDownload_) {
-                    currentDownload_->abort();
-                }
-            });
-
-    QUrl url(
-        "https://huggingface.co/Miwa-Keita/zenz-v3.1-small-gguf/resolve/main/"
-        "ggml-model-Q5_K_M.gguf");
-    QNetworkRequest request(url);
-
-    currentDownload_ = networkManager_->get(request);
-
-    connect(currentDownload_, &QNetworkReply::downloadProgress, this,
-            &AiTabController::onDownloadProgress);
-    connect(currentDownload_, &QNetworkReply::finished, this,
-            &AiTabController::onDownloadFinished);
-    connect(currentDownload_,
-            QOverload<QNetworkReply::NetworkError>::of(
-                &QNetworkReply::errorOccurred),
-            this, &AiTabController::onDownloadError);
-}
-
-void AiTabController::onDownloadProgress(qint64 bytesReceived,
-                                         qint64 bytesTotal) {
-    if (downloadProgressDialog_ && bytesTotal > 0) {
-        int progress = static_cast<int>((bytesReceived * 100) / bytesTotal);
-        downloadProgressDialog_->setValue(progress);
-
-        double receivedMB = bytesReceived / 1024.0 / 1024.0;
-        double totalMB = bytesTotal / 1024.0 / 1024.0;
-        downloadProgressDialog_->setLabelText(
-            tr("Downloading Zenzai model... %1 MB / %2 MB")
-                .arg(receivedMB, 0, 'f', 2)
-                .arg(totalMB, 0, 'f', 2));
-    }
-}
-
-void AiTabController::onDownloadFinished() {
-    if (!currentDownload_) {
+    const bool reloaded =
+        context_.server != nullptr && context_.server->reloadZenzaiModel();
+    if (!reloaded) {
+        QMessageBox::warning(
+            window_, tr("Model Installed"),
+            tr("The local model was installed at %1, but the Grimodex IME "
+               "service could not reload it. Restart the input method or "
+               "select Reload after the service starts.")
+                .arg(targetPath));
         return;
-    }
-
-    if (downloadProgressDialog_) {
-        downloadProgressDialog_->deleteLater();
-        downloadProgressDialog_ = nullptr;
-    }
-
-    if (currentDownload_->error() != QNetworkReply::NoError) {
-        currentDownload_->deleteLater();
-        currentDownload_ = nullptr;
-        return;
-    }
-
-    QByteArray downloadedData = currentDownload_->readAll();
-    currentDownload_->deleteLater();
-    currentDownload_ = nullptr;
-
-    QCryptographicHash hash(QCryptographicHash::Sha256);
-    hash.addData(downloadedData);
-    QByteArray calculatedHash = hash.result();
-    QString calculatedHashHex = calculatedHash.toHex();
-
-    QString expectedHash = kZenzaiExpectedChecksum;
-
-    if (calculatedHashHex != expectedHash) {
-        QMessageBox::critical(
-            window_, tr("Download Error"),
-            tr("Downloaded file verification failed. Checksum mismatch.\n"
-               "Expected: %1\nGot: %2")
-                .arg(expectedHash)
-                .arg(calculatedHashHex));
-        return;
-    }
-
-    QString tempPath = zenzaiModelPath_ + ".tmp";
-    QFile tempFile(tempPath);
-    if (!tempFile.open(QIODevice::WriteOnly)) {
-        QMessageBox::critical(
-            window_, tr("Download Error"),
-            tr("Failed to save model file: %1").arg(tempFile.errorString()));
-        return;
-    }
-
-    if (tempFile.write(downloadedData) == -1) {
-        QMessageBox::critical(
-            window_, tr("Download Error"),
-            tr("Failed to write model file: %1").arg(tempFile.errorString()));
-        tempFile.close();
-        QFile::remove(tempPath);
-        return;
-    }
-
-    tempFile.close();
-
-    if (QFile::exists(zenzaiModelPath_)) {
-        if (!QFile::remove(zenzaiModelPath_)) {
-            QMessageBox::critical(window_, tr("Download Error"),
-                                  tr("Failed to remove old model file."));
-            QFile::remove(tempPath);
-            return;
-        }
-    }
-
-    if (!QFile::rename(tempPath, zenzaiModelPath_)) {
-        QMessageBox::critical(window_, tr("Download Error"),
-                              tr("Failed to rename model file."));
-        QFile::remove(tempPath);
-        return;
-    }
-
-    if (context_.server) {
-        context_.server->reloadZenzaiModel();
     }
 
     QMessageBox::information(
-        window_, tr("Download Complete"),
-        tr("Zenzai model has been downloaded successfully.\n"
-           "Please push 'Reload' to refresh the UI."));
-}
-
-void AiTabController::onDownloadError(QNetworkReply::NetworkError error) {
-    if (downloadProgressDialog_) {
-        downloadProgressDialog_->deleteLater();
-        downloadProgressDialog_ = nullptr;
-    }
-
-    if (!currentDownload_) {
-        return;
-    }
-
-    QString errorString = currentDownload_->errorString();
-    currentDownload_->deleteLater();
-    currentDownload_ = nullptr;
-
-    if (error != QNetworkReply::OperationCanceledError) {
-        QMessageBox::critical(
-            window_, tr("Download Error"),
-            tr("Failed to download Zenzai model: %1").arg(errorString));
-    }
+        window_, tr("Model Installed"),
+        tr("The local Zenzai model was installed at %1. Select Reload to "
+           "refresh this window.")
+            .arg(targetPath));
 }
 
 QString AiTabController::calculateFileSHA256(const QString& filePath) {
@@ -299,6 +205,22 @@ QString AiTabController::calculateFileSHA256(const QString& filePath) {
 
     file.close();
     return QString(hash.result().toHex());
+}
+
+QString AiTabController::managedZenzaiModelPath() const {
+    using grimodex::ime::settings::SettingsEnvironment;
+    using grimodex::ime::settings::resolveSettingsProductPaths;
+
+    const SettingsEnvironment environment{
+        .runtimeHome = std::getenv("XDG_RUNTIME_DIR"),
+        .configHome = std::getenv("XDG_CONFIG_HOME"),
+        .dataHome = std::getenv("XDG_DATA_HOME"),
+        .stateHome = std::getenv("XDG_STATE_HOME"),
+        .cacheHome = std::getenv("XDG_CACHE_HOME"),
+    };
+    const auto paths = resolveSettingsProductPaths(
+        environment, QDir::homePath().toStdString(), getuid());
+    return QString::fromStdString(paths.zenzaiModel);
 }
 
 void AiTabController::refreshWarnings() {
@@ -332,8 +254,11 @@ void AiTabController::refreshWarnings() {
         ui_->zenzaiBackendDevice->setEnabled(false);
 
         QWidget* warningWidget = WarningWidgetFactory::create(
-            tr("<b>Warning:</b> Zenzai model not found."), "yellow",
-            tr("Download Model"), [this]() { onDownloadZenzaiModel(); });
+            tr("<b>Warning:</b> Zenzai model not found. Place a compatible "
+               "GGUF file at <code>%1</code>, or select a local file.")
+                .arg(managedZenzaiModelPath()),
+            "yellow", tr("Select Local Model"),
+            [this]() { onSelectLocalZenzaiModel(); });
         ui_->aiTabScrollContentsLayout->insertWidget(1, warningWidget);
     } else {
         ui_->enableZenzai->setEnabled(true);
@@ -351,9 +276,10 @@ void AiTabController::refreshWarnings() {
             if (!currentChecksum.isEmpty() &&
                 currentChecksum != expectedChecksum) {
                 QWidget* warningWidget = WarningWidgetFactory::create(
-                    tr("The current model is not the latest version."),
-                    "lightblue", tr("Download Update"),
-                    [this]() { onDownloadZenzaiModel(); });
+                    tr("The current model differs from the tested Zenzai "
+                       "model."),
+                    "lightblue", tr("Select Local Model"),
+                    [this]() { onSelectLocalZenzaiModel(); });
                 ui_->aiTabScrollContentsLayout->insertWidget(1, warningWidget);
             }
         }

@@ -1,6 +1,6 @@
 #ifndef CONSTANTS_H
 #define CONSTANTS_H
 
-inline constexpr char HAZKEY_VERSION_STR[] = "@PROJECT_VERSION@";
+inline constexpr char GRIMODEX_IME_VERSION_STR[] = "@PROJECT_VERSION@";
 
 #endif
