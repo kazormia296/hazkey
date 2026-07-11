@@ -46,6 +46,18 @@ bool HazkeySessionClient::close(HazkeyClientSession& session,
     return response.has_value() && response->status() == hazkey::SUCCESS;
 }
 
+bool HazkeySessionClient::updateContext(HazkeyClientSession& session,
+                                        HazkeyClientContext context) {
+    const auto transition =
+        evaluateHazkeyClientContextTransition(session.context_, context);
+    if (!transition.contextChanged) {
+        return true;
+    }
+    (void)close(session, false);
+    session.context_ = std::move(context);
+    return open(session, true);
+}
+
 std::optional<hazkey::ResponseEnvelope> HazkeySessionClient::transact(
     HazkeyClientSession& session, hazkey::RequestEnvelope request,
     bool tryConnect) {

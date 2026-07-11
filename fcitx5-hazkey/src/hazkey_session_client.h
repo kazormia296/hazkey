@@ -50,6 +50,7 @@ class HazkeySessionClient {
 
     bool open(HazkeyClientSession& session, bool tryConnect = true);
     bool close(HazkeyClientSession& session, bool tryConnect = false);
+    bool updateContext(HazkeyClientSession& session, HazkeyClientContext context);
 
     std::optional<hazkey::ResponseEnvelope> transact(
         HazkeyClientSession& session, hazkey::RequestEnvelope request,
