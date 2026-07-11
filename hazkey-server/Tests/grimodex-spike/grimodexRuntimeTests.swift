@@ -142,6 +142,59 @@ final class GrimodexRuntimeTests: XCTestCase {
     XCTAssertNotNil(provider.latest().payload)
   }
 
+  func testLinuxRuntimeRemovesHandshakeWhenSnapshotWatcherCannotStart() throws {
+    let sandbox = try GrimodexRuntimeSandbox()
+    try sandbox.replaceState()
+    try sandbox.replaceProject()
+    let consumerURL = try GrimodexConsumerRegistrar(
+      rootURL: sandbox.root,
+      version: "0.1.0"
+    ).registerNow()
+    let projectsURL = sandbox.root.appendingPathComponent("projects", isDirectory: true)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o000],
+      ofItemAtPath: projectsURL.path
+    )
+    defer {
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o700],
+        ofItemAtPath: projectsURL.path
+      )
+    }
+    let runtime = GrimodexLinuxRuntime(
+      rootURL: sandbox.root,
+      version: "0.1.0"
+    )
+
+    runtime.start()
+    defer { runtime.stop() }
+
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: consumerURL.path),
+      "a runtime without a working snapshot watcher must not advertise full capabilities"
+    )
+  }
+
+  func testLinuxRuntimeStopRemovesConsumerHandshakeImmediately() throws {
+    let sandbox = try GrimodexRuntimeSandbox()
+    try sandbox.replaceState()
+    try sandbox.replaceProject()
+    let runtime = GrimodexLinuxRuntime(
+      rootURL: sandbox.root,
+      version: "0.1.0"
+    )
+    let consumerURL = sandbox.root.appendingPathComponent(
+      "consumers/fcitx5-grimodex.json"
+    )
+
+    runtime.start()
+    XCTAssertTrue(FileManager.default.fileExists(atPath: consumerURL.path))
+
+    runtime.stop()
+
+    XCTAssertFalse(FileManager.default.fileExists(atPath: consumerURL.path))
+  }
+
   func testManagerPreservesLastGoodPayloadDuringRetryableStateRace() throws {
     let sandbox = try GrimodexRuntimeSandbox()
     let stateA = try sandbox.fixtureData("valid/state-active.json")
