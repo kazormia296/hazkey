@@ -124,6 +124,45 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
     }
   }
 
+  func testConfigurationResponseIncludesLiveGrimodexDiagnostics() throws {
+    let diagnostics = GrimodexDiagnosticsSnapshot(
+      watcherActive: true,
+      consumerRegistered: true,
+      loadDiagnostic: .loaded,
+      generation: 9,
+      activeProjectID: "project-a",
+      activeSessions: 1,
+      clientContext: GrimodexClientContext(
+        program: "grimodex",
+        frontend: "wayland",
+        secureInput: false
+      ),
+      scopeDecision: GrimodexScopeDecision(
+        allowsGrimodexIntegration: true,
+        allowsLearning: true,
+        reason: .allowedGrimodex
+      )
+    )
+    let handler = ProtocolHandler(
+      sessionRegistry: HazkeySessionRegistry(),
+      diagnosticsProvider: { diagnostics }
+    )
+
+    let response = try process(
+      Hazkey_RequestEnvelope.with { $0.getConfig = .init() },
+      handler: handler,
+      clientFd: 20
+    )
+
+    XCTAssertEqual(response.status, .success)
+    XCTAssertTrue(response.currentConfig.hasGrimodexDiagnostics)
+    XCTAssertEqual(response.currentConfig.grimodexDiagnostics.generation, 9)
+    XCTAssertEqual(
+      response.currentConfig.grimodexDiagnostics.scopeReason,
+      .allowedGrimodex
+    )
+  }
+
   private func openSession(
     handler: ProtocolHandler,
     clientFd: Int32,
