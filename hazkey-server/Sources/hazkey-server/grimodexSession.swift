@@ -182,8 +182,8 @@ struct GrimodexCompositionGenerationPin: Equatable, Sendable {
         let revoked = GrimodexIntegrationRevision(
             generation: newestGeneration,
             payload: nil,
-            allowsLearning: revision.allowsLearning,
-            secureInput: revision.secureInput
+            allowsLearning: false,
+            secureInput: true
         )
         pinned = nil
         pending = nil
