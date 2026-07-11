@@ -68,4 +68,4 @@ jobs:
             --scratch-path hazkey-server/build-ci/swift-build \
             --traits ZenzaiSupport \
             -Xlinker -L${{ github.workspace }}/hazkey-server/build-ci/bin \
-            --filter GrimodexDictionarySpikeTests
+            --filter Grimodex
