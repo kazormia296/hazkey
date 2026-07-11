@@ -264,8 +264,10 @@ final class GrimodexStateIntegrationTests: XCTestCase {
     let response = state.getCandidates(is_suggest: false)
 
     XCTAssertEqual(response.status, .success)
-    XCTAssertTrue(
-      response.candidates.candidates.contains { $0.text == "Grimodex配線確認" }
+    XCTAssertEqual(
+      response.candidates.candidates.first?.text,
+      "Grimodex配線確認",
+      "the active Grimodex project term must be the highest-ranked conversion candidate"
     )
   }
 
