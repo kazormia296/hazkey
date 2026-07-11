@@ -14,6 +14,17 @@ struct HazkeyClientContext {
     bool secureInput = false;
 };
 
+struct HazkeyClientContextTransition {
+    bool contextChanged = false;
+    bool enteredSecure = false;
+    bool clearPreedit = false;
+    bool reopenSession = false;
+    bool allowSurroundingText = true;
+};
+
+HazkeyClientContextTransition evaluateHazkeyClientContextTransition(
+    const HazkeyClientContext& previous, const HazkeyClientContext& next);
+
 class HazkeyClientSession {
    public:
     explicit HazkeyClientSession(HazkeyClientContext context)

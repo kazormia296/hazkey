@@ -2,6 +2,21 @@
 
 #include <utility>
 
+HazkeyClientContextTransition evaluateHazkeyClientContextTransition(
+    const HazkeyClientContext& previous, const HazkeyClientContext& next) {
+    const bool contextChanged =
+        previous.program != next.program || previous.frontend != next.frontend ||
+        previous.secureInput != next.secureInput;
+    const bool enteredSecure = !previous.secureInput && next.secureInput;
+    return HazkeyClientContextTransition{
+        .contextChanged = contextChanged,
+        .enteredSecure = enteredSecure,
+        .clearPreedit = enteredSecure,
+        .reopenSession = contextChanged,
+        .allowSurroundingText = !next.secureInput,
+    };
+}
+
 bool HazkeySessionClient::open(HazkeyClientSession& session, bool tryConnect) {
     hazkey::RequestEnvelope request;
     auto* client = request.mutable_open_session()->mutable_client();
