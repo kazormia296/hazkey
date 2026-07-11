@@ -35,6 +35,7 @@ require_absent("${cmake_source}" "LinguistTools Network"
 
 read_settings_file(mainwindow_header "mainwindow.h")
 read_settings_file(mainwindow_source "mainwindow.cpp")
+read_settings_file(server_connector_source "serverconnector.cpp")
 read_settings_file(ai_header "controllers/ai_tab_controller.h")
 read_settings_file(ai_source "controllers/ai_tab_controller.cpp")
 set(product_sources
@@ -48,6 +49,12 @@ foreach(forbidden IN ITEMS
     require_absent("${product_sources}" "${forbidden}"
                    "settings product must not contain a downloader")
 endforeach()
+require_contains("${server_connector_source}" "throw std::runtime_error"
+                 "settings save failures must reach the UI layer")
+require_contains("${mainwindow_source}" "if (saveCurrentConfig())"
+                 "the settings window must close only after a successful save")
+require_contains("${mainwindow_source}" "QMessageBox::critical"
+                 "the settings window must display save failures")
 require_contains("${ai_source}" "QFileDialog"
                  "settings must support selecting a local model")
 require_contains("${ai_source}" "zenzaiModel"

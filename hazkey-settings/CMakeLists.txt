@@ -61,6 +61,8 @@ set(PROJECT_SOURCES
     ${TS_FILES}
 )
 
+add_library(grimodex-settings-protocol STATIC)
+
 qt_add_executable(fcitx5-grimodex-settings ${PROJECT_SOURCES}
     hazkey-icon.qrc)
 qt_create_translation(QM_FILES ${PROJECT_SOURCES} ${TS_FILES})
@@ -79,7 +81,7 @@ if(Protobuf_VERSION VERSION_GREATER_EQUAL "3.15")
     # 3.15 ~：stable proto3 optional support
     message(STATUS "Using standard protobuf_generate (protobuf ${Protobuf_VERSION})")
     protobuf_generate(
-        TARGET fcitx5-grimodex-settings
+        TARGET grimodex-settings-protocol
         LANGUAGE cpp
         PROTOS ${PROTO_FILES}
         IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../protocol
@@ -115,11 +117,20 @@ elseif(Protobuf_VERSION VERSION_GREATER_EQUAL "3.12")
         )
     endforeach()
 
-    target_sources(fcitx5-grimodex-settings PRIVATE ${PROTO_SRCS} ${PROTO_HDRS})
+    target_sources(grimodex-settings-protocol PRIVATE ${PROTO_SRCS} ${PROTO_HDRS})
 else()
     # ~ 3.12：no proto3 optional support
     message(FATAL_ERROR "protobuf 3.12+ required for proto3 optional support. Current version: ${Protobuf_VERSION}")
 endif()
+
+target_include_directories(grimodex-settings-protocol PUBLIC
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${Protobuf_INCLUDE_DIRS}
+)
+
+target_link_libraries(grimodex-settings-protocol PUBLIC
+    ${Protobuf_LITE_LIBRARIES}
+)
 
 target_include_directories(fcitx5-grimodex-settings PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
@@ -130,7 +141,7 @@ target_include_directories(fcitx5-grimodex-settings PRIVATE
 
 target_link_libraries(fcitx5-grimodex-settings PRIVATE
     Qt6::Widgets
-    ${Protobuf_LITE_LIBRARIES}
+    grimodex-settings-protocol
 )
 
 include(GNUInstallDirs)
@@ -169,6 +180,17 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/../linux-shared)
     add_test(NAME grimodex-settings-product-paths
         COMMAND grimodex-settings-product-paths-test)
+    add_executable(grimodex-settings-server-connector-save-test
+        tests/serverconnector_save_test.cpp
+        serverconnector.cpp)
+    target_include_directories(grimodex-settings-server-connector-save-test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../linux-shared)
+    target_link_libraries(grimodex-settings-server-connector-save-test PRIVATE
+        Qt6::Widgets
+        grimodex-settings-protocol)
+    add_test(NAME grimodex-settings-server-connector-save
+        COMMAND grimodex-settings-server-connector-save-test)
     add_test(NAME grimodex-settings-build-contract
         COMMAND ${CMAKE_COMMAND}
             -DSETTINGS_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
