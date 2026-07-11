@@ -38,6 +38,19 @@ jobs:
       - name: Add Swift to PATH
         run: echo "${{ github.workspace }}/swift/usr/bin" >> "$GITHUB_PATH"
 
+      - name: Fingerprint runner image
+        id: runner-image
+        run: echo "value=${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache SwiftPM scratch
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/hazkey-server/build-ci/swift-build
+          key: >-
+            swiftpm-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.runner-image.outputs.value }}-swift-6.2-zenzai-${{ hashFiles('hazkey-server/Package.swift', 'hazkey-server/Package.resolved', 'hazkey-server/CMakeLists.txt', 'hazkey-server/build_swift.cmake', '.github/workflows/grimodex-spike-ci.yml') }}-${{ github.sha }}
+          restore-keys: |
+            swiftpm-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.runner-image.outputs.value }}-swift-6.2-zenzai-${{ hashFiles('hazkey-server/Package.swift', 'hazkey-server/Package.resolved', 'hazkey-server/CMakeLists.txt', 'hazkey-server/build_swift.cmake', '.github/workflows/grimodex-spike-ci.yml') }}-
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
