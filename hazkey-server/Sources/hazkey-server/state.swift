@@ -41,13 +41,15 @@ class HazkeyServerState {
 
     init(
         revisionProvider: any GrimodexRevisionProviding = GrimodexDisabledRevisionProvider(),
-        candidateLearning: (any HazkeyCandidateLearning)? = nil
+        candidateLearning: (any HazkeyCandidateLearning)? = nil,
+        converter injectedConverter: KanaKanjiConverter? = nil
     ) {
         self.grimodexRevisionProvider = revisionProvider
         let serverConfig = HazkeyServerConfig()
         self.serverConfig = serverConfig
 
-        let converter = KanaKanjiConverter.init(dictionaryURL: serverConfig.dictionaryPath)
+        let converter = injectedConverter
+            ?? KanaKanjiConverter.init(dictionaryURL: serverConfig.dictionaryPath)
         self.converter = converter
         self.candidateLearning = candidateLearning
             ?? HazkeyKanaKanjiCandidateLearning(converter: converter)

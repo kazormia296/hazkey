@@ -1,5 +1,6 @@
 import Foundation
 import KanaKanjiConverterModule
+import KanaKanjiConverterModuleWithDefaultDictionary
 import XCTest
 
 @testable import hazkey_server
@@ -201,10 +202,12 @@ final class GrimodexStateIntegrationTests: XCTestCase {
       surface: "Grimodex配線確認"
     )
     let state = HazkeyServerState(
-      revisionProvider: MutableGrimodexRevisionProvider(revision)
+      revisionProvider: MutableGrimodexRevisionProvider(revision),
+      converter: .withDefaultDictionary()
     )
 
-    for character in "setsuna" {
+    state.isSubInputMode = true
+    for character in "せつな" {
       _ = state.inputChar(inputString: String(character))
     }
     let response = state.getCandidates(is_suggest: false)
