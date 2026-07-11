@@ -4,6 +4,7 @@ project(hazkey-session-client-tests LANGUAGES CXX)
 
 include(CTest)
 find_package(Protobuf REQUIRED)
+find_package(ICU REQUIRED COMPONENTS i18n)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -63,3 +64,17 @@ target_include_directories(
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src"
 )
 add_test(NAME hazkey-candidate-display-test COMMAND hazkey-candidate-display-test)
+
+add_executable(
+    hazkey-text-offset-test
+    hazkey_text_offset_test.cpp
+    ../src/hazkey_text_offset.cpp
+)
+target_compile_features(hazkey-text-offset-test PRIVATE cxx_std_20)
+target_compile_options(hazkey-text-offset-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(
+    hazkey-text-offset-test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src"
+)
+target_link_libraries(hazkey-text-offset-test PRIVATE ICU::i18n)
+add_test(NAME hazkey-text-offset-test COMMAND hazkey-text-offset-test)
