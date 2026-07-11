@@ -8,6 +8,7 @@
 #include "controllers/tab_context.h"
 
 class QWidget;
+class QLabel;
 
 namespace Ui {
 class MainWindow;
@@ -34,11 +35,15 @@ class AiTabController : public QObject {
     void populateDeviceList();
     void populateGrimodexScopeList();
     void updateGrimodexScopeFromProfile();
+    void refreshGrimodexDiagnostics();
+    QString grimodexScopeReasonText(
+        ::hazkey::config::GrimodexDiagnostics_ScopeReason reason) const;
     void updateSelectionFromProfile();
     QString managedZenzaiModelPath() const;
 
     Ui::MainWindow* ui_;
     QWidget* window_;
+    QLabel* grimodexDiagnosticsLabel_;
     TabContext context_;
     std::atomic<bool> isLoading_{false};
 };

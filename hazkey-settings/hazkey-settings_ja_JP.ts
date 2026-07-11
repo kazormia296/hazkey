@@ -79,6 +79,82 @@
         <source>All applications</source>
         <translation>すべてのアプリケーション</translation>
     </message>
+    <message>
+        <source>Allowed: current application is Grimodex</source>
+        <translation>許可: 現在のアプリケーションはGrimodexです</translation>
+    </message>
+    <message>
+        <source>Allowed: all-applications mode is enabled</source>
+        <translation>許可: すべてのアプリケーションで有効です</translation>
+    </message>
+    <message>
+        <source>Blocked: Grimodex integration is off</source>
+        <translation>ブロック: Grimodex連携がオフです</translation>
+    </message>
+    <message>
+        <source>Blocked: secure input is active</source>
+        <translation>ブロック: セキュア入力が有効です</translation>
+    </message>
+    <message>
+        <source>Blocked: application identity is unavailable</source>
+        <translation>ブロック: アプリケーションを識別できません</translation>
+    </message>
+    <message>
+        <source>Blocked: current application is not Grimodex</source>
+        <translation>ブロック: 現在のアプリケーションはGrimodexではありません</translation>
+    </message>
+    <message>
+        <source>No active input context</source>
+        <translation>有効な入力コンテキストがありません</translation>
+    </message>
+    <message>
+        <source>&lt;b&gt;Diagnostics unavailable.&lt;/b&gt; Restart the Grimodex IME service after updating it.</source>
+        <translation>&lt;b&gt;診断情報を取得できません。&lt;/b&gt; Grimodex IMEを更新したあと、サービスを再起動してください。</translation>
+    </message>
+    <message>
+        <source>active</source>
+        <translation>稼働中</translation>
+    </message>
+    <message>
+        <source>stopped</source>
+        <translation>停止中</translation>
+    </message>
+    <message>
+        <source>registered</source>
+        <translation>登録済み</translation>
+    </message>
+    <message>
+        <source>not registered</source>
+        <translation>未登録</translation>
+    </message>
+    <message>
+        <source>none</source>
+        <translation>なし</translation>
+    </message>
+    <message>
+        <source>unknown</source>
+        <translation>不明</translation>
+    </message>
+    <message>
+        <source>enabled for current context</source>
+        <translation>現在の入力コンテキストで有効</translation>
+    </message>
+    <message>
+        <source>disabled for current context</source>
+        <translation>現在の入力コンテキストで無効</translation>
+    </message>
+    <message>
+        <source>yes</source>
+        <translation>はい</translation>
+    </message>
+    <message>
+        <source>no</source>
+        <translation>いいえ</translation>
+    </message>
+    <message>
+        <source>&lt;b&gt;Runtime diagnostics&lt;/b&gt;&lt;br/&gt;Watcher: %1 / Consumer: %2&lt;br/&gt;Snapshot: %3 / Generation: %4 / Project: %5&lt;br/&gt;Sessions: %6 / Program: %7 / Frontend: %8 / Secure: %9&lt;br/&gt;Integration: %10&lt;br/&gt;Reason: %11</source>
+        <translation>&lt;b&gt;実行時診断&lt;/b&gt;&lt;br/&gt;監視: %1 / コンシューマー: %2&lt;br/&gt;スナップショット: %3 / 世代: %4 / プロジェクト: %5&lt;br/&gt;セッション: %6 / プログラム: %7 / フロントエンド: %8 / セキュア入力: %9&lt;br/&gt;連携: %10&lt;br/&gt;理由: %11</translation>
+    </message>
 </context>
 <context>
     <name>InputStyleTabController</name>

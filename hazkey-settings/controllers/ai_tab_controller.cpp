@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QLabel>
 #include <QLayoutItem>
 #include <QMessageBox>
 #include <QSaveFile>
@@ -32,8 +33,17 @@ AiTabController::AiTabController(Ui::MainWindow* ui, QWidget* window,
     : QObject(parent),
       ui_(ui),
       window_(window),
+      grimodexDiagnosticsLabel_(new QLabel(window)),
       context_(),
-      isLoading_(false) {}
+      isLoading_(false) {
+    grimodexDiagnosticsLabel_->setWordWrap(true);
+    grimodexDiagnosticsLabel_->setTextFormat(Qt::RichText);
+    grimodexDiagnosticsLabel_->setTextInteractionFlags(
+        Qt::TextSelectableByMouse);
+    grimodexDiagnosticsLabel_->setObjectName("grimodexDiagnostics");
+    ui_->grimodexIntegrationGrid->addWidget(grimodexDiagnosticsLabel_, 1, 0, 1,
+                                            2);
+}
 
 void AiTabController::setContext(const TabContext& context) {
     context_ = context;
@@ -66,6 +76,7 @@ void AiTabController::loadFromConfig() {
     refreshWarnings();
     populateGrimodexScopeList();
     updateGrimodexScopeFromProfile();
+    refreshGrimodexDiagnostics();
     populateDeviceList();
     updateSelectionFromProfile();
 
@@ -320,6 +331,80 @@ void AiTabController::updateGrimodexScopeFromProfile() {
     const int index = ui_->grimodexScope->findData(
         context_.currentProfile->grimodex_scope_mode());
     ui_->grimodexScope->setCurrentIndex(index >= 0 ? index : 0);
+}
+
+QString AiTabController::grimodexScopeReasonText(
+    ::hazkey::config::GrimodexDiagnostics_ScopeReason reason) const {
+    using Diagnostics = ::hazkey::config::GrimodexDiagnostics;
+    switch (reason) {
+        case Diagnostics::ALLOWED_GRIMODEX:
+            return tr("Allowed: current application is Grimodex");
+        case Diagnostics::ALLOWED_ALL_APPLICATIONS:
+            return tr("Allowed: all-applications mode is enabled");
+        case Diagnostics::DISABLED:
+            return tr("Blocked: Grimodex integration is off");
+        case Diagnostics::SECURE_INPUT:
+            return tr("Blocked: secure input is active");
+        case Diagnostics::UNKNOWN_PROGRAM:
+            return tr("Blocked: application identity is unavailable");
+        case Diagnostics::OTHER_PROGRAM:
+            return tr("Blocked: current application is not Grimodex");
+        case Diagnostics::SCOPE_REASON_UNSPECIFIED:
+        default:
+            return tr("No active input context");
+    }
+}
+
+void AiTabController::refreshGrimodexDiagnostics() {
+    if (!context_.currentConfig ||
+        !context_.currentConfig->has_grimodex_diagnostics()) {
+        grimodexDiagnosticsLabel_->setText(
+            tr("<b>Diagnostics unavailable.</b> Restart the Grimodex IME "
+               "service after updating it."));
+        return;
+    }
+
+    const auto& diagnostics = context_.currentConfig->grimodex_diagnostics();
+    const QString watcher =
+        diagnostics.watcher_active() ? tr("active") : tr("stopped");
+    const QString consumer =
+        diagnostics.consumer_registered() ? tr("registered")
+                                          : tr("not registered");
+    const QString project = diagnostics.has_active_project_id()
+        ? QString::fromStdString(diagnostics.active_project_id()).toHtmlEscaped()
+        : tr("none");
+    const QString program = diagnostics.has_program()
+        ? QString::fromStdString(diagnostics.program()).toHtmlEscaped()
+        : tr("unknown");
+    const QString frontend = diagnostics.has_frontend()
+        ? QString::fromStdString(diagnostics.frontend()).toHtmlEscaped()
+        : tr("unknown");
+    const QString snapshot =
+        QString::fromStdString(diagnostics.snapshot_status()).toHtmlEscaped();
+    const QString integration = diagnostics.integration_allowed()
+        ? tr("enabled for current context")
+        : tr("disabled for current context");
+    const QString secure = diagnostics.secure_input() ? tr("yes") : tr("no");
+    const QString reason =
+        grimodexScopeReasonText(diagnostics.scope_reason()).toHtmlEscaped();
+
+    QString text = tr("<b>Runtime diagnostics</b><br/>"
+                      "Watcher: %1 / Consumer: %2<br/>"
+                      "Snapshot: %3 / Generation: %4 / Project: %5<br/>"
+                      "Sessions: %6 / Program: %7 / Frontend: %8 / Secure: %9<br/>"
+                      "Integration: %10<br/>Reason: %11");
+    text = text.arg(watcher.toHtmlEscaped())
+               .arg(consumer.toHtmlEscaped())
+               .arg(snapshot)
+               .arg(QString::number(diagnostics.generation()))
+               .arg(project)
+               .arg(QString::number(diagnostics.active_sessions()))
+               .arg(program)
+               .arg(frontend)
+               .arg(secure.toHtmlEscaped())
+               .arg(integration.toHtmlEscaped())
+               .arg(reason);
+    grimodexDiagnosticsLabel_->setText(text);
 }
 
 void AiTabController::updateSelectionFromProfile() {
