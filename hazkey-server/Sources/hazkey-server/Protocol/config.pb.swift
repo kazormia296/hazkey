@@ -411,7 +411,54 @@ struct Hazkey_Config_Profile: @unchecked Sendable {
   /// Clears the value of `zenzaiPreference`. Subsequent reads from it will return its default value.
   mutating func clearZenzaiPreference() {_uniqueStorage()._zenzaiPreference = nil}
 
+  var grimodexScopeMode: Hazkey_Config_Profile.GrimodexScopeMode {
+    get {return _storage._grimodexScopeMode ?? .grimodexOnly}
+    set {_uniqueStorage()._grimodexScopeMode = newValue}
+  }
+  /// Returns true if `grimodexScopeMode` has been explicitly set.
+  var hasGrimodexScopeMode: Bool {return _storage._grimodexScopeMode != nil}
+  /// Clears the value of `grimodexScopeMode`. Subsequent reads from it will return its default value.
+  mutating func clearGrimodexScopeMode() {_uniqueStorage()._grimodexScopeMode = nil}
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  enum GrimodexScopeMode: SwiftProtobuf.Enum, Swift.CaseIterable {
+    typealias RawValue = Int
+    case grimodexOnly // = 0
+    case grimodexOff // = 1
+    case grimodexAllApplications // = 2
+    case UNRECOGNIZED(Int)
+
+    init() {
+      self = .grimodexOnly
+    }
+
+    init?(rawValue: Int) {
+      switch rawValue {
+      case 0: self = .grimodexOnly
+      case 1: self = .grimodexOff
+      case 2: self = .grimodexAllApplications
+      default: self = .UNRECOGNIZED(rawValue)
+      }
+    }
+
+    var rawValue: Int {
+      switch self {
+      case .grimodexOnly: return 0
+      case .grimodexOff: return 1
+      case .grimodexAllApplications: return 2
+      case .UNRECOGNIZED(let i): return i
+      }
+    }
+
+    // The compiler won't synthesize support with the UNRECOGNIZED case.
+    static let allCases: [Hazkey_Config_Profile.GrimodexScopeMode] = [
+      .grimodexOnly,
+      .grimodexOff,
+      .grimodexAllApplications,
+    ]
+
+  }
 
   enum AutoConvertMode: SwiftProtobuf.Enum, Swift.CaseIterable {
     typealias RawValue = Int
@@ -1027,6 +1074,7 @@ extension Hazkey_Config_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     121: .standard(proto: "zenzai_topic"),
     122: .standard(proto: "zenzai_style"),
     123: .standard(proto: "zenzai_preference"),
+    130: .standard(proto: "grimodex_scope_mode"),
   ]
 
   fileprivate class _StorageClass {
@@ -1064,6 +1112,7 @@ extension Hazkey_Config_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     var _zenzaiTopic: String? = nil
     var _zenzaiStyle: String? = nil
     var _zenzaiPreference: String? = nil
+    var _grimodexScopeMode: Hazkey_Config_Profile.GrimodexScopeMode? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -1108,6 +1157,7 @@ extension Hazkey_Config_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
       _zenzaiTopic = source._zenzaiTopic
       _zenzaiStyle = source._zenzaiStyle
       _zenzaiPreference = source._zenzaiPreference
+      _grimodexScopeMode = source._grimodexScopeMode
     }
   }
 
@@ -1160,6 +1210,7 @@ extension Hazkey_Config_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
         case 121: try { try decoder.decodeSingularStringField(value: &_storage._zenzaiTopic) }()
         case 122: try { try decoder.decodeSingularStringField(value: &_storage._zenzaiStyle) }()
         case 123: try { try decoder.decodeSingularStringField(value: &_storage._zenzaiPreference) }()
+        case 130: try { try decoder.decodeSingularEnumField(value: &_storage._grimodexScopeMode) }()
         default: break
         }
       }
@@ -1274,6 +1325,9 @@ extension Hazkey_Config_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
       try { if let v = _storage._zenzaiPreference {
         try visitor.visitSingularStringField(value: v, fieldNumber: 123)
       } }()
+      try { if let v = _storage._grimodexScopeMode {
+        try visitor.visitSingularEnumField(value: v, fieldNumber: 130)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -1317,6 +1371,7 @@ extension Hazkey_Config_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
         if _storage._zenzaiTopic != rhs_storage._zenzaiTopic {return false}
         if _storage._zenzaiStyle != rhs_storage._zenzaiStyle {return false}
         if _storage._zenzaiPreference != rhs_storage._zenzaiPreference {return false}
+        if _storage._grimodexScopeMode != rhs_storage._grimodexScopeMode {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -1324,6 +1379,14 @@ extension Hazkey_Config_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
+}
+
+extension Hazkey_Config_Profile.GrimodexScopeMode: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "GRIMODEX_ONLY"),
+    1: .same(proto: "GRIMODEX_OFF"),
+    2: .same(proto: "GRIMODEX_ALL_APPLICATIONS"),
+  ]
 }
 
 extension Hazkey_Config_Profile.AutoConvertMode: SwiftProtobuf._ProtoNameProviding {
