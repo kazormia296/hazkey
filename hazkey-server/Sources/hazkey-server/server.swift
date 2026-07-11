@@ -4,7 +4,7 @@ class HazkeyServer: SocketManagerDelegate {
     private let processManager: ProcessManager
     private var socketManager: SocketManager
     private var protocolHandler: ProtocolHandler?
-    private var state: HazkeyServerState?
+    private var sessionRegistry: HazkeySessionRegistry?
 
     private let runtimeDir: URL
     private let socketPath: String
@@ -52,14 +52,15 @@ class HazkeyServer: SocketManagerDelegate {
             NSLog("Failed to start hazkey-server: \(error)")
             exit(1)
         }
-        self.state = HazkeyServerState()
-        self.protocolHandler = ProtocolHandler(state: self.state!)
+        let sessionRegistry = HazkeySessionRegistry()
+        self.sessionRegistry = sessionRegistry
+        self.protocolHandler = ProtocolHandler(sessionRegistry: sessionRegistry)
         try socketManager.setupSocket()
         // start main loop
         NSLog("start listening...")
         socketManager.startListening()
         // finish process
-        let _ = state?.saveLearningData()
+        sessionRegistry.saveAll()
     }
 
     func socketManager(_ manager: SocketManager, didReceiveData data: Data, from clientFd: Int32)
@@ -69,10 +70,12 @@ class HazkeyServer: SocketManagerDelegate {
             NSLog("protocolHandler is nil! exiting...")
             exit(1)
         }
-        return handler.processProto(data: data)
+        return handler.processProto(data: data, clientFd: clientFd)
     }
 
     func socketManager(_ manager: SocketManager, clientDidConnect clientFd: Int32) {}
 
-    func socketManager(_ manager: SocketManager, clientDidDisconnect clientFd: Int32) {}
+    func socketManager(_ manager: SocketManager, clientDidDisconnect clientFd: Int32) {
+        sessionRegistry?.closeAll(ownerFd: clientFd)
+    }
 }

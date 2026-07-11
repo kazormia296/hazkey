@@ -120,6 +120,12 @@ final class HazkeySessionRegistry {
         }
     }
 
+    func clearAllLearningData() {
+        for session in sessions.values {
+            _ = session.state.clearProfileLearningData()
+        }
+    }
+
     func saveAll() {
         for session in sessions.values {
             _ = session.state.saveLearningData()

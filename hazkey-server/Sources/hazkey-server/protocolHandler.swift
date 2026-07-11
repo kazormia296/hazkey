@@ -2,13 +2,13 @@ import Foundation
 import SwiftProtobuf
 
 class ProtocolHandler {
-    private let state: HazkeyServerState
+    private let sessionRegistry: HazkeySessionRegistry
 
-    init(state: HazkeyServerState) {
-        self.state = state
+    init(sessionRegistry: HazkeySessionRegistry) {
+        self.sessionRegistry = sessionRegistry
     }
 
-    func processProto(data: Data) -> Data {
+    func processProto(data: Data, clientFd: Int32) -> Data {
         let query: Hazkey_RequestEnvelope
         let response: Hazkey_ResponseEnvelope
 
@@ -24,6 +24,72 @@ class ProtocolHandler {
         }
 
         switch query.payload {
+        case .openSession(let request):
+            let context = GrimodexClientContext(
+                program: request.client.program,
+                frontend: request.client.frontend,
+                secureInput: request.client.secureInput
+            )
+            let sessionID = sessionRegistry.open(
+                clientContext: context,
+                ownerFd: clientFd
+            )
+            response = Hazkey_ResponseEnvelope.with {
+                $0.status = .success
+                $0.openSessionResult = Hazkey_OpenSessionResult.with {
+                    $0.sessionID = sessionID
+                }
+            }
+        case .closeSession(let request):
+            if sessionRegistry.close(sessionID: request.sessionID, ownerFd: clientFd) {
+                response = successResponse()
+            } else {
+                response = sessionNotFoundResponse()
+            }
+        case .getConfig:
+            response = sessionRegistry.serverConfig.getCurrentConfig()
+        case .setConfig(let request):
+            response = sessionRegistry.serverConfig.setCurrentConfig(
+                request.fileHashes,
+                request.profiles
+            )
+            if response.status == .success {
+                sessionRegistry.reinitializeAll()
+            }
+        case .clearAllHistory_p:
+            sessionRegistry.clearAllLearningData()
+            response = successResponse()
+        case .reloadZenzaiModel:
+            sessionRegistry.serverConfig.reloadZenzaiModel()
+            sessionRegistry.reinitializeAll()
+            response = successResponse()
+        case .getDefaultProfile:
+            NSLog("Unimplemented: getDefaultProfile")
+            response = Hazkey_ResponseEnvelope.with {
+                $0.status = .failed
+                $0.errorMessage = "Unimplemented: getDefaultProfile"
+            }
+        case .none:
+            NSLog("Payload not specified")
+            response = Hazkey_ResponseEnvelope.with {
+                $0.status = .failed
+                $0.errorMessage = "Payload not specified"
+            }
+        default:
+            guard let state = sessionRegistry.state(for: query.sessionID, ownerFd: clientFd) else {
+                return serializeResult(unserialized: sessionNotFoundResponse())
+            }
+            response = processSessionPayload(query.payload, state: state)
+        }
+        return serializeResult(unserialized: response)
+    }
+
+    private func processSessionPayload(
+        _ payload: Hazkey_RequestEnvelope.OneOf_Payload?,
+        state: HazkeyServerState
+    ) -> Hazkey_ResponseEnvelope {
+        let response: Hazkey_ResponseEnvelope
+        switch payload {
         case .setContext(let req):
             response = state.setContext(
                 surroundingText: req.context, anchorIndex: Int(req.anchor))
@@ -52,32 +118,25 @@ class ProtocolHandler {
             response = state.getCurrentInputMode()
         case .saveLearningData:
             response = state.saveLearningData()
-        case .getConfig:
-            response = state.serverConfig.getCurrentConfig()
-        case .setConfig(let req):
-            response = state.serverConfig.setCurrentConfig(
-                req.fileHashes, req.profiles, state: state)
-        case .clearAllHistory_p:
-            response = state.clearProfileLearningData()
-        case .reloadZenzaiModel:
-            state.serverConfig.reloadZenzaiModel()
-            response = Hazkey_ResponseEnvelope.with {
-                $0.status = .success
-            }
-        case .getDefaultProfile:
-            NSLog("Unimplemented: getDefaultProfile")
+        case .openSession, .closeSession, .getConfig, .setConfig, .getDefaultProfile,
+            .clearAllHistory_p, .reloadZenzaiModel, .none:
             response = Hazkey_ResponseEnvelope.with {
                 $0.status = .failed
-                $0.errorMessage = "Unimplemented: getDefaultProfile"
-            }
-        case .none:
-            NSLog("Payload not specified")
-            response = Hazkey_ResponseEnvelope.with {
-                $0.status = .failed
-                $0.errorMessage = "Payload not specified"
+                $0.errorMessage = "Command is not valid for a conversion session"
             }
         }
-        return serializeResult(unserialized: response)
+        return response
+    }
+
+    private func successResponse() -> Hazkey_ResponseEnvelope {
+        Hazkey_ResponseEnvelope.with { $0.status = .success }
+    }
+
+    private func sessionNotFoundResponse() -> Hazkey_ResponseEnvelope {
+        Hazkey_ResponseEnvelope.with {
+            $0.status = .sessionNotFound
+            $0.errorMessage = "Session not found"
+        }
     }
 
     private func serializeResult(unserialized: Hazkey_ResponseEnvelope) -> Data {
