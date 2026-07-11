@@ -258,6 +258,7 @@ jobs:
           GRIMODEX_PROCESS_E2E_SERVER: ${{ github.workspace }}/hazkey-server/build-ci/swift-build/release/hazkey-server
           FCITX5_GRIMODEX_DICTIONARY: ${{ github.workspace }}/hazkey-server/azooKey_dictionary_storage/Dictionary
         run: |
+          set -o pipefail
           swift test \
             --package-path hazkey-server \
             --scratch-path hazkey-server/build-ci/swift-build \

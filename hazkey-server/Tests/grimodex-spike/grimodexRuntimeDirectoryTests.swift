@@ -12,7 +12,10 @@ final class GrimodexRuntimeDirectoryTests: XCTestCase {
     try GrimodexRuntimeDirectory.prepare(at: runtime, uid: getuid())
 
     let attributes = try FileManager.default.attributesOfItem(atPath: runtime.path)
-    XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue & 0o777, 0o700)
+    XCTAssertEqual(
+      ((attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0) & 0o777,
+      0o700
+    )
   }
 
   func testRejectsSymlinkAndOverlyPermissiveRuntimeDirectories() throws {
