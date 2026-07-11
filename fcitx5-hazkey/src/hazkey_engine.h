@@ -8,6 +8,8 @@
 #include <fcitx/instance.h>
 #include <iconv.h>
 
+#include <memory>
+
 #include "hazkey_config.h"
 #include "hazkey_server_connector.h"
 #include "hazkey_state.h"
@@ -31,7 +33,7 @@ class HazkeyEngine : public InputMethodEngineV2 {
     auto factory() const { return &factory_; }
     auto instance() const { return instance_; }
 
-    auto server() const { return server_; }
+    HazkeyServerConnector& server() { return server_; }
 
     const Configuration *getConfig() const override { return &config_; }
     void setConfig(const RawConfig &config) override;
@@ -46,6 +48,7 @@ class HazkeyEngine : public InputMethodEngineV2 {
     Instance *instance_;
     FactoryFor<HazkeyState> factory_;
     HazkeyServerConnector server_;
+    std::unique_ptr<HandlerTableEntry<EventHandler>> capabilityWatcher_;
     iconv_t conv_;
 };
 

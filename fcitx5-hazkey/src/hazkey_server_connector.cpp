@@ -27,6 +27,87 @@
 
 static std::mutex transact_mutex;
 
+HazkeyServerConnector::HazkeyServerConnector()
+    : sessionClient_([this](const hazkey::RequestEnvelope& request,
+                            bool tryConnect) {
+          return transact(request, tryConnect);
+      }) {
+    connectServer();
+    FCITX_DEBUG() << "Connector initialized";
+}
+
+HazkeyServerConnector::~HazkeyServerConnector() {
+    if (sock_ >= 0) {
+        close(sock_);
+        sock_ = -1;
+    }
+}
+
+HazkeyServerSession::HazkeyServerSession(HazkeyServerConnector& connector,
+                                         HazkeyClientContext context)
+    : connector_(connector), session_(std::move(context)) {
+    (void)connector_.sessionClient_.open(session_);
+}
+
+HazkeyServerSession::~HazkeyServerSession() {
+    (void)connector_.sessionClient_.close(session_);
+}
+
+bool HazkeyServerSession::updateClientContext(HazkeyClientContext context) {
+    return connector_.sessionClient_.updateContext(session_, std::move(context));
+}
+
+std::string HazkeyServerSession::getComposingText(
+    hazkey::commands::GetComposingString::CharType type,
+    std::string currentPreedit) {
+    return connector_.getComposingText(session_, type, std::move(currentPreedit));
+}
+
+fcitx::Text HazkeyServerSession::getComposingHiraganaWithCursor() {
+    return connector_.getComposingHiraganaWithCursor(session_);
+}
+
+void HazkeyServerSession::inputChar(std::string text) {
+    connector_.inputChar(session_, std::move(text));
+}
+
+void HazkeyServerSession::shiftKeyEvent(bool isRelease) {
+    connector_.shiftKeyEvent(session_, isRelease);
+}
+
+bool HazkeyServerSession::currentInputModeIsDirect() {
+    return connector_.currentInputModeIsDirect(session_);
+}
+
+void HazkeyServerSession::deleteLeft() { connector_.deleteLeft(session_); }
+
+void HazkeyServerSession::deleteRight() { connector_.deleteRight(session_); }
+
+void HazkeyServerSession::moveCursor(int offset) {
+    connector_.moveCursor(session_, offset);
+}
+
+void HazkeyServerSession::setContext(std::string context, int anchor) {
+    connector_.setContext(session_, std::move(context), anchor);
+}
+
+void HazkeyServerSession::newComposingText() {
+    connector_.newComposingText(session_);
+}
+
+void HazkeyServerSession::completePrefix(int index) {
+    connector_.completePrefix(session_, index);
+}
+
+void HazkeyServerSession::saveLearningData(bool tryConnect) {
+    connector_.saveLearningData(session_, tryConnect);
+}
+
+hazkey::commands::CandidatesResult HazkeyServerSession::getCandidates(
+    bool isSuggest) {
+    return connector_.getCandidates(session_, isSuggest);
+}
+
 std::string HazkeyServerConnector::getSocketPath() {
     const char* xdg_runtime_dir = std::getenv("XDG_RUNTIME_DIR");
     uid_t uid = getuid();
@@ -262,13 +343,14 @@ std::optional<hazkey::ResponseEnvelope> HazkeyServerConnector::transact(
 }
 
 std::string HazkeyServerConnector::getComposingText(
+    HazkeyClientSession& session,
     hazkey::commands::GetComposingString::CharType type,
     std::string currentPreedit) {
     hazkey::RequestEnvelope request;
     auto props = request.mutable_get_composing_string();
     props->set_char_type(type);
     props->set_current_preedit(currentPreedit);
-    auto response = transact(request);
+    auto response = sessionClient_.transact(session, std::move(request));
     if (response == std::nullopt) {
         FCITX_ERROR() << "Error while transacting getComposingText().";
         return "";
@@ -288,10 +370,11 @@ std::string HazkeyServerConnector::getComposingText(
     return responseVal.text();
 }
 
-fcitx::Text HazkeyServerConnector::getComposingHiraganaWithCursor() {
+fcitx::Text HazkeyServerConnector::getComposingHiraganaWithCursor(
+    HazkeyClientSession& session) {
     hazkey::RequestEnvelope request;
     request.mutable_get_hiragana_with_cursor();
-    auto response = transact(request);
+    auto response = sessionClient_.transact(session, std::move(request));
     if (response == std::nullopt) {
         FCITX_ERROR()
             << "Error while transacting getComposingHiraganaWithCursor().";
@@ -317,11 +400,12 @@ fcitx::Text HazkeyServerConnector::getComposingHiraganaWithCursor() {
     return text;
 }
 
-void HazkeyServerConnector::inputChar(std::string text) {
+void HazkeyServerConnector::inputChar(HazkeyClientSession& session,
+                                      std::string text) {
     hazkey::RequestEnvelope request;
     auto props = request.mutable_input_char();
     props->set_text(text);
-    auto response = transact(request);
+    auto response = sessionClient_.transact(session, std::move(request));
     if (response == std::nullopt) {
         FCITX_ERROR() << "Error while transacting inputChar().";
         return;
@@ -335,14 +419,15 @@ void HazkeyServerConnector::inputChar(std::string text) {
     return;
 }
 
-void HazkeyServerConnector::shiftKeyEvent(bool isRelease) {
+void HazkeyServerConnector::shiftKeyEvent(HazkeyClientSession& session,
+                                          bool isRelease) {
     hazkey::RequestEnvelope request;
     auto props = request.mutable_modifier_event();
     props->set_event_type(
         isRelease ? hazkey::commands::ModifierEvent_EventType_RELEASE
                   : hazkey::commands::ModifierEvent_EventType_PRESS);
     props->set_mod_type(hazkey::commands::ModifierEvent_ModifierType_SHIFT);
-    auto response = transact(request);
+    auto response = sessionClient_.transact(session, std::move(request));
     if (response == std::nullopt) {
         FCITX_ERROR() << "Error while transacting shiftKeyEvent().";
         return;
@@ -356,10 +441,11 @@ void HazkeyServerConnector::shiftKeyEvent(bool isRelease) {
     return;
 }
 
-bool HazkeyServerConnector::currentInputModeIsDirect() {
+bool HazkeyServerConnector::currentInputModeIsDirect(
+    HazkeyClientSession& session) {
     hazkey::RequestEnvelope request;
     auto _ = request.mutable_get_current_input_mode();
-    auto response = transact(request);
+    auto response = sessionClient_.transact(session, std::move(request));
     if (response == std::nullopt) {
         FCITX_ERROR() << "Error while transacting currentInputModeIsDirect().";
         return false;
@@ -376,10 +462,10 @@ bool HazkeyServerConnector::currentInputModeIsDirect() {
                CurrentInputModeInfo_InputMode_DIRECT;
 }
 
-void HazkeyServerConnector::deleteLeft() {
+void HazkeyServerConnector::deleteLeft(HazkeyClientSession& session) {
     hazkey::RequestEnvelope request;
     request.mutable_delete_left();
-    auto response = transact(request);
+    auto response = sessionClient_.transact(session, std::move(request));
     if (response == std::nullopt) {
         FCITX_ERROR() << "Error while transacting deleteLeft().";
         return;
@@ -393,10 +479,10 @@ void HazkeyServerConnector::deleteLeft() {
     return;
 }
 
-void HazkeyServerConnector::deleteRight() {
+void HazkeyServerConnector::deleteRight(HazkeyClientSession& session) {
     hazkey::RequestEnvelope request;
     request.mutable_delete_right();
-    auto response = transact(request);
+    auto response = sessionClient_.transact(session, std::move(request));
     if (response == std::nullopt) {
         FCITX_ERROR() << "Error while transacting deleteRight().";
         return;
@@ -410,11 +496,12 @@ void HazkeyServerConnector::deleteRight() {
     return;
 }
 
-void HazkeyServerConnector::moveCursor(int offset) {
+void HazkeyServerConnector::moveCursor(HazkeyClientSession& session,
+                                       int offset) {
     hazkey::RequestEnvelope request;
     auto props = request.mutable_move_cursor();
     props->set_offset(offset);
-    auto response = transact(request);
+    auto response = sessionClient_.transact(session, std::move(request));
     if (response == std::nullopt) {
         FCITX_ERROR() << "Error while transacting moveCursor().";
         return;
@@ -428,12 +515,13 @@ void HazkeyServerConnector::moveCursor(int offset) {
     return;
 }
 
-void HazkeyServerConnector::setContext(std::string context, int anchor) {
+void HazkeyServerConnector::setContext(HazkeyClientSession& session,
+                                       std::string context, int anchor) {
     hazkey::RequestEnvelope request;
     auto props = request.mutable_set_context();
     props->set_context(context);
     props->set_anchor(anchor);
-    auto response = transact(request);
+    auto response = sessionClient_.transact(session, std::move(request));
     if (response == std::nullopt) {
         FCITX_ERROR() << "Error while transacting setContext().";
         return;
@@ -447,10 +535,10 @@ void HazkeyServerConnector::setContext(std::string context, int anchor) {
     return;
 }
 
-void HazkeyServerConnector::newComposingText() {
+void HazkeyServerConnector::newComposingText(HazkeyClientSession& session) {
     hazkey::RequestEnvelope request;
     request.mutable_new_composing_text();
-    auto response = transact(request);
+    auto response = sessionClient_.transact(session, std::move(request));
     if (response == std::nullopt) {
         FCITX_ERROR()
             << "Error while transacting createComposingTextInstance().";
@@ -466,11 +554,12 @@ void HazkeyServerConnector::newComposingText() {
     return;
 }
 
-void HazkeyServerConnector::completePrefix(int index) {
+void HazkeyServerConnector::completePrefix(HazkeyClientSession& session,
+                                           int index) {
     hazkey::RequestEnvelope request;
     auto props = request.mutable_prefix_complete();
     props->set_index(index);
-    auto response = transact(request);
+    auto response = sessionClient_.transact(session, std::move(request));
     if (response == std::nullopt) {
         FCITX_ERROR() << "Error while transacting completePrefix().";
         return;
@@ -484,10 +573,12 @@ void HazkeyServerConnector::completePrefix(int index) {
     return;
 }
 
-void HazkeyServerConnector::saveLearningData(bool tryConnect) {
+void HazkeyServerConnector::saveLearningData(HazkeyClientSession& session,
+                                             bool tryConnect) {
     hazkey::RequestEnvelope request;
     request.mutable_save_learning_data();
-    auto response = transact(request, tryConnect);
+    auto response =
+        sessionClient_.transact(session, std::move(request), tryConnect);
     if (response == std::nullopt) {
         FCITX_ERROR() << "Error while transacting saveLearningData().";
         return;
@@ -503,21 +594,19 @@ void HazkeyServerConnector::saveLearningData(bool tryConnect) {
 }
 
 hazkey::commands::CandidatesResult HazkeyServerConnector::getCandidates(
-    bool isSuggestMode) {
+    HazkeyClientSession& session, bool isSuggestMode) {
     hazkey::RequestEnvelope request;
     auto props = request.mutable_get_candidates();
     props->set_is_suggest(isSuggestMode);
-    auto response = transact(request);
+    auto response = sessionClient_.transact(session, std::move(request));
     if (response == std::nullopt) {
         FCITX_ERROR() << "Error while transacting setServerConfig().";
-        std::vector<CandidateData> empty_vec;
         return hazkey::commands::CandidatesResult();
     }
     auto responseVal = response.value();
     if (responseVal.status() != hazkey::SUCCESS) {
         FCITX_ERROR() << "getCandidates: " << "Server returned an error: "
                       << responseVal.error_message();
-        std::vector<CandidateData> empty_vec;
         return hazkey::commands::CandidatesResult();
     }
     // TODO: Error handling when response has no candidate

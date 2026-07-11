@@ -17,9 +17,45 @@
 
 namespace fcitx {
 
+namespace {
+
+HazkeyClientContext makeClientContext(InputContext* inputContext,
+                                      CapabilityFlags flags) {
+    const char* frontend = inputContext->frontend();
+    return HazkeyClientContext{
+        .program = inputContext->program(),
+        .frontend = frontend == nullptr ? "" : frontend,
+        .secureInput = flags.testAny(CapabilityFlag::PasswordOrSensitive),
+    };
+}
+
+}  // namespace
+
 HazkeyState::HazkeyState(HazkeyEngine* engine, InputContext* ic)
-    : engine_(engine), ic_(ic), preedit_(HazkeyPreedit(ic)) {
-    engine_->server().newComposingText();
+    : engine_(engine),
+      ic_(ic),
+      server_(engine->server(), makeClientContext(ic, ic->capabilityFlags())),
+      preedit_(HazkeyPreedit(ic)) {
+    server_.newComposingText();
+}
+
+void HazkeyState::capabilityAboutToChange(CapabilityFlags newFlags) {
+    auto nextContext = makeClientContext(ic_, newFlags);
+    const auto transition =
+        evaluateHazkeyClientContextTransition(server_.context(), nextContext);
+    if (!transition.contextChanged) {
+        return;
+    }
+
+    if (transition.clearPreedit) {
+        isDirectConversionMode_ = false;
+        livePreeditIndex_ = -1;
+        isCursorMoving_ = false;
+        ic_->inputPanel().reset();
+        ic_->updatePreedit();
+        ic_->updateUserInterface(UserInterfaceComponent::InputPanel, true);
+    }
+    (void)server_.updateClientContext(std::move(nextContext));
 }
 
 bool HazkeyState::isInputableEvent(const KeyEvent& event) {
@@ -38,13 +74,15 @@ void HazkeyState::commitPreedit() { preedit_.commitPreedit(); }
 void HazkeyState::keyEvent(KeyEvent& event) {
     FCITX_DEBUG() << "HazkeyState keyEvent";
 
-    std::string composingText = engine_->server().getComposingText(
+    capabilityAboutToChange(ic_->capabilityFlags());
+
+    std::string composingText = server_.getComposingText(
         hazkey::commands::GetComposingString_CharType_HIRAGANA,
         preedit_.text());
 
     if (event.key().sym() == FcitxKey_Shift_L ||
         event.key().sym() == FcitxKey_Shift_R) {
-        engine_->server().shiftKeyEvent(event.isRelease());
+        server_.shiftKeyEvent(event.isRelease());
         if (composingText == "") {
             setAuxDownText(std::nullopt);
             return;
@@ -94,8 +132,8 @@ void HazkeyState::noPreeditKeyEvent(KeyEvent& event) {
                 ic_->commitString(" ");
                 reset();
             } else {
-                engine_->server().inputChar(" ");
-                ic_->commitString(engine_->server().getComposingText(
+                server_.inputChar(" ");
+                ic_->commitString(server_.getComposingText(
                     hazkey::commands::GetComposingString_CharType::
                         GetComposingString_CharType_HIRAGANA,
                     ""));
@@ -105,7 +143,7 @@ void HazkeyState::noPreeditKeyEvent(KeyEvent& event) {
         default:
             if (isInputableEvent(event)) {
                 updateSurroundingText();
-                engine_->server().inputChar(Key::keySymToUTF8(keysym));
+                server_.inputChar(Key::keySymToUTF8(keysym));
                 showPreeditCandidateList();
                 setHiraganaAUX();
             } else {
@@ -130,16 +168,16 @@ void HazkeyState::preeditKeyEvent(
         case FcitxKey_Return:
             preedit_.commitPreedit();
             if (livePreeditIndex_ >= 0) {
-                engine_->server().completePrefix(livePreeditIndex_);
+                server_.completePrefix(livePreeditIndex_);
             }
             reset();
             break;
         case FcitxKey_BackSpace:
-            engine_->server().deleteLeft();
+            server_.deleteLeft();
             showPreeditCandidateList();
             break;
         case FcitxKey_Delete:
-            engine_->server().deleteRight();
+            server_.deleteRight();
             showPreeditCandidateList();
             break;
         case FcitxKey_F6:
@@ -156,7 +194,7 @@ void HazkeyState::preeditKeyEvent(
         case FcitxKey_space:
             if (!isDirectConversionMode_ &&
                 event.key().states() == KeyState::Shift) {
-                engine_->server().inputChar(" ");
+                server_.inputChar(" ");
                 showPreeditCandidateList();
             } else {
                 showNonPredictCandidateList();
@@ -177,11 +215,11 @@ void HazkeyState::preeditKeyEvent(
             break;
         case FcitxKey_Left:
             isCursorMoving_ = true;
-            engine_->server().moveCursor(-1);
+            server_.moveCursor(-1);
             break;
         case FcitxKey_Right:
             if (isCursorMoving_) {
-                engine_->server().moveCursor(1);
+                server_.moveCursor(1);
             }
             break;
         default:
@@ -200,7 +238,7 @@ void HazkeyState::preeditKeyEvent(
                     preedit_.commitPreedit();
                     reset();
                 }
-                engine_->server().inputChar(Key::keySymToUTF8(keysym));
+                server_.inputChar(Key::keySymToUTF8(keysym));
                 showPreeditCandidateList();
             }
             break;
@@ -286,7 +324,7 @@ void HazkeyState::candidateKeyEvent(
             } else if (isInputableEvent(event)) {
                 preedit_.commitPreedit();
                 reset();
-                engine_->server().inputChar(Key::keySymToUTF8(keysym));
+                server_.inputChar(Key::keySymToUTF8(keysym));
                 showPreeditCandidateList();
             } else {
                 return event.filter();
@@ -303,7 +341,7 @@ void HazkeyState::candidateCompleteHandler(
     // hazkey cannot get surroundingText correctly immediately after
     // committing so call it with appendText before committing.
     updateSurroundingText(preedit[0]);
-    engine_->server().completePrefix(candidateList->globalCursorIndex());
+    server_.completePrefix(candidateList->globalCursorIndex());
     ic_->commitString(preedit[0]);
     if (preedit.size() > 1) {
         showNonPredictCandidateList();
@@ -313,14 +351,18 @@ void HazkeyState::candidateCompleteHandler(
 }
 
 void HazkeyState::updateSurroundingText(std::string appendText) {
+    if (server_.context().secureInput) {
+        server_.setContext("", 0);
+        return;
+    }
     if (ic_->capabilityFlags().test(CapabilityFlag::SurroundingText) &&
         ic_->surroundingText().isValid()) {
         auto& surroundingText = ic_->surroundingText();
-        engine_->server().setContext(
+        server_.setContext(
             surroundingText.text() + appendText,
             surroundingText.anchor() + appendText.length());
     } else {
-        engine_->server().setContext("", 0);
+        server_.setContext("", 0);
     }
 }
 
@@ -390,27 +432,27 @@ void HazkeyState::directCharactorConversion(ConversionMode mode) {
     // TODO: use protobuf type for all program
     switch (mode) {
         case ConversionMode::Hiragana:
-            converted = engine_->server().getComposingText(
+            converted = server_.getComposingText(
                 hazkey::commands::GetComposingString_CharType_HIRAGANA,
                 preedit_.text());
             break;
         case ConversionMode::KatakanaFullwidth:
-            converted = engine_->server().getComposingText(
+            converted = server_.getComposingText(
                 hazkey::commands::GetComposingString_CharType_KATAKANA_FULL,
                 preedit_.text());
             break;
         case ConversionMode::KatakanaHalfwidth:
-            converted = engine_->server().getComposingText(
+            converted = server_.getComposingText(
                 hazkey::commands::GetComposingString_CharType_KATAKANA_HALF,
                 preedit_.text());
             break;
         case ConversionMode::RawFullwidth:
-            converted = engine_->server().getComposingText(
+            converted = server_.getComposingText(
                 hazkey::commands::GetComposingString_CharType_ALPHABET_FULL,
                 preedit_.text());
             break;
         case ConversionMode::RawHalfwidth:
-            converted = engine_->server().getComposingText(
+            converted = server_.getComposingText(
                 hazkey::commands::GetComposingString_CharType_ALPHABET_HALF,
                 preedit_.text());
             break;
@@ -429,7 +471,7 @@ void HazkeyState::directCharactorConversion(ConversionMode mode) {
 bool HazkeyState::showCandidateList(bool isSuggest) {
     FCITX_DEBUG() << "HazkeyState showCandidateList";
 
-    auto response = engine_->server().getCandidates(isSuggest);
+    auto response = server_.getCandidates(isSuggest);
 
     auto candidateResult =
         std::make_unique<HazkeyCandidateList>(std::move(response.candidates()));
@@ -446,7 +488,7 @@ bool HazkeyState::showCandidateList(bool isSuggest) {
     } else {
         // preedit conversion is disabled or conversion result is not
         // available show hiragana preedit
-        auto hiragana = engine_->server().getComposingText(
+        auto hiragana = server_.getComposingText(
             hazkey::commands::GetComposingString_CharType_HIRAGANA,
             preedit_.text());
         preedit_.setSimplePreedit(hiragana);
@@ -487,8 +529,7 @@ void HazkeyState::showNonPredictCandidateList() {
 }
 
 void HazkeyState::showPreeditCandidateList() {
-    if (engine_->server()
-            .getComposingText(
+    if (server_.getComposingText(
                 hazkey::commands::GetComposingString_CharType_HIRAGANA,
                 preedit_.text())
             .size() <= 0) {
@@ -536,7 +577,7 @@ void HazkeyState::setCandidateCursorAUX(
 
 void HazkeyState::setAuxDownText(std::optional<std::string> optText) {
     auto aux = Text();
-    if (engine_->server().currentInputModeIsDirect()) {
+    if (server_.currentInputModeIsDirect()) {
         // appending fcitx::Text is supported only >= 5.1.9
         aux.append(std::string(_("[Direct Input]")));
     } else if (optText != std::nullopt) {
@@ -547,7 +588,7 @@ void HazkeyState::setAuxDownText(std::optional<std::string> optText) {
 
 void HazkeyState::setHiraganaAUX() {
     ic_->inputPanel().setAuxUp(
-        engine_->server().getComposingHiraganaWithCursor());
+        server_.getComposingHiraganaWithCursor());
 }
 
 /// Reset
@@ -557,7 +598,7 @@ void HazkeyState::reset() {
     isDirectConversionMode_ = false;
     livePreeditIndex_ = -1;
     isCursorMoving_ = false;
-    engine_->server().newComposingText();
+    server_.newComposingText();
     ic_->inputPanel().reset();
 }
 

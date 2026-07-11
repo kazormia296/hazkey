@@ -1,6 +1,7 @@
 #include "hazkey_engine.h"
 
 #include <fcitx-utils/macros.h>
+#include <fcitx/event.h>
 
 #include "hazkey_server_connector.h"
 #include "hazkey_state.h"
@@ -12,9 +13,19 @@ HazkeyEngine::HazkeyEngine(Instance *instance)
     : instance_(instance), factory_([this](InputContext &ic) {
           return new HazkeyState(this, &ic);
       }) {
-    server_ = HazkeyServerConnector();
-
     instance->inputContextManager().registerProperty("hazkeyState", &factory_);
+    capabilityWatcher_ = instance->watchEvent(
+        EventType::InputContextCapabilityAboutToChange,
+        EventWatcherPhase::ReservedFirst, [this](Event& event) {
+            auto& capabilityEvent =
+                static_cast<CapabilityAboutToChangeEvent&>(event);
+            auto* inputContext = capabilityEvent.inputContext();
+            if (instance_->inputMethod(inputContext) != "hazkey") {
+                return;
+            }
+            inputContext->propertyFor(&factory_)->capabilityAboutToChange(
+                capabilityEvent.newFlags());
+        });
     reloadConfig();
 }
 
@@ -74,7 +85,8 @@ void HazkeyEngine::reloadConfig() {
 // If you start the hazkey-server at this point, the SIGTERM signal is not sent to the server, causing it to survive until the timeout.
 // Therefore, you must not start the hazkey-server here.
 void HazkeyEngine::save() {
-    server_.saveLearningData(false);
+    // Each InputContext-owned session saves when it closes, and the server
+    // flushes every remaining session during shutdown.
 }
 
 FCITX_ADDON_FACTORY(HazkeyEngineFactory);

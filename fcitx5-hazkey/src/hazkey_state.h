@@ -7,6 +7,7 @@
 
 #include "hazkey_candidate.h"
 #include "hazkey_preedit.h"
+#include "hazkey_server_connector.h"
 
 namespace fcitx {
 
@@ -23,6 +24,7 @@ class HazkeyState : public InputContextProperty {
     // handle key event. call candidateKeyEvent or preeditNoPredictKeyEvent
     // depends on the current mode
     void keyEvent(KeyEvent& keyEvent);
+    void capabilityAboutToChange(CapabilityFlags newFlags);
     // void loadConfig(std::shared_ptr<HazkeyConfig> &config);
     //  reset to the initial state
     void reset();
@@ -114,6 +116,7 @@ class HazkeyState : public InputContextProperty {
     // fcitx input context
     // pointer
     InputContext* ic_;
+    HazkeyServerSession server_;
     // preedit class
     HazkeyPreedit preedit_;
 };
