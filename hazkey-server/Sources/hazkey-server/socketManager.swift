@@ -17,6 +17,7 @@ class SocketManager {
     private static let readChunkSize = 64 * 1024
     private static let maximumReadPerPoll = 4 * readChunkSize
     private static let maximumPendingOutputSize = 2 * maximumMessageSize
+    private static let defaultMaximumClients = 64
 
     weak var delegate: SocketManagerDelegate?
 
@@ -27,6 +28,7 @@ class SocketManager {
     private var serverFd: Int32 = -1
     private var clients: [Int32: ClientState] = [:]
     private let socketPath: String
+    private let maximumClients: Int
     private var pipeFds: [Int32] = [-1, -1]
 
     private func stopServing(reason: String) {
@@ -51,8 +53,12 @@ class SocketManager {
         stopServing(reason: "Stop requested, shutting down...")
     }
 
-    init(socketPath: String) {
+    init(
+        socketPath: String,
+        maximumClients: Int = SocketManager.defaultMaximumClients
+    ) {
         self.socketPath = socketPath
+        self.maximumClients = max(1, maximumClients)
     }
 
     deinit {
@@ -201,6 +207,12 @@ class SocketManager {
         let newClientFd = accept(serverFd, &clientAddr, &clientLen)
 
         if newClientFd != -1 {
+            guard clients.count < maximumClients else {
+                NSLog("Rejecting client: connection capacity exhausted")
+                close(newClientFd)
+                return
+            }
+
             // Set up the new client
             NSLog("Client connected: \(newClientFd)")
 

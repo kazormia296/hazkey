@@ -73,6 +73,10 @@ struct GrimodexSessionRevisionProvider: GrimodexRevisionProviding, Sendable {
     }
 }
 
+enum HazkeySessionOpenError: Error, Equatable {
+    case resourceExhausted
+}
+
 final class HazkeySessionRegistry {
     typealias RevisionProviderFactory =
         (GrimodexClientContext) -> any GrimodexRevisionProviding
@@ -129,6 +133,19 @@ final class HazkeySessionRegistry {
         clientContext: GrimodexClientContext,
         ownerFd: Int32
     ) -> String {
+        switch attemptOpen(clientContext: clientContext, ownerFd: ownerFd) {
+        case .success(let sessionID):
+            return sessionID
+        case .failure(.resourceExhausted):
+            preconditionFailure("Session capacity exhausted")
+        }
+    }
+
+    @discardableResult
+    func attemptOpen(
+        clientContext: GrimodexClientContext,
+        ownerFd: Int32
+    ) -> Result<String, HazkeySessionOpenError> {
         pruneExpiredSessions()
         while sessions.values.lazy.filter({ $0.ownerFd == ownerFd }).count
             >= maximumSessionsPerOwner
@@ -139,13 +156,12 @@ final class HazkeySessionRegistry {
             removeSession(sessionID: leastRecentlyUsed)
         }
         while sessions.count >= maximumSessions {
-            // A single connection must not evict another application's active
-            // composition by opening sessions repeatedly. Prefer replacing
-            // the requester's own oldest session once the global bound is hit.
-            guard let leastRecentlyUsed =
-                leastRecentlyUsedSession(ownerFd: ownerFd)
-                ?? leastRecentlyUsedSession(ownerFd: nil)
-            else { break }
+            // Preserve every foreign owner's active composition. A requester
+            // may replace only one of its own sessions when the global bound
+            // is reached; a new owner receives an explicit capacity error.
+            guard let leastRecentlyUsed = leastRecentlyUsedSession(ownerFd: ownerFd) else {
+                return .failure(.resourceExhausted)
+            }
             removeSession(sessionID: leastRecentlyUsed)
         }
         let sessionID = UUID().uuidString.lowercased()
@@ -160,7 +176,7 @@ final class HazkeySessionRegistry {
             state: state,
             lastAccess: now()
         )
-        return sessionID
+        return .success(sessionID)
     }
 
     func state(for sessionID: String, ownerFd: Int32) -> HazkeyServerState? {

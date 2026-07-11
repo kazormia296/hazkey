@@ -40,14 +40,22 @@ class ProtocolHandler {
                 frontend: request.client.frontend,
                 secureInput: request.client.secureInput
             )
-            let sessionID = sessionRegistry.open(
+            let openResult = sessionRegistry.attemptOpen(
                 clientContext: context,
                 ownerFd: clientFd
             )
-            response = Hazkey_ResponseEnvelope.with {
-                $0.status = .success
-                $0.openSessionResult = Hazkey_OpenSessionResult.with {
-                    $0.sessionID = sessionID
+            switch openResult {
+            case .success(let sessionID):
+                response = Hazkey_ResponseEnvelope.with {
+                    $0.status = .success
+                    $0.openSessionResult = Hazkey_OpenSessionResult.with {
+                        $0.sessionID = sessionID
+                    }
+                }
+            case .failure(.resourceExhausted):
+                response = Hazkey_ResponseEnvelope.with {
+                    $0.status = .failed
+                    $0.errorMessage = "Session capacity exhausted"
                 }
             }
         case .closeSession(let request):
