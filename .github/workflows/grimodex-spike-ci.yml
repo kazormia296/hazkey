@@ -180,6 +180,26 @@ jobs:
       - name: Build Hazkey and llama
         run: cmake --build hazkey-server/build-ci --target build_hazkey_server --parallel 2
 
+      - name: Checkout pinned Grimodex consumer E2E
+        uses: actions/checkout@v6
+        with:
+          repository: kazormia296/Grimodex
+          ref: f45f05895c8bf35b9945e12b16b0da98d6dfa54a
+          path: grimodex-consumer-e2e
+          submodules: false
+
+      - name: Run consumer writer-to-reader process E2E
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/hazkey-server/build-ci/bin
+          GRIMODEX_LINUX_IME_SERVER: ${{ github.workspace }}/hazkey-server/build-ci/swift-build/release/hazkey-server
+          FCITX5_GRIMODEX_DICTIONARY: ${{ github.workspace }}/hazkey-server/azooKey_dictionary_storage/Dictionary
+        run: |
+          cargo test \
+            --manifest-path grimodex-consumer-e2e/src-tauri/Cargo.toml \
+            -p grimodex-db \
+            --test linux_ime_server_e2e \
+            -- --ignored --nocapture
+
       - name: Run Grimodex spike tests
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/hazkey-server/build-ci/bin
