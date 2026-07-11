@@ -48,6 +48,13 @@ The Phase 3 target is warm P95 below 5 ms excluding Zenzai inference. Score valu
 the initial baseline from Grimodex's `ime-contract/expected/mapped-entries.json`; they are not final
 until the candidate-quality and performance results are recorded.
 
+Pull-request CI runs the five required scales in a release build and publishes every
+`GRIMODEX_BENCHMARK` line to the workflow summary. It gates the presence and candidate-quality
+validity of all five measurements, but does not enforce an absolute latency on GitHub-hosted
+runners because their CPU and co-tenant load are not fixed. The 5 ms hard gate remains a release
+check for a fixed-performance runner; a paired baseline/dynamic-dictionary measurement should be
+used there to measure the added overhead rather than total conversion latency.
+
 ## Verification
 
 ```bash

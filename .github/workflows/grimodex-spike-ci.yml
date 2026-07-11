@@ -261,9 +261,26 @@ jobs:
           swift test \
             --package-path hazkey-server \
             --scratch-path hazkey-server/build-ci/swift-build \
+            --configuration release \
             --traits ZenzaiSupport \
             -Xlinker -L${{ github.workspace }}/hazkey-server/build-ci/bin \
-            --filter Grimodex
+            --filter Grimodex \
+            2>&1 | tee "$RUNNER_TEMP/grimodex-spike.log"
+
+      - name: Publish dynamic dictionary benchmark telemetry
+        run: |
+          benchmark_count="$(
+            awk '/GRIMODEX_BENCHMARK entries=/{count++} END{print count + 0}' \
+              "$RUNNER_TEMP/grimodex-spike.log"
+          )"
+          test "$benchmark_count" -eq 5
+          {
+            echo "### Grimodex dynamic dictionary benchmark"
+            echo '```text'
+            awk '/GRIMODEX_BENCHMARK entries=/' \
+              "$RUNNER_TEMP/grimodex-spike.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   real-staged-package-contract:
     needs: [linux-client-tests, swift-tests]
