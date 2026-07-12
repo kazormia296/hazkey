@@ -8,7 +8,7 @@ pkgdesc='Project-aware Japanese input method for Grimodex and Fcitx5 (binary rel
 arch=('x86_64' 'aarch64')
 url='https://github.com/kazormia296/hazkey'
 license=('MIT')
-depends=('fcitx5' 'glibc' 'gcc-libs' 'protobuf' 'qt6-base')
+depends=('fcitx5' 'glibc' 'gcc-libs' 'protobuf' 'qt6-base' 'vulkan-icd-loader')
 optdepends=('grimodex: publish project dictionaries and local conversion conditions')
 provides=("fcitx5-grimodex=${pkgver}")
 conflicts=('fcitx5-grimodex')
@@ -19,12 +19,16 @@ source_x86_64=(
   "${_pkgname}-${pkgver}-x86_64.tar.zst::${url}/releases/download/v${pkgver}/${_pkgname}-${pkgver}-x86_64.tar.zst"
   "${_pkgname}-${pkgver}-x86_64.tar.zst.sha256::${url}/releases/download/v${pkgver}/${_pkgname}-${pkgver}-x86_64.tar.zst.sha256"
 )
-sha256sums_x86_64=('SKIP' 'SKIP')
+sha256sums_x86_64=('RELEASE_X86_64_ARCHIVE_SHA256' 'RELEASE_X86_64_SIDECAR_SHA256')
 source_aarch64=(
   "${_pkgname}-${pkgver}-aarch64.tar.zst::${url}/releases/download/v${pkgver}/${_pkgname}-${pkgver}-aarch64.tar.zst"
   "${_pkgname}-${pkgver}-aarch64.tar.zst.sha256::${url}/releases/download/v${pkgver}/${_pkgname}-${pkgver}-aarch64.tar.zst.sha256"
 )
-sha256sums_aarch64=('SKIP' 'SKIP')
+sha256sums_aarch64=('RELEASE_AARCH64_ARCHIVE_SHA256' 'RELEASE_AARCH64_SIDECAR_SHA256')
+noextract=(
+  "${_pkgname}-${pkgver}-x86_64.tar.zst"
+  "${_pkgname}-${pkgver}-aarch64.tar.zst"
+)
 
 prepare() {
   local archive="${_pkgname}-${pkgver}-${CARCH}.tar.zst"
@@ -46,7 +50,7 @@ package() {
     printf 'Release archive contains an unsafe path\n' >&2
     return 1
   fi
-  bsdtar -xf "${srcdir}/${archive}" -C "${pkgdir}"
+  bsdtar --no-same-owner -xf "${srcdir}/${archive}" -C "${pkgdir}"
 
   if find "${pkgdir}" -mindepth 1 -maxdepth 1 ! -name usr -print -quit | grep -q .; then
     printf 'Release archive contains files outside usr/\n' >&2
@@ -55,7 +59,7 @@ package() {
 
   test -f "${pkgdir}/usr/lib/fcitx5/fcitx5-grimodex.so"
   test -x "${pkgdir}/usr/bin/fcitx5-grimodex-server"
-  test -e "${pkgdir}/usr/bin/fcitx5-grimodex-settings"
+  test -L "${pkgdir}/usr/bin/fcitx5-grimodex-settings"
   test -f "${pkgdir}/usr/share/licenses/fcitx5-grimodex/LICENSE"
   test -f "${pkgdir}/usr/share/licenses/fcitx5-grimodex/NOTICE.md"
 
@@ -88,8 +92,8 @@ package() {
       fi
       artifact="${target}"
     fi
-    magic="$(LC_ALL=C head -c 4 "${artifact}")"
-    if [[ "${magic}" == $'\177ELF' ]]; then
+    magic="$(od -An -tx1 -N4 "${artifact}" | tr -d '[:space:]')"
+    if [[ "${magic}" == "7f454c46" ]]; then
       if ! metadata="$(
         readelf -dW "${artifact}" &&
         readelf -sW "${artifact}"

@@ -20,6 +20,10 @@ find_package(Fcitx5Core REQUIRED)
 find_package(Fcitx5Utils REQUIRED)
 find_package(Fcitx5Config REQUIRED)
 
+set(GRIMODEX_FCITX_ADDON_INSTALL_DIR
+    "${FCITX_INSTALL_LIBDIR}/fcitx5"
+    CACHE STRING "Install directory for the Grimodex Fcitx addon")
+
 include("${FCITX_INSTALL_CMAKECONFIG_DIR}/Fcitx5Utils/Fcitx5CompilerSettings.cmake")
 
 fcitx5_add_i18n_definition()

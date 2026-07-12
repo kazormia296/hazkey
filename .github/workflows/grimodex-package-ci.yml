@@ -51,6 +51,7 @@ jobs:
       - name: Validate packaging scripts
         run: |
           python3 -m py_compile packaging/tests/package_contract_test.py
+          python3 -m py_compile packaging/scripts/render_aur_release.py
           bash -n packaging/aur/fcitx5-grimodex-bin/PKGBUILD
           bash -n packaging/aur/fcitx5-grimodex-bin/fcitx5-grimodex.install
       - name: Parse Debian metadata

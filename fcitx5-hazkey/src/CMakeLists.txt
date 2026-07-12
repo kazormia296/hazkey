@@ -65,7 +65,7 @@ target_link_libraries(fcitx5-hazkey PRIVATE Fcitx5::Core Fcitx5::Config Fcitx5::
 
 
 set_target_properties(fcitx5-hazkey PROPERTIES PREFIX "" OUTPUT_NAME "fcitx5-grimodex")
-install(TARGETS fcitx5-hazkey DESTINATION "${FCITX_INSTALL_LIBDIR}/fcitx5")
+install(TARGETS fcitx5-hazkey DESTINATION "${GRIMODEX_FCITX_ADDON_INSTALL_DIR}")
 
 configure_file(hazkey-addon.conf.in.in hazkey-addon.conf.in @ONLY)
 fcitx5_translate_desktop_file("${CMAKE_CURRENT_BINARY_DIR}/hazkey-addon.conf.in" "hazkey-addon.conf")

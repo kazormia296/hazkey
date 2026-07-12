@@ -10,6 +10,7 @@ os.pathsep-separated list of release artifacts for binary-content checks.
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import importlib.util
 import json
 import os
@@ -46,6 +47,13 @@ SWIFT_HUB_AUDITOR = (
 PRODUCT_NETWORK_AUDITOR = (
     REPOSITORY_ROOT / "packaging/scripts/audit_product_network_capabilities.py"
 )
+AUR_RELEASE_RENDERER = (
+    REPOSITORY_ROOT / "packaging/scripts/render_aur_release.py"
+)
+TOP_LEVEL_CMAKE = REPOSITORY_ROOT / "CMakeLists.txt"
+FCITX_CMAKE = REPOSITORY_ROOT / "fcitx5-hazkey/CMakeLists.txt"
+FCITX_SOURCE_CMAKE = REPOSITORY_ROOT / "fcitx5-hazkey/src/CMakeLists.txt"
+DEBIAN_CHANGELOG = REPOSITORY_ROOT / "debian/changelog"
 SWIFT_TOKENIZERS_REVISION = "4a606f66e0cc4d7d9f0197649e812f7fc86a4c34"
 SERVER_CMAKE = REPOSITORY_ROOT / "hazkey-server/CMakeLists.txt"
 
@@ -405,6 +413,227 @@ class PackageMetadataContractTests(unittest.TestCase):
         )
         self.assertIsNone(relationship_pattern.search(pkgbuild))
         self.assertIsNone(relationship_pattern.search(srcinfo))
+
+    def test_aur_declares_and_installs_the_vulkan_runtime_provider(self) -> None:
+        pkgbuild = (AUR_DIRECTORY / "PKGBUILD").read_text(encoding="utf-8")
+        srcinfo = (AUR_DIRECTORY / ".SRCINFO").read_text(encoding="utf-8")
+        workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertRegex(
+            pkgbuild,
+            r"(?m)^depends=\([^\n]*'vulkan-icd-loader'[^\n]*\)$",
+        )
+        self.assertRegex(
+            srcinfo,
+            r"(?m)^\s*depends = vulkan-icd-loader$",
+        )
+        arch_job = workflow.split("  arch-package-transaction:", 1)[1].split(
+            "  publish-release:", 1
+        )[0]
+        self.assertRegex(
+            arch_job,
+            r"(?m)^\s+vulkan-icd-loader\s*\\?$",
+        )
+
+    def test_all_release_versions_are_consistent(self) -> None:
+        def match(pattern: str, text: str, label: str) -> str:
+            result = re.search(pattern, text, re.MULTILINE)
+            self.assertIsNotNone(result, f"cannot resolve {label} version")
+            assert result is not None
+            return result.group(1)
+
+        top_level_version = match(
+            r"^project\(grimodex-ime VERSION ([0-9]+\.[0-9]+\.[0-9]+)\)$",
+            TOP_LEVEL_CMAKE.read_text(encoding="utf-8"),
+            "top-level CMake",
+        )
+        component_version = match(
+            r"^project\(fcitx5-grimodex VERSION ([0-9]+\.[0-9]+\.[0-9]+)\)$",
+            FCITX_CMAKE.read_text(encoding="utf-8"),
+            "Fcitx CMake",
+        )
+        pkgbuild_version = match(
+            r"^pkgver=([0-9]+\.[0-9]+\.[0-9]+)$",
+            (AUR_DIRECTORY / "PKGBUILD").read_text(encoding="utf-8"),
+            "PKGBUILD",
+        )
+        srcinfo_version = match(
+            r"^\s*pkgver = ([0-9]+\.[0-9]+\.[0-9]+)$",
+            (AUR_DIRECTORY / ".SRCINFO").read_text(encoding="utf-8"),
+            ".SRCINFO",
+        )
+        debian_version = match(
+            r"^fcitx5-grimodex \(([0-9]+\.[0-9]+\.[0-9]+)-[^)]+\)",
+            DEBIAN_CHANGELOG.read_text(encoding="utf-8"),
+            "Debian changelog",
+        )
+
+        self.assertEqual(
+            {
+                top_level_version,
+                component_version,
+                pkgbuild_version,
+                srcinfo_version,
+                debian_version,
+            },
+            {top_level_version},
+        )
+
+    def test_aur_template_defers_extraction_and_requires_release_hashes(self) -> None:
+        pkgbuild = (AUR_DIRECTORY / "PKGBUILD").read_text(encoding="utf-8")
+        srcinfo = (AUR_DIRECTORY / ".SRCINFO").read_text(encoding="utf-8")
+
+        self.assertNotIn("SKIP", pkgbuild)
+        self.assertNotIn("SKIP", srcinfo)
+        for architecture in ("x86_64", "aarch64"):
+            archive = f'"${{_pkgname}}-${{pkgver}}-{architecture}.tar.zst"'
+            self.assertIn(archive, pkgbuild)
+            self.assertIn(
+                f"noextract = fcitx5-grimodex-0.2.1-{architecture}.tar.zst",
+                srcinfo,
+            )
+        self.assertLess(pkgbuild.index("noextract=("), pkgbuild.index("prepare()"))
+        self.assertIn("bsdtar --no-same-owner -xf", pkgbuild)
+        self.assertIn('test -L "${pkgdir}/usr/bin/fcitx5-grimodex-settings"', pkgbuild)
+        self.assertIn("od -An -tx1 -N4", pkgbuild)
+        self.assertIn('[[ "${magic}" == "7f454c46" ]]', pkgbuild)
+
+    def test_release_addon_install_path_is_overridable_without_changing_default(self) -> None:
+        cmake = FCITX_CMAKE.read_text(encoding="utf-8")
+        source_cmake = FCITX_SOURCE_CMAKE.read_text(encoding="utf-8")
+        workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("set(GRIMODEX_FCITX_ADDON_INSTALL_DIR", cmake)
+        self.assertIn('"${FCITX_INSTALL_LIBDIR}/fcitx5"', cmake)
+        self.assertIn("CACHE STRING", cmake)
+        self.assertIn(
+            'DESTINATION "${GRIMODEX_FCITX_ADDON_INSTALL_DIR}"',
+            source_cmake,
+        )
+        self.assertIn(
+            "-DGRIMODEX_FCITX_ADDON_INSTALL_DIR=${{ matrix.install_libdir }}/fcitx5",
+            workflow,
+        )
+
+    def test_release_archives_have_reproducible_root_owned_metadata(self) -> None:
+        workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
+
+        for argument in (
+            "--sort=name",
+            '--mtime="@${SOURCE_DATE_EPOCH}"',
+            "--owner=0",
+            "--group=0",
+            "--numeric-owner",
+            "--pax-option=delete=atime,delete=ctime",
+        ):
+            with self.subTest(argument=argument):
+                self.assertIn(argument, workflow)
+
+    def test_publish_waits_for_real_package_manager_transactions(self) -> None:
+        workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
+
+        for contract in (
+            "debian-payload-transaction:",
+            "arch-package-transaction:",
+            "dpkg --install",
+            "dpkg --verify",
+            "dpkg --remove",
+            "makepkg --cleanbuild",
+            "pacman --upgrade",
+            "pacman --query --check --check",
+            "pacman --remove",
+            "render_aur_release.py",
+            "hazkey-sentinels.sha256",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, workflow)
+        self.assertIn(
+            "needs: [build, debian-payload-transaction, arch-package-transaction]",
+            workflow,
+        )
+
+    def test_aur_release_renderer_pins_archive_and_sidecar_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            assets = root / "assets"
+            output = root / "output"
+            assets.mkdir()
+            expected: dict[str, tuple[str, str]] = {}
+            for architecture in ("x86_64", "aarch64"):
+                archive = assets / f"fcitx5-grimodex-0.2.1-{architecture}.tar.zst"
+                archive.write_bytes(f"synthetic {architecture} payload".encode())
+                archive_hash = hashlib.sha256(archive.read_bytes()).hexdigest()
+                sidecar = archive.with_name(archive.name + ".sha256")
+                sidecar.write_text(
+                    f"{archive_hash}  {archive.name}\n",
+                    encoding="utf-8",
+                )
+                expected[architecture] = (
+                    archive_hash,
+                    hashlib.sha256(sidecar.read_bytes()).hexdigest(),
+                )
+
+            result = subprocess.run(
+                [
+                    "python3",
+                    str(AUR_RELEASE_RENDERER),
+                    "--template-dir",
+                    str(AUR_DIRECTORY),
+                    "--asset-dir",
+                    str(assets),
+                    "--output-dir",
+                    str(output),
+                    "--version",
+                    "0.2.1",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            rendered = (output / "PKGBUILD").read_text(encoding="utf-8")
+            self.assertNotIn("RELEASE_", rendered)
+            self.assertNotIn("SKIP", rendered)
+            for architecture, hashes in expected.items():
+                self.assertIn(
+                    f"sha256sums_{architecture}=('{hashes[0]}' '{hashes[1]}')",
+                    rendered,
+                )
+            self.assertEqual(
+                (output / "fcitx5-grimodex.install").read_bytes(),
+                (AUR_DIRECTORY / "fcitx5-grimodex.install").read_bytes(),
+            )
+
+    def test_aur_release_renderer_rejects_a_tampered_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            assets = root / "assets"
+            output = root / "output"
+            assets.mkdir()
+            for architecture in ("x86_64", "aarch64"):
+                archive = assets / f"fcitx5-grimodex-0.2.1-{architecture}.tar.zst"
+                archive.write_bytes(architecture.encode())
+                sidecar = archive.with_name(archive.name + ".sha256")
+                sidecar.write_text(f"{'0' * 64}  {archive.name}\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    "python3",
+                    str(AUR_RELEASE_RENDERER),
+                    "--template-dir",
+                    str(AUR_DIRECTORY),
+                    "--asset-dir",
+                    str(assets),
+                    "--output-dir",
+                    str(output),
+                    "--version",
+                    "0.2.1",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("checksum", result.stderr.lower())
+            self.assertFalse(output.exists())
 
     def test_aur_network_gate_scans_binary_payloads_case_insensitively(self) -> None:
         pkgbuild = (AUR_DIRECTORY / "PKGBUILD").read_text(encoding="utf-8")
