@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -41,6 +42,9 @@ LICENSE_COLLECTOR = (
 )
 SWIFT_HUB_AUDITOR = (
     REPOSITORY_ROOT / "packaging/scripts/audit_swift_hub_offline.py"
+)
+PRODUCT_NETWORK_AUDITOR = (
+    REPOSITORY_ROOT / "packaging/scripts/audit_product_network_capabilities.py"
 )
 SWIFT_TOKENIZERS_REVISION = "4a606f66e0cc4d7d9f0197649e812f7fc86a4c34"
 SERVER_CMAKE = REPOSITORY_ROOT / "hazkey-server/CMakeLists.txt"
@@ -385,35 +389,33 @@ class PackageMetadataContractTests(unittest.TestCase):
 
     def test_aur_network_gate_scans_binary_payloads_case_insensitively(self) -> None:
         pkgbuild = (AUR_DIRECTORY / "PKGBUILD").read_text(encoding="utf-8")
+        self.assertIn("readelf -dW", pkgbuild)
+        self.assertIn("readelf -sW", pkgbuild)
         command = re.search(
-            r"if grep (?P<flags>-\w+) '(?P<pattern>[^']+)' \\\n"
-            r'\s+"\$\{pkgdir\}/usr"',
+            r"if grep (?P<flags>-\w+) '(?P<pattern>[^']+)' "
+            r'<<<"\$\{metadata\}"',
             pkgbuild,
         )
-        self.assertIsNotNone(command, "cannot find AUR artifact network gate")
+        self.assertIsNotNone(command, "cannot find AUR ELF metadata gate")
         assert command is not None
 
         for marker in FORBIDDEN_ARTIFACT_MARKERS:
             with self.subTest(marker=marker):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    root = Path(temporary_directory) / "usr"
-                    root.mkdir()
-                    (root / "server").write_bytes(b"\x7fELF\x00" + marker + b"\x00")
-                    result = subprocess.run(
-                        [
-                            "grep",
-                            command.group("flags"),
-                            command.group("pattern"),
-                            str(root),
-                        ],
-                        capture_output=True,
-                        text=True,
-                    )
-                    self.assertEqual(
-                        result.returncode,
-                        0,
-                        f"AUR network gate skipped binary marker {marker!r}",
-                    )
+                result = subprocess.run(
+                    [
+                        "grep",
+                        command.group("flags"),
+                        command.group("pattern"),
+                    ],
+                    input=marker.decode("ascii"),
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(
+                    result.returncode,
+                    0,
+                    f"AUR metadata gate skipped marker {marker!r}",
+                )
 
     def test_installed_and_uninstalled_paths_are_identical_and_isolated(self) -> None:
         installed = parse_path_manifest(INSTALL_MANIFEST)
@@ -486,6 +488,17 @@ class PackageMetadataContractTests(unittest.TestCase):
                 self.assertIn(auditor, workflow)
                 self.assertIn(checkout, workflow)
                 self.assertIn(SWIFT_TOKENIZERS_REVISION, workflow)
+
+    def test_release_build_audits_elf_metadata_before_stripping_symbols(self) -> None:
+        workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
+        audit = (
+            "python3 packaging/scripts/audit_product_network_capabilities.py "
+            "--root ${{ github.workspace }}/workdir/usr"
+        )
+        strip_step = "- name: Strip binaries"
+
+        self.assertIn(audit, workflow)
+        self.assertLess(workflow.index(audit), workflow.index(strip_step))
 
     def test_swift_runtime_resources_are_installed_and_owned(self) -> None:
         cmake = SERVER_CMAKE.read_text(encoding="utf-8")
@@ -691,13 +704,87 @@ class ProductArtifactContractTests(unittest.TestCase):
             )
             validate_artifact_bytes(Path(artifact.name))
 
-    def test_artifact_validator_rejects_concrete_network_clients(self) -> None:
+    def test_staged_validator_does_not_treat_notice_text_as_capability(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            notice = root / "usr/share/licenses/fcitx5-grimodex/NOTICE.md"
+            notice.parent.mkdir(parents=True)
+            notice.write_text(
+                "This notice documents URLSession without providing networking.\n",
+                encoding="utf-8",
+            )
+            validate_staged_root(
+                root,
+                [("required", "/usr/share/licenses/fcitx5-grimodex/NOTICE.md")],
+            )
+
+    def test_elf_audit_uses_metadata_instead_of_rodata_substrings(self) -> None:
+        auditor = self._load_product_network_auditor()
+        with tempfile.NamedTemporaryFile() as artifact:
+            path = Path(artifact.name)
+            path.write_bytes(b"\x7fELF\0harmless URLSession documentation\0")
+            clean = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="NEEDED Shared library: [libc.so.6]\n",
+                stderr="",
+            )
+            with mock.patch.object(auditor.subprocess, "run", return_value=clean):
+                auditor.audit_artifact(path)
+
+    def test_elf_audit_rejects_network_dependencies_and_symbols(self) -> None:
+        auditor = self._load_product_network_auditor()
         for marker in FORBIDDEN_ARTIFACT_MARKERS:
             with self.subTest(marker=marker):
                 with tempfile.NamedTemporaryFile() as artifact:
-                    Path(artifact.name).write_bytes(b"prefix\0" + marker + b"\0suffix")
-                    with self.assertRaisesRegex(AssertionError, "forbidden"):
-                        validate_artifact_bytes(Path(artifact.name))
+                    path = Path(artifact.name)
+                    path.write_bytes(b"\x7fELF")
+                    metadata = subprocess.CompletedProcess(
+                        args=[],
+                        returncode=0,
+                        stdout=f"Symbol or NEEDED entry: {marker.decode('ascii')}\n",
+                        stderr="",
+                    )
+                    with mock.patch.object(
+                        auditor.subprocess,
+                        "run",
+                        return_value=metadata,
+                    ):
+                        with self.assertRaisesRegex(
+                            auditor.ProductNetworkAuditError,
+                            "network capability",
+                        ):
+                            auditor.audit_artifact(path)
+
+    def test_elf_audit_fails_closed_when_metadata_is_unreadable(self) -> None:
+        auditor = self._load_product_network_auditor()
+        with tempfile.NamedTemporaryFile() as artifact:
+            path = Path(artifact.name)
+            path.write_bytes(b"\x7fELF")
+            failed = subprocess.CompletedProcess(
+                args=[],
+                returncode=1,
+                stdout="",
+                stderr="not an auditable ELF",
+            )
+            with mock.patch.object(auditor.subprocess, "run", return_value=failed):
+                with self.assertRaisesRegex(
+                    auditor.ProductNetworkAuditError,
+                    "cannot inspect ELF metadata",
+                ):
+                    auditor.audit_artifact(path)
+
+    def test_executable_script_audit_rejects_download_commands(self) -> None:
+        auditor = self._load_product_network_auditor()
+        with tempfile.NamedTemporaryFile() as artifact:
+            path = Path(artifact.name)
+            path.write_text("#!/bin/sh\ncurl https://example.invalid/model\n")
+            path.chmod(0o755)
+            with self.assertRaisesRegex(
+                auditor.ProductNetworkAuditError,
+                "network command",
+            ):
+                auditor.audit_artifact(path)
 
     def test_swift_hub_source_audit_accepts_local_config_with_domain_metadata(self) -> None:
         auditor = self._load_swift_hub_auditor()
@@ -813,6 +900,18 @@ class ProductArtifactContractTests(unittest.TestCase):
         )
         if spec is None or spec.loader is None:
             raise AssertionError(f"cannot load {SWIFT_HUB_AUDITOR}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    @staticmethod
+    def _load_product_network_auditor():
+        spec = importlib.util.spec_from_file_location(
+            "audit_product_network_capabilities",
+            PRODUCT_NETWORK_AUDITOR,
+        )
+        if spec is None or spec.loader is None:
+            raise AssertionError(f"cannot load {PRODUCT_NETWORK_AUDITOR}")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
