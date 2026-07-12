@@ -16,7 +16,7 @@ HazkeyEngine::HazkeyEngine(Instance *instance)
     instance->inputContextManager().registerProperty("grimodexState", &factory_);
     capabilityWatcher_ = instance->watchEvent(
         EventType::InputContextCapabilityAboutToChange,
-        EventWatcherPhase::ReservedFirst, [this](Event& event) {
+        EventWatcherPhase::PreInputMethod, [this](Event& event) {
             auto& capabilityEvent =
                 static_cast<CapabilityAboutToChangeEvent&>(event);
             auto* inputContext = capabilityEvent.inputContext();
