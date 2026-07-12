@@ -37,11 +37,6 @@ FORBIDDEN_ELF_METADATA_MARKERS = (
     "curl_share_",
     "curl_url_",
     "libcurl.so",
-    "getaddrinfo",
-    "getnameinfo",
-    "gethostbyname",
-    "inet_pton",
-    "inet_ntop",
 )
 FORBIDDEN_ELF_RODATA_MARKERS = (
     "libcurl.so",

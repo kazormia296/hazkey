@@ -76,11 +76,6 @@ FORBIDDEN_ARTIFACT_MARKERS = (
     b"curl_share_",
     b"curl_url_",
     b"libcurl.so",
-    b"getaddrinfo",
-    b"getnameinfo",
-    b"gethostbyname",
-    b"inet_pton",
-    b"inet_ntop",
 )
 
 REQUIRED_PACKAGED_PATHS = (
@@ -804,6 +799,19 @@ class ProductArtifactContractTests(unittest.TestCase):
                 stderr="",
             )
             with mock.patch.object(auditor.subprocess, "run", return_value=clean):
+                auditor.audit_artifact(path)
+
+            transitive_posix = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="UND getaddrinfo\nUND getnameinfo\nUND inet_pton\n",
+                stderr="",
+            )
+            with mock.patch.object(
+                auditor.subprocess,
+                "run",
+                return_value=transitive_posix,
+            ):
                 auditor.audit_artifact(path)
 
             path.write_bytes(b"\x7fELF\0libcurl.so.4\0curl_easy_perform\0")

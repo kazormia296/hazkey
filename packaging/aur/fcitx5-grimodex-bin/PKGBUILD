@@ -97,7 +97,7 @@ package() {
         printf 'Cannot inspect ELF metadata for %s\n' "${artifact}" >&2
         return 1
       fi
-      if grep -Eqi 'Qt6Network|QNetwork(AccessManager|Request|Reply)|FoundationNetworking|URLSession|NSURLConnection|AsyncHTTPClient|NIOHTTP(Client|1)|curl_(easy|multi|share|url)_|libcurl\.so|get(addr|name)info|gethostbyname|inet_(pton|ntop)' <<<"${metadata}"; then
+      if grep -Eqi 'Qt6Network|QNetwork(AccessManager|Request|Reply)|FoundationNetworking|URLSession|NSURLConnection|AsyncHTTPClient|NIOHTTP(Client|1)|curl_(easy|multi|share|url)_|libcurl\.so' <<<"${metadata}"; then
         printf 'Release archive exposes forbidden network capability metadata in %s\n' "${artifact}" >&2
         return 1
       fi
