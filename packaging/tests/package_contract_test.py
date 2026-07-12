@@ -519,7 +519,7 @@ class PackageMetadataContractTests(unittest.TestCase):
             "dpkg --remove",
             "makepkg --cleanbuild",
             "pacman --upgrade",
-            "pacman --check",
+            "pacman --query --check --check",
             "pacman --remove",
             "render_aur_release.py",
             "hazkey-sentinels.sha256",
