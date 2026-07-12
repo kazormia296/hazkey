@@ -587,6 +587,17 @@ jobs:
               > "$(basename "$metadata_archive").sha256"
           )
 
+      - name: Stage verified AUR metadata artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/aur-release-artifact"
+          install -d "$artifact_dir"
+          cp "$RUNNER_TEMP"/fcitx5-grimodex-*-aur-metadata.tar.zst \
+            "$RUNNER_TEMP"/fcitx5-grimodex-*-aur-metadata.tar.zst.sha256 \
+            "$artifact_dir"/
+          test "$(find "$artifact_dir" -maxdepth 1 -type f | wc -l)" -eq 2
+
       - name: Install, upgrade, check, and remove with pacman
         shell: bash
         run: |
@@ -673,8 +684,7 @@ jobs:
         with:
           name: fcitx5-grimodex-release-aur-metadata
           path: |
-            ${{ runner.temp }}/fcitx5-grimodex-*-aur-metadata.tar.zst
-            ${{ runner.temp }}/fcitx5-grimodex-*-aur-metadata.tar.zst.sha256
+            ${{ runner.temp }}/aur-release-artifact/*
           if-no-files-found: error
 
   publish-release:
