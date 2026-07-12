@@ -1,0 +1,12 @@
+usr/bin/fcitx5-grimodex-server
+usr/bin/fcitx5-grimodex-settings
+usr/lib/*/fcitx5/fcitx5-grimodex.so
+usr/lib/*/fcitx5-grimodex/
+usr/share/applications/fcitx5-grimodex-settings.desktop
+usr/share/fcitx5/addon/grimodex.conf
+usr/share/fcitx5/inputmethod/grimodex.conf
+usr/share/fcitx5-grimodex/
+usr/share/icons/hicolor/scalable/apps/fcitx5-grimodex.svg
+usr/share/licenses/fcitx5-grimodex/
+usr/share/locale/*/LC_MESSAGES/fcitx5-grimodex.mo
+usr/share/metainfo/com.miyakey.grimodex.ime.fcitx5.metainfo.xml

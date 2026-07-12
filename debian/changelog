@@ -1,0 +1,6 @@
+fcitx5-grimodex (0.2.1-1) unstable; urgency=medium
+
+  * Initial Debian packaging for the standalone Grimodex Fcitx5 input method.
+  * Keep package ownership and public paths separate from upstream Hazkey.
+
+ -- Grimodex Project <kazormia296@users.noreply.github.com>  Sun, 12 Jul 2026 00:00:00 +0900

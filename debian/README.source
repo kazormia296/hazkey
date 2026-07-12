@@ -1,0 +1,25 @@
+# Source package constraints
+
+This directory defines the Debian source-package metadata for
+`fcitx5-grimodex`. It is deliberately **not offline-buildable** from a plain
+GitHub source snapshot today.
+
+The server uses SwiftPM dependencies pinned by `hazkey-server/Package.resolved`,
+and the dictionaries, emoji data, and llama.cpp sources are pinned Git
+submodules. Those sources are not vendored into this repository. `debian/rules`
+does not download or initialize them; it fails early when the required
+submodule content is missing. A build environment must provide Swift 6.1 or
+newer and a pre-resolved SwiftPM cache, or a downstream source archive must
+vendor all pinned SwiftPM sources and recursively include every submodule.
+
+Consequently, this metadata is suitable for validating package identity and
+for controlled downstream builds with prepared inputs. It must not be
+submitted to an offline Debian archive builder until all build-time sources
+and their license texts are included in the source archive (or represented by
+Debian packages). Creating a `.dsc` proves the metadata is well-formed; it does
+not prove an offline binary build.
+
+The installed package retains the root `LICENSE` and `NOTICE.md` in
+`/usr/share/licenses/fcitx5-grimodex`. A release builder is also responsible for
+retaining every third-party license required by the recursively included
+sources and statically linked Swift components.

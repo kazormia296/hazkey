@@ -5,6 +5,20 @@ import SwiftProtobuf
 let KEYMAP_FILE_SIZE_LIMIT = 1024 * 1024  //1MB
 let TABLE_FILE_SIZE_LIMIT = 1024 * 1024  //1MB
 
+private enum HazkeyServerConfigError: LocalizedError {
+    case emptyProfiles
+    case invalidProfileDocument
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyProfiles:
+            "Configuration profiles must not be empty"
+        case .invalidProfileDocument:
+            "Configuration must be an array of profile objects"
+        }
+    }
+}
+
 let builtInKeymaps = [
     "JIS Kana",
     "Japanese Symbol",
@@ -40,6 +54,19 @@ class HazkeyServerConfig {
     var zenzaiModelPath: URL?
     var ggmlBackendDevices: [GGMLBackendDevice]
 
+    var grimodexScopeMode: GrimodexScopeMode {
+        switch currentProfile.grimodexScopeMode {
+        case .grimodexOnly:
+            .grimodexOnly
+        case .grimodexOff:
+            .off
+        case .grimodexAllApplications:
+            .allApplications
+        case .UNRECOGNIZED:
+            .off
+        }
+    }
+
     init() {
         do {
             profiles = try Self.loadConfig()
@@ -56,7 +83,9 @@ class HazkeyServerConfig {
 
         // set dictionary path
         dictionaryPath = {
-            if let envPath = ProcessInfo.processInfo.environment["HAZKEY_DICTIONARY"],
+            if let envPath = ProcessInfo.processInfo.environment[
+                "FCITX5_GRIMODEX_DICTIONARY"
+            ],
                 fileManager.fileExists(atPath: envPath)
             {
                 return URL(filePath: envPath)
@@ -76,10 +105,9 @@ class HazkeyServerConfig {
         do {
             profiles = try Self.loadConfig()
         } catch {
-            return Hazkey_ResponseEnvelope.with {
-                $0.status = .failed
-                $0.errorMessage = "\(error)"
-            }
+            NSLog("Failed to reload config: \(error)")
+            NSLog("Returning active in-memory config...")
+            profiles = self.profiles
         }
 
         let userKeymapDir = Self.getConfigDirectory().appendingPathComponent(
@@ -187,6 +215,12 @@ class HazkeyServerConfig {
         _ profiles: [Hazkey_Config_Profile],
         state: HazkeyServerState? = nil
     ) -> Hazkey_ResponseEnvelope {
+        guard !profiles.isEmpty else {
+            return Hazkey_ResponseEnvelope.with {
+                $0.status = .failed
+                $0.errorMessage = HazkeyServerConfigError.emptyProfiles.localizedDescription
+            }
+        }
         do {
             try saveConfig(profiles, state: state)
         } catch {
@@ -261,6 +295,7 @@ class HazkeyServerConfig {
         newConf.zenzaiInferLimit = 10
         newConf.zenzaiContextualMode = true
         newConf.zenzaiProfile = ""
+        newConf.grimodexScopeMode = .grimodexOnly
         return newConf
     }
 
@@ -268,6 +303,9 @@ class HazkeyServerConfig {
         _ newProfiles: [Hazkey_Config_Profile],
         state: HazkeyServerState? = nil
     ) throws {
+        guard !newProfiles.isEmpty else {
+            throw HazkeyServerConfigError.emptyProfiles
+        }
         let configDir = Self.getConfigDirectory()
         let configPath = configDir.appendingPathComponent("config.json")
 
@@ -287,7 +325,7 @@ class HazkeyServerConfig {
         let jsonData = try JSONSerialization.data(
             withJSONObject: jsonObjects, options: [.prettyPrinted, .sortedKeys])
 
-        try jsonData.write(to: configPath)
+        try jsonData.write(to: configPath, options: .atomic)
 
         NSLog("Config saved to: \(configPath.path)")
 
@@ -313,8 +351,10 @@ class HazkeyServerConfig {
         let jsonData = try Data(contentsOf: configPath)
 
         // Parse JSON array
-        let jsonArray =
-            try JSONSerialization.jsonObject(with: jsonData, options: []) as! [[String: Any]]
+        let jsonObject = try JSONSerialization.jsonObject(with: jsonData, options: [])
+        guard let jsonArray = jsonObject as? [[String: Any]] else {
+            throw HazkeyServerConfigError.invalidProfileDocument
+        }
 
         var configs: [Hazkey_Config_Profile] = []
         var decodeOptions = JSONDecodingOptions()
@@ -336,63 +376,44 @@ class HazkeyServerConfig {
     }
 
     static func getConfigDirectory() -> URL {
-        if let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"],
-            !xdgConfigHome.isEmpty
-        {
-            return URL(fileURLWithPath: xdgConfigHome).appendingPathComponent("hazkey")
-        }
-
-        // Fallback to ~/.config/hazkey
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        return homeDir.appendingPathComponent(".config").appendingPathComponent("hazkey")
+        GrimodexProductPaths().configDirectory
     }
 
     static func getDataDirectory() -> URL {
-        if let xdgDataHome = ProcessInfo.processInfo.environment["XDG_DATA_HOME"],
-            !xdgDataHome.isEmpty
-        {
-            return URL(fileURLWithPath: xdgDataHome).appendingPathComponent("hazkey")
-        }
-
-        // Fallback to ~/.local/share/hazkey
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        return homeDir.appendingPathComponent(".local").appendingPathComponent("share")
-            .appendingPathComponent("hazkey")
+        GrimodexProductPaths().dataDirectory
     }
 
     static func getStateDirectory() -> URL {
-        if let xdgStateHome = ProcessInfo.processInfo.environment["XDG_STATE_HOME"],
-            !xdgStateHome.isEmpty
-        {
-            return URL(fileURLWithPath: xdgStateHome).appendingPathComponent("hazkey")
-        }
-
-        // Fallback to ~/.local/state/hazkey
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        return homeDir.appendingPathComponent(".local").appendingPathComponent("state")
-            .appendingPathComponent("hazkey")
+        GrimodexProductPaths().stateDirectory
     }
 
     static func getCacheDirectory() -> URL {
-        if let xdgCacheHome = ProcessInfo.processInfo.environment["XDG_CACHE_HOME"],
-            !xdgCacheHome.isEmpty
-        {
-            return URL(fileURLWithPath: xdgCacheHome).appendingPathComponent("hazkey")
-        }
-
-        // Fallback to ~/.cache/hazkey
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        return homeDir.appendingPathComponent(".cache").appendingPathComponent("hazkey")
+        GrimodexProductPaths().cacheDirectory
     }
 
-    func genZenzaiMode(leftContext: String)
+    func genZenzaiMode(
+        leftContext: String,
+        projectConditions: GrimodexProjectConditions = .empty,
+        zenzaiAllowed: Bool = true
+    )
         -> ConvertRequestOptions.ZenzaiMode
     {
         let deviceName =
             currentProfile.zenzaiBackendDeviceName.isEmpty
             ? "CPU" : currentProfile.zenzaiBackendDeviceName
+        let resolved = GrimodexZenzaiConditionResolver.resolve(
+            profile: currentProfile.zenzaiProfile,
+            topic: currentProfile.zenzaiTopic,
+            style: currentProfile.zenzaiStyle,
+            preference: currentProfile.zenzaiPreference,
+            project: projectConditions
+        )
 
-        if zenzaiAvailable, let zenzaiModelPath = zenzaiModelPath, currentProfile.zenzaiEnable {
+        if zenzaiAllowed,
+            zenzaiAvailable,
+            let zenzaiModelPath = zenzaiModelPath,
+            currentProfile.zenzaiEnable
+        {
             return ConvertRequestOptions.ZenzaiMode.on(
                 weight: zenzaiModelPath,
                 inferenceLimit: Int(currentProfile.zenzaiInferLimit),
@@ -400,10 +421,10 @@ class HazkeyServerConfig {
                 personalizationMode: nil,
                 versionDependentMode: .v3(
                     ConvertRequestOptions.ZenzaiV3DependentMode.init(
-                        profile: currentProfile.zenzaiProfile,
-                        topic: currentProfile.zenzaiTopic,
-                        style: currentProfile.zenzaiStyle,
-                        preference: currentProfile.zenzaiPreference,
+                        profile: resolved.profile,
+                        topic: resolved.topic,
+                        style: resolved.style,
+                        preference: resolved.preference,
                         leftSideContext: currentProfile.zenzaiContextualMode
                             ? leftContext : nil
                     )),
@@ -461,7 +482,9 @@ class HazkeyServerConfig {
             specialCandidateProviders: specialCandidateProviders,
             zenzaiMode: zenzaiMode,
             preloadDictionary: false,
-            metadata: ConvertRequestOptions.Metadata.init(versionString: "Hazkey \(hazkeyVersion)")
+            metadata: ConvertRequestOptions.Metadata.init(
+                versionString: "Grimodex IME \(hazkeyVersion)"
+            )
         )
     }
 
@@ -600,7 +623,9 @@ func getZenzaiModelPath() -> URL? {
         .appendingPathComponent("zenzai.gguf", isDirectory: false)
 
     let paths: [URL] = [
-        ProcessInfo.processInfo.environment["HAZKEY_ZENZAI_MODEL"].map { URL(filePath: $0) },
+        ProcessInfo.processInfo.environment["FCITX5_GRIMODEX_ZENZAI_MODEL"].map {
+            URL(filePath: $0)
+        },
         userZenzaiModelPath,
         systemZenzaiModelPath,
     ].compactMap { $0 }

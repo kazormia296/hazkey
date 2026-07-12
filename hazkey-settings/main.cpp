@@ -7,6 +7,10 @@
 
 int main(int argc, char* argv[]) {
     QApplication a(argc, argv);
+    QApplication::setOrganizationName("Grimodex");
+    QApplication::setApplicationName("fcitx5-grimodex-settings");
+    QApplication::setApplicationDisplayName("Grimodex IME Settings");
+    QApplication::setDesktopFileName("fcitx5-grimodex-settings");
 
     // Load Qt base translations for standard widgets (e.g., file dialogs)
     QTranslator qtTranslator;

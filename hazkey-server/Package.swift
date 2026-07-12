@@ -44,8 +44,13 @@ let package = Package(
             name: "hazkey-server-tests",
             dependencies: [
                 "hazkey-server",
+                .product(
+                    name: "KanaKanjiConverterModuleWithDefaultDictionary",
+                    package: "AzooKeyKanaKanjiConverter"),
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
             ],
+            path: "Tests/grimodex-spike",
+            resources: [.copy("Fixtures")],
             swiftSettings: [.interoperabilityMode(.Cxx)],
         ),
     ]

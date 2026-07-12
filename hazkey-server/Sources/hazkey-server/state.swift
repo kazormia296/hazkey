@@ -5,6 +5,10 @@ import SwiftUtils
 class HazkeyServerState {
     let serverConfig: HazkeyServerConfig
     let converter: KanaKanjiConverter
+    private let grimodexRevisionProvider: any GrimodexRevisionProviding
+    private let candidateLearning: any HazkeyCandidateLearning
+    private let learningRevisionStore: HazkeyLearningRevisionStore
+    private var observedLearningRevision: UInt64
     var currentCandidateList: [Candidate]?
     var composingText: ComposingTextBox = ComposingTextBox()
 
@@ -15,11 +19,50 @@ class HazkeyServerState {
     var keymap: Keymap
     var currentTableName: String
     var baseConvertRequestOptions: ConvertRequestOptions
+    private var currentLeftContext = ""
+    private lazy var grimodexIntegration = GrimodexCompositionIntegrationController(
+        applier: GrimodexStateCompositionApplier(state: self)
+    )
+    private(set) var grimodexResolvedZenzaiConditions: GrimodexResolvedZenzaiConditions? = nil
 
-    init() {
-        self.serverConfig = HazkeyServerConfig()
+    var grimodexAppliedRevision: GrimodexIntegrationRevision? {
+        grimodexIntegration.appliedRevision
+    }
+    var grimodexPinnedRevision: GrimodexIntegrationRevision? {
+        grimodexIntegration.pinnedRevision
+    }
+    var grimodexActiveConditions: GrimodexProjectConditions {
+        grimodexIntegration.activeConditions
+    }
+    var grimodexAllowsLearning: Bool {
+        grimodexIntegration.allowsLearning
+    }
+    var grimodexSecureInput: Bool {
+        grimodexIntegration.secureInput
+    }
 
-        self.converter = KanaKanjiConverter.init(dictionaryURL: serverConfig.dictionaryPath)
+    init(
+        serverConfig injectedServerConfig: HazkeyServerConfig? = nil,
+        revisionProvider: any GrimodexRevisionProviding = GrimodexDisabledRevisionProvider(),
+        candidateLearning: (any HazkeyCandidateLearning)? = nil,
+        converter injectedConverter: KanaKanjiConverter? = nil,
+        learningRevisionStore: HazkeyLearningRevisionStore = HazkeyLearningRevisionStore()
+    ) {
+        self.grimodexRevisionProvider = revisionProvider
+        self.learningRevisionStore = learningRevisionStore
+        self.observedLearningRevision = learningRevisionStore.current()
+        let serverConfig = injectedServerConfig ?? HazkeyServerConfig()
+        self.serverConfig = serverConfig
+
+        let converter = injectedConverter
+            ?? KanaKanjiConverter.init(dictionaryURL: serverConfig.dictionaryPath)
+        self.converter = converter
+        self.candidateLearning = candidateLearning
+            ?? HazkeyKanaKanjiCandidateLearning(converter: converter)
+        let grimodexSpikeCount = GrimodexDictionarySpike.injectIfEnabled(into: converter)
+        if grimodexSpikeCount > 0 {
+            NSLog("Injected \(grimodexSpikeCount) fixed Grimodex dictionary spike entries")
+        }
 
         // Initialize keymap and table
         self.keymap = serverConfig.loadKeymap()
@@ -59,25 +102,88 @@ class HazkeyServerState {
 
         // Initialize base convert options
         self.baseConvertRequestOptions = serverConfig.genBaseConvertRequestOptions()
+        if let report = GrimodexDictionarySpike.runBenchmarkIfConfigured(
+            converter: converter,
+            options: baseConvertRequestOptions
+        ) {
+            let rss = report.residentMemoryKilobytes.map { String($0) } ?? "unavailable"
+            let rssDelta = report.residentMemoryDeltaKilobytes.map { String($0) } ?? "unavailable"
+            let candidateRank = report.candidateRank.map { String($0) } ?? "missing"
+            NSLog(
+                "Grimodex dictionary benchmark entries=\(report.entryCount) "
+                    + "import_ms=\(report.importMilliseconds) "
+                    + "warm_p95_ms=\(report.warmP95Milliseconds) rss_kib=\(rss) "
+                    + "rss_delta_kib=\(rssDelta) candidate_rank=\(candidateRank)"
+            )
+        }
     }
 
     func setContext(surroundingText: String, anchorIndex: Int) -> Hazkey_ResponseEnvelope {
-        let leftContext = String(surroundingText.prefix(anchorIndex))
-        baseConvertRequestOptions.zenzaiMode = serverConfig.genZenzaiMode(
-            leftContext: leftContext)
+        let unicodeScalars = surroundingText.unicodeScalars
+        guard anchorIndex >= 0, anchorIndex <= unicodeScalars.count else {
+            return Hazkey_ResponseEnvelope.with {
+                $0.status = .failed
+                $0.errorMessage = "Context anchor is out of range"
+            }
+        }
+        let anchor = unicodeScalars.index(unicodeScalars.startIndex, offsetBy: anchorIndex)
+        let leftContext = String(surroundingText[..<anchor])
+        let latestRevision = grimodexRevisionProvider.latest()
+        if latestRevision.secureInput || grimodexIntegration.secureInput {
+            grimodexIntegration.observe(latestRevision)
+        }
+        updateSurroundingContext(leftContext)
+        refreshZenzaiMode()
 
         return Hazkey_ResponseEnvelope.with {
             $0.status = .success
         }
     }
 
+    func refreshGrimodexIntegration() {
+        grimodexIntegration.observe(grimodexRevisionProvider.latest())
+        updateSurroundingContext()
+        refreshZenzaiMode()
+    }
+
+    private func updateSurroundingContext(_ newValue: String? = nil) {
+        if grimodexIntegration.secureInput {
+            currentLeftContext = ""
+        } else if let newValue {
+            currentLeftContext = newValue
+        }
+    }
+
+    private func refreshZenzaiMode() {
+        let conditions = grimodexIntegration.activeConditions
+        grimodexResolvedZenzaiConditions = GrimodexZenzaiConditionResolver.resolve(
+            profile: serverConfig.currentProfile.zenzaiProfile,
+            topic: serverConfig.currentProfile.zenzaiTopic,
+            style: serverConfig.currentProfile.zenzaiStyle,
+            preference: serverConfig.currentProfile.zenzaiPreference,
+            project: conditions
+        )
+        baseConvertRequestOptions.zenzaiMode = serverConfig.genZenzaiMode(
+            leftContext: currentLeftContext,
+            projectConditions: conditions,
+            zenzaiAllowed: !grimodexIntegration.secureInput
+        )
+    }
+
     /// ComposingText
 
     func createComposingTextInstanse() -> Hazkey_ResponseEnvelope {
+        let pendingLearningAllowed = grimodexIntegration.allowsLearning
+        grimodexIntegration.endOrReset(latest: grimodexRevisionProvider.latest())
+        synchronizeCommittedLearningIfNeeded(
+            pendingLearningAllowed: pendingLearningAllowed
+        )
+        updateSurroundingContext()
         composingText = ComposingTextBox()
         currentCandidateList = nil
         isSubInputMode = false
         isShiftPressedAlone = false
+        refreshZenzaiMode()
         return Hazkey_ResponseEnvelope.with {
             $0.status = .success
         }
@@ -89,6 +195,14 @@ class HazkeyServerState {
                 $0.status = .failed
                 $0.errorMessage = "failed to get first unicode character"
             }
+        }
+        if !grimodexIntegration.isComposing {
+            synchronizeCommittedLearningIfNeeded(
+                pendingLearningAllowed: grimodexIntegration.allowsLearning
+            )
+            grimodexIntegration.prepareFirstInput(latest: grimodexRevisionProvider.latest())
+            updateSurroundingContext()
+            refreshZenzaiMode()
         }
         isSubInputMode =
             isSubInputMode
@@ -156,10 +270,7 @@ class HazkeyServerState {
     }
 
     func saveLearningData() -> Hazkey_ResponseEnvelope {
-        if learningDataNeedsCommit {
-            converter.commitUpdateLearningData()
-            learningDataNeedsCommit = false
-        }
+        commitPendingLearningIfAllowed(grimodexIntegration.allowsLearning)
         return Hazkey_ResponseEnvelope.with {
             $0.status = .success
         }
@@ -180,11 +291,13 @@ class HazkeyServerState {
     }
 
     func completePrefix(candidateIndex: Int) -> Hazkey_ResponseEnvelope {
-        if let completedCandidate = currentCandidateList?[candidateIndex] {
+        if let completedCandidate = currentCandidateList?[safe: candidateIndex] {
             composingText.value.prefixComplete(composingCount: completedCandidate.composingCount)
-            converter.setCompletedData(completedCandidate)
-            converter.updateLearningData(completedCandidate)
-            learningDataNeedsCommit = true
+            candidateLearning.setCompletedData(completedCandidate)
+            if grimodexIntegration.allowsLearning {
+                candidateLearning.updateLearningData(completedCandidate)
+                learningDataNeedsCommit = true
+            }
         } else {
             return Hazkey_ResponseEnvelope.with {
                 $0.status = .failed
@@ -307,6 +420,12 @@ class HazkeyServerState {
         }
 
         var options = baseConvertRequestOptions
+        if !grimodexIntegration.allowsLearning {
+            options.learningType = .nothing
+        }
+        if grimodexIntegration.secureInput {
+            options.zenzaiMode = .off
+        }
         let N_best = {
             if is_suggest
                 && serverConfig.currentProfile.suggestionListMode
@@ -427,7 +546,19 @@ class HazkeyServerState {
     }
 
     func clearProfileLearningData() -> Hazkey_ResponseEnvelope {
+        // A freshly-created maintenance state has not issued a conversion
+        // request yet, so the converter's learning manager still has its
+        // default nil memory URL. Prime only the local learning configuration
+        // before reset; otherwise Clear History can report success without
+        // touching the persistent store when no conversion session is active.
+        var options = baseConvertRequestOptions
+        options.zenzaiMode = .off
+        var probe = ComposingText()
+        probe.insertAtCursorPosition("あ", inputStyle: .direct)
+        _ = converter.requestCandidates(probe, options: options)
+        converter.stopComposition()
         converter.resetMemory()
+        learningDataNeedsCommit = false
         return Hazkey_ResponseEnvelope.with {
             $0.status = .success
         }
@@ -435,6 +566,11 @@ class HazkeyServerState {
 
     func reinitializeConfiguration() {
         NSLog("Reinitializing state configuration...")
+        let pendingLearningAllowed = grimodexIntegration.allowsLearning
+        grimodexIntegration.endOrReset(latest: grimodexRevisionProvider.latest())
+        synchronizeCommittedLearningIfNeeded(
+            pendingLearningAllowed: pendingLearningAllowed
+        )
 
         self.keymap = serverConfig.loadKeymap()
 
@@ -443,6 +579,7 @@ class HazkeyServerState {
         self.currentTableName = newTableName
 
         self.baseConvertRequestOptions = serverConfig.genBaseConvertRequestOptions()
+        refreshZenzaiMode()
 
         self.composingText = ComposingTextBox()
         self.currentCandidateList = nil
@@ -452,4 +589,33 @@ class HazkeyServerState {
         NSLog("State configuration reinitialized successfully")
     }
 
+    private func synchronizeCommittedLearningIfNeeded(
+        pendingLearningAllowed: Bool
+    ) {
+        // Learning queued by the composition that just ended belongs to that
+        // composition's pinned policy. Publish it before applying a newer
+        // persisted-cache revision from another session.
+        commitPendingLearningIfAllowed(pendingLearningAllowed)
+
+        let currentRevision = learningRevisionStore.current()
+        guard currentRevision != observedLearningRevision else { return }
+        candidateLearning.synchronizePersistedLearningData()
+        observedLearningRevision = currentRevision
+    }
+
+    private func commitPendingLearningIfAllowed(_ allowsLearning: Bool) {
+        guard learningDataNeedsCommit else { return }
+        defer { learningDataNeedsCommit = false }
+        guard allowsLearning else { return }
+
+        candidateLearning.commitUpdateLearningData()
+        observedLearningRevision = learningRevisionStore.recordCommit()
+    }
+
+}
+
+private extension Array {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
 }

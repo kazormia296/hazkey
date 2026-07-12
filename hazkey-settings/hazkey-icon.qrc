@@ -1,5 +1,5 @@
 <RCC>
     <qresource prefix="/images">
-        <file>hazkey.svg</file>
+        <file alias="grimodex.svg">../hazkey-server/icons/grimodex.svg</file>
     </qresource>
 </RCC>

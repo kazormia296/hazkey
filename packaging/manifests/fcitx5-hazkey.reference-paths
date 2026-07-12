@@ -1,0 +1,13 @@
+# Reference-only upstream ownership paths. Grimodex must never install/remove.
+/usr/bin/hazkey-server
+/usr/bin/hazkey-settings
+/usr/lib/*/fcitx5/fcitx5-hazkey.so
+/usr/lib/*/hazkey/hazkey-server
+/usr/lib/*/hazkey/hazkey-settings
+/usr/share/applications/hazkey-settings.desktop
+/usr/share/fcitx5/addon/hazkey.conf
+/usr/share/fcitx5/inputmethod/hazkey.conf
+/usr/share/hazkey
+/usr/share/icons/hicolor/scalable/apps/fcitx5-hazkey.svg
+/usr/share/licenses/fcitx5-hazkey
+/usr/share/metainfo/org.fcitx.Fcitx5.Addon.Hazkey.metainfo.xml

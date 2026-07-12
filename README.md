@@ -1,26 +1,31 @@
-# fcitx5-hazkey
+# fcitx5-grimodex
 
-Hazkey input method for fcitx5
+Grimodex向けのFcitx5日本語入力です。Grimodexが公開するプロジェクト別辞書と
+Zenzai条件を、アプリ・入力欄ごとに分離した変換セッションへ安全に反映します。
 
-[AzooKeyKanaKanjiConverter](https://github.com/azooKey/AzooKeyKanaKanjiConverter)を利用したIMEです
+このリポジトリは
+[Hazkey](https://github.com/7ka-Hiira/hazkey)から派生し、
+[AzooKeyKanaKanjiConverter](https://github.com/azooKey/AzooKeyKanaKanjiConverter)
+を利用しています。元のHazkeyと同時にインストールできる独立製品です。
 
-## ホームページ
+## 製品ID
 
-[https://hazkey.hiira.dev](https://hazkey.hiira.dev)
+- パッケージ: `fcitx5-grimodex`
+- Fcitx addon / input method: `grimodex`
+- server: `fcitx5-grimodex-server`
+- settings: `fcitx5-grimodex-settings`
+- user data: `$XDG_*_HOME/fcitx5-grimodex`
+- socket: `$XDG_RUNTIME_DIR/fcitx5-grimodex/server.sock`
 
-## ドキュメント
+Grimodexとの共有契約は
+`$XDG_DATA_HOME/com.miyakey.grimodex/ime`（または`GRIMODEX_IME_ROOT`）です。
 
-[https://hazkey.hiira.dev/docs](https://hazkey.hiira.dev/docs)
+## プライバシー
 
-## インストール
-
-[インストールガイド](https://hazkey.hiira.dev/docs/install)
-
-現在AURと[debianパッケージ](https://github.com/7ka-Hiira/fcitx5-hazkey/releases/latest)が利用できます。
+製品ビルドの設定UIにはモデルのdownload機能を含めません。変換serverは
+ローカルのUnix socketとローカルファイルだけを利用します。
 
 ## ビルド
-
-詳細は[ドキュメントのビルドページを参照してください](https://hazkey.hiira.dev/docs/development/build)。
 
 ### 依存関係
 
@@ -37,7 +42,7 @@ Hazkey input method for fcitx5
 ninjaを利用します。
 
 ```sh
-git clone --recursive https://github.com/7ka-Hiira/hazkey.git
+git clone --recursive https://github.com/kazormia296/hazkey.git
 cd hazkey
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DGGML_VULKAN=OFF -G Ninja ..
@@ -47,4 +52,5 @@ sudo ninja install
 
 ## ライセンス
 
-[MIT License](./LICENSE)
+[MIT License](./LICENSE)。上流Hazkeyの著作権表示と派生元は
+[NOTICE](./NOTICE.md)にも記載しています。

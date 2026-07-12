@@ -4,21 +4,18 @@ class HazkeyServer: SocketManagerDelegate {
     private let processManager: ProcessManager
     private var socketManager: SocketManager
     private var protocolHandler: ProtocolHandler?
-    private var state: HazkeyServerState?
+    private var sessionRegistry: HazkeySessionRegistry?
+    private var grimodexRuntime: GrimodexLinuxRuntime?
 
     private let runtimeDir: URL
     private let socketPath: String
     private let lockFilePath: String
 
     init() {
-        let uid = getuid()
-        self.runtimeDir = URL(
-            fileURLWithPath:
-                ProcessInfo.processInfo.environment["XDG_RUNTIME_DIR"]
-                ?? "/tmp/hazkey-runtime-\(uid)", isDirectory: true)
-
-        self.socketPath = "\(runtimeDir.path)/hazkey-server.\(uid).sock"
-        self.lockFilePath = "\(runtimeDir.path)/hazkey-server.\(uid).lock"
+        let paths = GrimodexProductPaths()
+        self.runtimeDir = paths.runtimeDirectory
+        self.socketPath = paths.socketURL.path
+        self.lockFilePath = paths.lockURL.path
 
         self.processManager = ProcessManager(lockFilePath: lockFilePath)
         self.socketManager = SocketManager(socketPath: socketPath)
@@ -37,11 +34,7 @@ class HazkeyServer: SocketManagerDelegate {
 
     func start() throws {
         let forceRestart = parseCommandLineArguments()
-        if !FileManager.default.fileExists(atPath: runtimeDir.path) {
-            try FileManager.default.createDirectory(
-                at: runtimeDir, withIntermediateDirectories: true,
-                attributes: [FileAttributeKey.posixPermissions: 0o700])
-        }
+        try GrimodexRuntimeDirectory.prepare(at: runtimeDir)
         do {
             try processManager.tryLock(force: forceRestart)
         } catch ProcessManagerError.anotherInstanceRunning {
@@ -49,17 +42,49 @@ class HazkeyServer: SocketManagerDelegate {
             // expected exit
             return
         } catch {
-            NSLog("Failed to start hazkey-server: \(error)")
+            NSLog("Failed to start \(GrimodexProductPaths.serverExecutableName): \(error)")
             exit(1)
         }
-        self.state = HazkeyServerState()
-        self.protocolHandler = ProtocolHandler(state: self.state!)
-        try socketManager.setupSocket()
+        let serverConfig = HazkeyServerConfig()
+        let grimodexRuntime = GrimodexLinuxRuntime(
+            version: hazkeyVersion,
+            initialScopeMode: serverConfig.grimodexScopeMode
+        )
+        grimodexRuntime.start()
+        self.grimodexRuntime = grimodexRuntime
+        let sessionRegistry = HazkeySessionRegistry(
+            serverConfig: serverConfig,
+            revisionProviderFactory: { clientContext in
+                grimodexRuntime.revisionProvider(clientContext: clientContext)
+            }
+        )
+        self.sessionRegistry = sessionRegistry
+        self.protocolHandler = ProtocolHandler(
+            sessionRegistry: sessionRegistry,
+            onConfigurationChanged: { config in
+                grimodexRuntime.updateScopeMode(config.grimodexScopeMode)
+            },
+            diagnosticsProvider: {
+                GrimodexDiagnosticsSnapshot(
+                    runtime: grimodexRuntime.diagnostics(),
+                    sessions: sessionRegistry.diagnostics(
+                        scopeMode: serverConfig.grimodexScopeMode
+                    )
+                )
+            }
+        )
+        do {
+            try socketManager.setupSocket()
+        } catch {
+            grimodexRuntime.stop()
+            throw error
+        }
         // start main loop
         NSLog("start listening...")
         socketManager.startListening()
         // finish process
-        let _ = state?.saveLearningData()
+        sessionRegistry.saveAll()
+        grimodexRuntime.stop()
     }
 
     func socketManager(_ manager: SocketManager, didReceiveData data: Data, from clientFd: Int32)
@@ -69,10 +94,12 @@ class HazkeyServer: SocketManagerDelegate {
             NSLog("protocolHandler is nil! exiting...")
             exit(1)
         }
-        return handler.processProto(data: data)
+        return handler.processProto(data: data, clientFd: clientFd)
     }
 
     func socketManager(_ manager: SocketManager, clientDidConnect clientFd: Int32) {}
 
-    func socketManager(_ manager: SocketManager, clientDidDisconnect clientFd: Int32) {}
+    func socketManager(_ manager: SocketManager, clientDidDisconnect clientFd: Int32) {
+        sessionRegistry?.closeAll(ownerFd: clientFd)
+    }
 }

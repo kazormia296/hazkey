@@ -126,16 +126,31 @@ endif()
 
 # install hazkey-server
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/swift-build/${SWIFT_BUILD_TYPE}/hazkey-server
-        DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR}/hazkey)
+        RENAME fcitx5-grimodex-server
+        DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR}/fcitx5-grimodex)
+
+# SwiftPM resource accessors resolve these bundles next to the executable at
+# runtime. Installing only the executable leaves a build-machine fallback path
+# embedded in the binary and makes Zenzai personalization fail after packaging.
+set(HAZKEY_SERVER_SWIFT_RESOURCE_BUNDLES
+    AzooKeyKanaKanjiConverter_EfficientNGram.resources
+    swift-transformers_Hub.resources
+)
+foreach(_bundle IN LISTS HAZKEY_SERVER_SWIFT_RESOURCE_BUNDLES)
+    install(DIRECTORY
+        "${CMAKE_CURRENT_BINARY_DIR}/swift-build/${SWIFT_BUILD_TYPE}/${_bundle}"
+        DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR}/fcitx5-grimodex
+    )
+endforeach()
 
 # configure and install hazkey-server wrapper script
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/hazkey-server.sh.in
-    ${CMAKE_CURRENT_BINARY_DIR}/hazkey-server
+    ${CMAKE_CURRENT_BINARY_DIR}/fcitx5-grimodex-server
     @ONLY
 )
 
-install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/hazkey-server
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/fcitx5-grimodex-server
         DESTINATION ${CMAKE_INSTALL_FULL_BINDIR})
 
 # install llama libraries
@@ -144,11 +159,11 @@ if(HAZKEY_SERVER_INSTALL_LLAMA_LIBS)
         "${HAZKEY_SERVER_LIBLLAMA_BINDIR}/libggml-base.so"
         "${HAZKEY_SERVER_LIBLLAMA_BINDIR}/libggml.so"
         "${HAZKEY_SERVER_LIBLLAMA_BINDIR}/libllama.so"
-        DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}/hazkey/libllama"
+        DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}/fcitx5-grimodex/libllama"
     )
 
     install(DIRECTORY "${HAZKEY_SERVER_LIBLLAMA_BINDIR}/"
-        DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}/hazkey/libllama/backends"
+        DESTINATION "${CMAKE_INSTALL_FULL_LIBDIR}/fcitx5-grimodex/libllama/backends"
         FILES_MATCHING
         PATTERN "*.so"
         PATTERN "libggml-base.so" EXCLUDE
@@ -159,24 +174,13 @@ endif()
 
 # install icons
 if(HAZKEY_FLATPAK)
-    set(HAZKEY_ICON_NAME "org.hazkey.Fcitx5.Addon.Hazkey")
+    set(HAZKEY_ICON_NAME "com.miyakey.grimodex.ime.fcitx5")
 else()
-    set(HAZKEY_ICON_NAME "hazkey")
+    set(HAZKEY_ICON_NAME "fcitx5-grimodex")
 endif()
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/icons/hazkey.svg
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/icons/grimodex.svg
+        RENAME ${HAZKEY_ICON_NAME}.svg
         DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/scalable/apps)
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/icons/hazkey_256x256.png
-        RENAME ${HAZKEY_ICON_NAME}.png
-        DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/256x256/apps)
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/icons/hazkey_48x48.png
-        RENAME ${HAZKEY_ICON_NAME}.png
-        DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/48x48/apps)
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/icons/hazkey_32x32.png
-        RENAME ${HAZKEY_ICON_NAME}.png
-        DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/32x32/apps)
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/icons/hazkey_24x24.png
-        RENAME ${HAZKEY_ICON_NAME}.png
-        DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/24x24/apps)
 
 # install dictionary
 if(HAZKEY_SERVER_INSTALL_DICTIONARY)
@@ -187,11 +191,16 @@ if(HAZKEY_SERVER_INSTALL_DICTIONARY)
     endif()
 
     install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/azooKey_dictionary_storage/Dictionary
-        DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/hazkey)
+        DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/fcitx5-grimodex)
 
     set(CMAKE_INSTALL_MESSAGE ${_OLD_INSTALL_MESSAGE})
 endif()
 
 #install emoji dictionary
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/azooKey_emoji_dictionary_storage/EmojiDictionary/emoji_all_E16.0.txt
-        DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/hazkey)
+        DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/fcitx5-grimodex)
+
+install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../NOTICE.md
+        DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/licenses/fcitx5-grimodex)

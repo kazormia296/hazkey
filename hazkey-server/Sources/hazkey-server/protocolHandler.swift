@@ -2,13 +2,23 @@ import Foundation
 import SwiftProtobuf
 
 class ProtocolHandler {
-    private let state: HazkeyServerState
+    private let sessionRegistry: HazkeySessionRegistry
+    private let onConfigurationChanged: (HazkeyServerConfig) -> Void
+    private let diagnosticsProvider: () -> GrimodexDiagnosticsSnapshot
 
-    init(state: HazkeyServerState) {
-        self.state = state
+    init(
+        sessionRegistry: HazkeySessionRegistry,
+        onConfigurationChanged: @escaping (HazkeyServerConfig) -> Void = { _ in },
+        diagnosticsProvider: @escaping () -> GrimodexDiagnosticsSnapshot = {
+            .unavailable
+        }
+    ) {
+        self.sessionRegistry = sessionRegistry
+        self.onConfigurationChanged = onConfigurationChanged
+        self.diagnosticsProvider = diagnosticsProvider
     }
 
-    func processProto(data: Data) -> Data {
+    func processProto(data: Data, clientFd: Int32) -> Data {
         let query: Hazkey_RequestEnvelope
         let response: Hazkey_ResponseEnvelope
 
@@ -24,9 +34,97 @@ class ProtocolHandler {
         }
 
         switch query.payload {
+        case .openSession(let request):
+            let context = GrimodexClientContext(
+                program: request.client.program,
+                frontend: request.client.frontend,
+                secureInput: request.client.secureInput
+            )
+            let openResult = sessionRegistry.attemptOpen(
+                clientContext: context,
+                ownerFd: clientFd
+            )
+            switch openResult {
+            case .success(let sessionID):
+                response = Hazkey_ResponseEnvelope.with {
+                    $0.status = .success
+                    $0.openSessionResult = Hazkey_OpenSessionResult.with {
+                        $0.sessionID = sessionID
+                    }
+                }
+            case .failure(.resourceExhausted):
+                response = Hazkey_ResponseEnvelope.with {
+                    $0.status = .failed
+                    $0.errorMessage = "Session capacity exhausted"
+                }
+            }
+        case .closeSession(let request):
+            if sessionRegistry.close(sessionID: request.sessionID, ownerFd: clientFd) {
+                response = successResponse()
+            } else {
+                response = sessionNotFoundResponse()
+            }
+        case .getConfig:
+            var configResponse = sessionRegistry.serverConfig.getCurrentConfig()
+            if configResponse.status == .success {
+                configResponse.currentConfig.grimodexDiagnostics = diagnosticsProvider().protobuf
+            }
+            response = configResponse
+        case .setConfig(let request):
+            if request.profiles.isEmpty {
+                response = invalidRequestResponse("Configuration profiles must not be empty")
+            } else {
+                response = sessionRegistry.serverConfig.setCurrentConfig(
+                    request.fileHashes,
+                    request.profiles
+                )
+                if response.status == .success {
+                    onConfigurationChanged(sessionRegistry.serverConfig)
+                    sessionRegistry.reinitializeAll()
+                }
+            }
+        case .clearAllHistory_p:
+            sessionRegistry.clearAllLearningData()
+            response = successResponse()
+        case .reloadZenzaiModel:
+            sessionRegistry.serverConfig.reloadZenzaiModel()
+            sessionRegistry.reinitializeAll()
+            response = successResponse()
+        case .getDefaultProfile:
+            NSLog("Unimplemented: getDefaultProfile")
+            response = Hazkey_ResponseEnvelope.with {
+                $0.status = .failed
+                $0.errorMessage = "Unimplemented: getDefaultProfile"
+            }
+        case .none:
+            NSLog("Payload not specified")
+            response = Hazkey_ResponseEnvelope.with {
+                $0.status = .failed
+                $0.errorMessage = "Payload not specified"
+            }
+        default:
+            guard let state = sessionRegistry.state(for: query.sessionID, ownerFd: clientFd) else {
+                return serializeResult(unserialized: sessionNotFoundResponse())
+            }
+            response = processSessionPayload(query.payload, state: state)
+        }
+        return serializeResult(unserialized: response)
+    }
+
+    private func processSessionPayload(
+        _ payload: Hazkey_RequestEnvelope.OneOf_Payload?,
+        state: HazkeyServerState
+    ) -> Hazkey_ResponseEnvelope {
+        let response: Hazkey_ResponseEnvelope
+        switch payload {
         case .setContext(let req):
-            response = state.setContext(
-                surroundingText: req.context, anchorIndex: Int(req.anchor))
+            let anchorIndex = Int(req.anchor)
+            if anchorIndex < 0 || anchorIndex > req.context.unicodeScalars.count {
+                response = invalidRequestResponse("Context anchor is out of range")
+            } else {
+                response = state.setContext(
+                    surroundingText: req.context, anchorIndex: anchorIndex)
+            }
         case .newComposingText:
             response = state.createComposingTextInstanse()
         case .inputChar(let req):
@@ -38,7 +136,11 @@ class ProtocolHandler {
         case .deleteRight:
             response = state.deleteRight()
         case .prefixComplete(let req):
-            response = state.completePrefix(candidateIndex: Int(req.index))
+            if req.index < 0 {
+                response = invalidRequestResponse("Candidate index is out of range")
+            } else {
+                response = state.completePrefix(candidateIndex: Int(req.index))
+            }
         case .moveCursor(let req):
             response = state.moveCursor(offset: Int(req.offset))
         case .getHiraganaWithCursor:
@@ -52,32 +154,32 @@ class ProtocolHandler {
             response = state.getCurrentInputMode()
         case .saveLearningData:
             response = state.saveLearningData()
-        case .getConfig:
-            response = state.serverConfig.getCurrentConfig()
-        case .setConfig(let req):
-            response = state.serverConfig.setCurrentConfig(
-                req.fileHashes, req.profiles, state: state)
-        case .clearAllHistory_p:
-            response = state.clearProfileLearningData()
-        case .reloadZenzaiModel:
-            state.serverConfig.reloadZenzaiModel()
-            response = Hazkey_ResponseEnvelope.with {
-                $0.status = .success
-            }
-        case .getDefaultProfile:
-            NSLog("Unimplemented: getDefaultProfile")
+        case .openSession, .closeSession, .getConfig, .setConfig, .getDefaultProfile,
+            .clearAllHistory_p, .reloadZenzaiModel, .none:
             response = Hazkey_ResponseEnvelope.with {
                 $0.status = .failed
-                $0.errorMessage = "Unimplemented: getDefaultProfile"
-            }
-        case .none:
-            NSLog("Payload not specified")
-            response = Hazkey_ResponseEnvelope.with {
-                $0.status = .failed
-                $0.errorMessage = "Payload not specified"
+                $0.errorMessage = "Command is not valid for a conversion session"
             }
         }
-        return serializeResult(unserialized: response)
+        return response
+    }
+
+    private func successResponse() -> Hazkey_ResponseEnvelope {
+        Hazkey_ResponseEnvelope.with { $0.status = .success }
+    }
+
+    private func sessionNotFoundResponse() -> Hazkey_ResponseEnvelope {
+        Hazkey_ResponseEnvelope.with {
+            $0.status = .sessionNotFound
+            $0.errorMessage = "Session not found"
+        }
+    }
+
+    private func invalidRequestResponse(_ message: String) -> Hazkey_ResponseEnvelope {
+        Hazkey_ResponseEnvelope.with {
+            $0.status = .failed
+            $0.errorMessage = message
+        }
     }
 
     private func serializeResult(unserialized: Hazkey_ResponseEnvelope) -> Data {

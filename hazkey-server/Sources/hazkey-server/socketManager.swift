@@ -8,17 +8,31 @@ protocol SocketManagerDelegate: AnyObject {
 }
 
 class SocketManager {
+    private struct ClientState {
+        var input = Data()
+        var output = Data()
+    }
+
+    private static let maximumMessageSize = 1024 * 1024
+    private static let readChunkSize = 64 * 1024
+    private static let maximumReadPerPoll = 4 * readChunkSize
+    private static let maximumPendingOutputSize = 2 * maximumMessageSize
+
     weak var delegate: SocketManagerDelegate?
 
     private var signalSources: [DispatchSourceSignal] = []
+    private let servingLock = NSLock()
     private var continueServing = true
 
     private var serverFd: Int32 = -1
-    private var currentClientFd: Int32?
+    private var clients: [Int32: ClientState] = [:]
     private let socketPath: String
+    private let maximumClients: Int
     private var pipeFds: [Int32] = [-1, -1]
 
     private func stopServing(reason: String) {
+        servingLock.lock()
+        defer { servingLock.unlock() }
         guard continueServing else { return }
         NSLog(reason)
         continueServing = false
@@ -28,8 +42,22 @@ class SocketManager {
         }
     }
 
-    init(socketPath: String) {
+    private var isServing: Bool {
+        servingLock.lock()
+        defer { servingLock.unlock() }
+        return continueServing
+    }
+
+    func stop() {
+        stopServing(reason: "Stop requested, shutting down...")
+    }
+
+    init(
+        socketPath: String,
+        maximumClients: Int = 64
+    ) {
         self.socketPath = socketPath
+        self.maximumClients = max(1, maximumClients)
     }
 
     deinit {
@@ -84,7 +112,9 @@ class SocketManager {
     private func setupSignalHandlers() {
         signal(SIGPIPE, SIG_IGN)
 
-        let signalQueue = DispatchQueue(label: "dev.hiira.hazkey.server.socketmanager.signals")
+        let signalQueue = DispatchQueue(
+            label: "com.miyakey.grimodex.ime.fcitx5.server.socketmanager.signals"
+        )
         let signals = [SIGINT, SIGTERM, SIGHUP]
 
         for sig in signals {
@@ -100,7 +130,7 @@ class SocketManager {
 
     func startListening() {
         setupSignalHandlers()
-        while continueServing {
+        while isServing {
             var pollFds: [pollfd] = []
 
             // Always poll the server socket for new connections
@@ -109,9 +139,13 @@ class SocketManager {
             // poll stopper
             pollFds.append(pollfd(fd: pipeFds[0], events: Int16(POLLIN), revents: 0))
 
-            // If we have a current client, also poll it
-            if let clientFd = currentClientFd {
-                pollFds.append(pollfd(fd: clientFd, events: Int16(POLLIN), revents: 0))
+            // Poll every connected client. The fd in each poll entry is the
+            // stable identity for this iteration even if another client is
+            // accepted or disconnected while handling the snapshot.
+            for clientFd in clients.keys.sorted() {
+                let wantsWrite = !(clients[clientFd]?.output.isEmpty ?? true)
+                let events = Int16(POLLIN) | (wantsWrite ? Int16(POLLOUT) : 0)
+                pollFds.append(pollfd(fd: clientFd, events: events, revents: 0))
             }
 
             let pollRes = poll(&pollFds, nfds_t(pollFds.count), 1000)
@@ -119,7 +153,7 @@ class SocketManager {
             if pollRes < 0 {
                 if errno == EINTR {
                     // signal received
-                    if !continueServing {
+                    if !isServing {
                         break
                     }
                     continue
@@ -143,11 +177,14 @@ class SocketManager {
                 handleNewConnection()
             }
 
-            // Check if current client has data
-            if pollFds.count > 2, let clientFd = currentClientFd {
-                let clientEvents = Int32(pollFds[2].revents)
+            // Check every client that was present when this poll began.
+            for clientPoll in pollFds.dropFirst(2) {
+                let clientFd = clientPoll.fd
+                let clientEvents = Int32(clientPoll.revents)
 
-                if clientEvents & POLLHUP != 0 || clientEvents & POLLERR != 0 {
+                if clientEvents & POLLHUP != 0 || clientEvents & POLLERR != 0
+                    || clientEvents & POLLNVAL != 0
+                {
                     NSLog("Client disconnected or error: \(clientFd)")
                     closeClient(clientFd)
                     continue
@@ -155,6 +192,9 @@ class SocketManager {
 
                 if clientEvents & POLLIN != 0 {
                     handleClientData(clientFd)
+                }
+                if clients[clientFd] != nil && clientEvents & POLLOUT != 0 {
+                    handleClientWrite(clientFd)
                 }
             }
         }
@@ -166,10 +206,10 @@ class SocketManager {
         let newClientFd = accept(serverFd, &clientAddr, &clientLen)
 
         if newClientFd != -1 {
-            // If we already have a client, close it
-            if let existingClientFd = currentClientFd {
-                NSLog("New client connecting, closing existing client: \(existingClientFd)")
-                closeClient(existingClientFd)
+            guard clients.count < maximumClients else {
+                NSLog("Rejecting client: connection capacity exhausted")
+                close(newClientFd)
+                return
             }
 
             // Set up the new client
@@ -181,9 +221,8 @@ class SocketManager {
             if fcntlRes != 0 {
                 NSLog("fcntl() failed for client")
                 close(newClientFd)
-                currentClientFd = nil
             } else {
-                currentClientFd = newClientFd
+                clients[newClientFd] = ClientState()
                 delegate?.socketManager(self, clientDidConnect: newClientFd)
             }
         }
@@ -191,47 +230,100 @@ class SocketManager {
 
     private func handleClientData(_ clientFd: Int32) {
         do {
-            // Handle client request
-            let maxMessageSize: UInt32 = 1024 * 1024  // 1MB limit
-
-            // Read message length header
-            debugLog("Reading data from client \(clientFd)...")
-            let lengthData = try readData(from: clientFd, count: 4)
-            let readLen = lengthData.withUnsafeBytes {
-                $0.load(as: UInt32.self).bigEndian
-            }
-            debugLog("Message length: \(readLen)")
-
-            // Sanity check
-            guard readLen <= maxMessageSize else {
-                throw SocketError.messageTooLarge(readLen)
-            }
-
-            // Read message body
-            let query = try readData(from: clientFd, count: Int(readLen))
-            debugLog("Successfully read \(query.count) bytes")
-
-            // Process and respond
-            let response =
-                delegate?.socketManager(self, didReceiveData: query, from: clientFd) ?? Data()
-            debugLog("Processed request, response size: \(response.count)")
-
-            // Write response length
-            var writeLen = UInt32(response.count).bigEndian
-            let lengthHeader = withUnsafeBytes(of: &writeLen) { Data($0) }
-            try writeData(to: clientFd, data: lengthHeader)
-
-            // Write response body
-            try writeData(to: clientFd, data: response)
-
-            fsync(clientFd)
-            debugLog("Successfully wrote response")
+            try readAvailableData(from: clientFd)
+            try processAvailableFrames(for: clientFd)
+            try flushAvailableOutput(to: clientFd)
 
         } catch let error as SocketError {
             handleSocketError(error, clientFd: clientFd)
         } catch {
             NSLog("An unexpected error occurred: \(error)")
             closeClient(clientFd)
+        }
+    }
+
+    private func handleClientWrite(_ clientFd: Int32) {
+        do {
+            try flushAvailableOutput(to: clientFd)
+        } catch let error as SocketError {
+            handleSocketError(error, clientFd: clientFd)
+        } catch {
+            NSLog("An unexpected write error occurred: \(error)")
+            closeClient(clientFd)
+        }
+    }
+
+    private func readAvailableData(from clientFd: Int32) throws {
+        var chunk = [UInt8](repeating: 0, count: Self.readChunkSize)
+        var totalRead = 0
+        while totalRead < Self.maximumReadPerPoll {
+            let count = chunk.withUnsafeMutableBytes { bytes in
+                read(clientFd, bytes.baseAddress, bytes.count)
+            }
+            if count > 0 {
+                guard clients[clientFd] != nil else { return }
+                clients[clientFd]?.input.append(contentsOf: chunk.prefix(count))
+                totalRead += count
+                continue
+            }
+            if count == 0 {
+                throw SocketError.clientDisconnected("Client disconnected while reading")
+            }
+            if errno == EAGAIN || errno == EWOULDBLOCK {
+                return
+            }
+            throw SocketError.readFailed("Read failed", errno)
+        }
+    }
+
+    private func processAvailableFrames(for clientFd: Int32) throws {
+        while let state = clients[clientFd], state.input.count >= 4 {
+            let input = state.input
+            let length =
+                (UInt32(input[input.startIndex]) << 24)
+                | (UInt32(input[input.startIndex + 1]) << 16)
+                | (UInt32(input[input.startIndex + 2]) << 8)
+                | UInt32(input[input.startIndex + 3])
+            guard length <= UInt32(Self.maximumMessageSize) else {
+                throw SocketError.messageTooLarge(length)
+            }
+            let frameSize = 4 + Int(length)
+            guard input.count >= frameSize else { return }
+
+            let query = Data(input.dropFirst(4).prefix(Int(length)))
+            clients[clientFd]?.input.removeFirst(frameSize)
+            let response =
+                delegate?.socketManager(self, didReceiveData: query, from: clientFd) ?? Data()
+            guard response.count <= Self.maximumMessageSize else {
+                throw SocketError.messageTooLarge(UInt32(response.count))
+            }
+            let pendingOutputSize = (clients[clientFd]?.output.count ?? 0) + 4 + response.count
+            guard pendingOutputSize <= Self.maximumPendingOutputSize else {
+                throw SocketError.messageTooLarge(UInt32(pendingOutputSize))
+            }
+            var responseLength = UInt32(response.count).bigEndian
+            clients[clientFd]?.output.append(
+                withUnsafeBytes(of: &responseLength) { Data($0) })
+            clients[clientFd]?.output.append(response)
+        }
+    }
+
+    private func flushAvailableOutput(to clientFd: Int32) throws {
+        while let output = clients[clientFd]?.output, !output.isEmpty {
+            let count = output.withUnsafeBytes { bytes in
+                write(clientFd, bytes.baseAddress, bytes.count)
+            }
+            if count > 0 {
+                clients[clientFd]?.output.removeFirst(count)
+                continue
+            }
+            if count == 0 {
+                throw SocketError.clientDisconnected("Client disconnected while writing")
+            }
+            if errno == EAGAIN || errno == EWOULDBLOCK {
+                return
+            }
+            throw SocketError.writeFailed("Write failed", errno)
         }
     }
 
@@ -254,23 +346,26 @@ class SocketManager {
     }
 
     private func closeClient(_ clientFd: Int32) {
+        guard clients.removeValue(forKey: clientFd) != nil else { return }
         NSLog("Closing client connection: \(clientFd)")
         close(clientFd)
-        if currentClientFd == clientFd {
-            currentClientFd = nil
-        }
         delegate?.socketManager(self, clientDidDisconnect: clientFd)
     }
 
     func closeSocket() {
-        if let clientFd = currentClientFd {
+        for clientFd in clients.keys {
             close(clientFd)
-            currentClientFd = nil
         }
+        clients.removeAll()
 
         if serverFd != -1 {
             close(serverFd)
             serverFd = -1
+        }
+
+        for index in pipeFds.indices where pipeFds[index] != -1 {
+            close(pipeFds[index])
+            pipeFds[index] = -1
         }
 
         unlink(socketPath)

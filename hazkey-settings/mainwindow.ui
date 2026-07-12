@@ -23,7 +23,7 @@
    </size>
   </property>
   <property name="windowTitle">
-   <string>Hazkey Settings</string>
+   <string>Grimodex IME Settings</string>
   </property>
   <layout class="QVBoxLayout" name="MainWindowLayout">
    <property name="spacing">
@@ -569,7 +569,7 @@
              <item row="2" column="2">
               <widget class="QCheckBox" name="hazkeyVersionConversion">
                <property name="text">
-                <string>Hazkey version</string>
+                <string>Hazkey-compatible variants</string>
                </property>
               </widget>
              </item>
@@ -1098,7 +1098,7 @@
                <item>
                 <widget class="QLabel" name="keymapAdvancedNote">
                  <property name="text">
-                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700; font-style:italic;&quot;&gt;Note:&lt;/span&gt;&lt;span style=&quot; font-style:italic;&quot;&gt; You can use custom Keymaps in TSV format, located in &lt;/span&gt;&lt;span style=&quot; font-weight:700; font-style:italic;&quot;&gt;$XDG_CONFIG_HOME/hazkey/keymap&lt;/span&gt;&lt;span style=&quot; font-style:italic;&quot;&gt;. &lt;/span&gt;&lt;a href=&quot;https://hazkey.hiira.dev/docs/settings/input-style-keymap&quot;&gt;&lt;span style=&quot; font-style:italic; text-decoration: underline; color:#2980b9;&quot;&gt;More info...&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700; font-style:italic;&quot;&gt;Note:&lt;/span&gt;&lt;span style=&quot; font-style:italic;&quot;&gt; You can use custom Keymaps in TSV format, located in &lt;/span&gt;&lt;span style=&quot; font-weight:700; font-style:italic;&quot;&gt;$XDG_CONFIG_HOME/fcitx5-grimodex/keymap&lt;/span&gt;&lt;span style=&quot; font-style:italic;&quot;&gt;.&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                  </property>
                  <property name="wordWrap">
                   <bool>true</bool>
@@ -1298,7 +1298,7 @@
                   </font>
                  </property>
                  <property name="text">
-                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Note:&lt;/span&gt; You can use custom input tables in TSV format, located in &lt;span style=&quot; font-weight:700;&quot;&gt;$XDG_CONFIG_HOME/hazkey/table&lt;/span&gt;. &lt;a href=&quot;https://hazkey.hiira.dev/docs/settings/input-style-input-table&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;More info...&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Note:&lt;/span&gt; You can use custom input tables in TSV format, located in &lt;span style=&quot; font-weight:700;&quot;&gt;$XDG_CONFIG_HOME/fcitx5-grimodex/table&lt;/span&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                  </property>
                  <property name="wordWrap">
                   <bool>true</bool>
@@ -1578,6 +1578,59 @@
             <number>10</number>
            </property>
            <item>
+            <layout class="QHBoxLayout" name="grimodexIntegrationHeader">
+             <property name="topMargin">
+              <number>10</number>
+             </property>
+             <property name="bottomMargin">
+              <number>10</number>
+             </property>
+             <item>
+              <widget class="QLabel" name="grimodexIntegrationHeaderLabel">
+               <property name="text">
+                <string>Grimodex Integration</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="Line" name="grimodexIntegrationHeaderLine">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <layout class="QGridLayout" name="grimodexIntegrationGrid">
+             <property name="leftMargin">
+              <number>20</number>
+             </property>
+             <property name="rightMargin">
+              <number>20</number>
+             </property>
+             <property name="bottomMargin">
+              <number>20</number>
+             </property>
+             <item row="0" column="0">
+              <widget class="QLabel" name="grimodexScopeLabel">
+               <property name="text">
+                <string>Application scope</string>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QComboBox" name="grimodexScope"/>
+             </item>
+            </layout>
+           </item>
+           <item>
             <layout class="QHBoxLayout" name="zenzaiHeader">
              <property name="topMargin">
               <number>10</number>
@@ -1776,7 +1829,7 @@
                   </size>
                  </property>
                  <property name="pixmap">
-                  <pixmap resource="hazkey-icon.qrc">:/images/hazkey.svg</pixmap>
+                  <pixmap resource="hazkey-icon.qrc">:/images/grimodex.svg</pixmap>
                  </property>
                  <property name="scaledContents">
                   <bool>true</bool>
@@ -1806,7 +1859,7 @@
                <item>
                 <widget class="QLabel" name="aboutHazkeyTitleHazkeyText">
                  <property name="text">
-                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:36pt;&quot;&gt;Hazkey&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:36pt;&quot;&gt;Grimodex IME&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                  </property>
                  <property name="textFormat">
                   <enum>Qt::TextFormat::RichText</enum>
@@ -1889,7 +1942,7 @@
                <item>
                 <widget class="QLabel" name="aboutHazkeyAzookeyEngine">
                  <property name="text">
-                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Conversion engine provided by &lt;a href=&quot;https://azookey.com/&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;azooKey&lt;/span&gt;&lt;/a&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Grimodex IME is based on &lt;a href=&quot;https://github.com/7ka-Hiira/hazkey&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;Hazkey&lt;/span&gt;&lt;/a&gt; by Hiira. Conversion engine provided by &lt;a href=&quot;https://azookey.com/&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;azooKey&lt;/span&gt;&lt;/a&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                  </property>
                  <property name="alignment">
                   <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -1940,7 +1993,7 @@
              <item>
               <widget class="QLabel" name="aboutHazkeyWebsiteLink">
                <property name="text">
-                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://hazkey.hiira.dev/&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;Website&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://github.com/kazormia296/Grimodex&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;Grimodex&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                </property>
                <property name="alignment">
                 <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -1953,7 +2006,7 @@
              <item>
               <widget class="QLabel" name="aboutHazkeyDocumentLink">
                <property name="text">
-                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://hazkey.hiira.dev/docs&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;Document&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://github.com/7ka-Hiira/hazkey&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;Hazkey upstream&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                </property>
                <property name="alignment">
                 <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -1966,7 +2019,7 @@
              <item>
               <widget class="QLabel" name="aboutHazkeySourceLink">
                <property name="text">
-                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://github.com/7ka-Hiira/fcitx5-hazkey&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;Source code&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://github.com/kazormia296/hazkey&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;IME source code&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                </property>
                <property name="alignment">
                 <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -1979,7 +2032,7 @@
              <item>
               <widget class="QLabel" name="aboutHazkeyIssueReportLink">
                <property name="text">
-                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://github.com/7ka-Hiira/fcitx5-hazkey/issues&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;Issue report&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://github.com/kazormia296/hazkey/issues&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;Issue report&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                </property>
                <property name="alignment">
                 <set>Qt::AlignmentFlag::AlignCenter</set>

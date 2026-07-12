@@ -1,0 +1,16 @@
+{
+  "format_version": 1,
+  "consumer_id": "fcitx5-grimodex",
+  "name": "Grimodex IME for Linux",
+  "version": "0.1.0",
+  "platform": "linux",
+  "capabilities": {
+    "profile": true,
+    "dynamic_dictionary": true,
+    "zenzai_v3_conditions": true,
+    "application_scoping": true,
+    "future_capability": true
+  },
+  "last_seen": "2026-07-11T00:00:00.000Z",
+  "future_optional_field": true
+}

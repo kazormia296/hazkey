@@ -1,0 +1,26 @@
+# Package-manager ownership contract. One required/optional glob per line.
+required:/usr/bin/fcitx5-grimodex-server
+required:/usr/bin/fcitx5-grimodex-settings
+required:/usr/lib/{,*/}fcitx5/fcitx5-grimodex.so
+required:/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-server
+required:/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-settings
+required:/usr/lib/{,*/}fcitx5-grimodex/AzooKeyKanaKanjiConverter_EfficientNGram.resources/tokenizer/tokenizer.json
+optional:/usr/lib/{,*/}fcitx5-grimodex/AzooKeyKanaKanjiConverter_EfficientNGram.resources/**
+required:/usr/lib/{,*/}fcitx5-grimodex/swift-transformers_Hub.resources/gpt2_tokenizer_config.json
+optional:/usr/lib/{,*/}fcitx5-grimodex/swift-transformers_Hub.resources/**
+optional:/usr/lib/{,*/}fcitx5-grimodex/libllama/**
+required:/usr/share/applications/fcitx5-grimodex-settings.desktop
+required:/usr/share/fcitx5/addon/grimodex.conf
+required:/usr/share/fcitx5/inputmethod/grimodex.conf
+optional:/usr/share/fcitx5-grimodex/**
+required:/usr/share/icons/hicolor/scalable/apps/fcitx5-grimodex.svg
+required:/usr/share/licenses/fcitx5-grimodex/LICENSE
+required:/usr/share/licenses/fcitx5-grimodex/NOTICE.md
+optional:/usr/share/licenses/fcitx5-grimodex/third-party/azookey-dictionary/**
+optional:/usr/share/licenses/fcitx5-grimodex/third-party/azookey-emoji/**
+optional:/usr/share/licenses/fcitx5-grimodex/third-party/llama.cpp/**
+optional:/usr/share/licenses/fcitx5-grimodex/third-party/protobuf/**
+optional:/usr/share/licenses/fcitx5-grimodex/third-party/swift-packages/**
+optional:/usr/share/licenses/fcitx5-grimodex/third-party/swift-runtime/**
+optional:/usr/share/locale/*/LC_MESSAGES/fcitx5-grimodex.mo
+required:/usr/share/metainfo/com.miyakey.grimodex.ime.fcitx5.metainfo.xml

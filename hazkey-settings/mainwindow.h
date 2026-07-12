@@ -2,7 +2,6 @@
 #define MAINWINDOW_H
 
 #include <QAbstractButton>
-#include <QNetworkAccessManager>
 #include <QWidget>
 #include <memory>
 
@@ -43,7 +42,6 @@ class MainWindow : public QWidget {
     ServerConnector server_;
     hazkey::config::CurrentConfig currentConfig_;
     hazkey::config::Profile* currentProfile_;
-    std::unique_ptr<QNetworkAccessManager> networkManager_;
     hazkey::settings::TabContext controllerContext_;
     std::unique_ptr<hazkey::settings::UserInterfaceTabController> uiTab_;
     std::unique_ptr<hazkey::settings::ConversionTabController> conversionTab_;

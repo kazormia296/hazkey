@@ -1,0 +1,323 @@
+name: Grimodex IME spike
+
+on:
+  pull_request:
+    paths:
+      - "CMakeLists.txt"
+      - "fcitx5-hazkey/**"
+      - "hazkey-server/**"
+      - "hazkey-settings/**"
+      - "linux-shared/**"
+      - "protocol/**"
+      - "LICENSE"
+      - "NOTICE.md"
+      - "debian/**"
+      - "packaging/**"
+      - ".github/workflows/build.yml"
+      - ".github/workflows/grimodex-package-ci.yml"
+      - ".github/workflows/grimodex-spike-ci.yml"
+  push:
+    branches:
+      - codex/grimodex-ime-phase3-linux-spike
+      - codex/grimodex-ime-phase3-linux-integration
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-client-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Fcitx and protobuf build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential cmake gettext ninja-build \
+            libfcitx5config-dev libfcitx5core-dev libfcitx5utils-dev \
+            libprotobuf-dev protobuf-compiler \
+            qt6-base-dev qt6-l10n-tools qt6-tools-dev qt6-tools-dev-tools
+
+      - name: Build Fcitx addon
+        run: |
+          cmake -S fcitx5-hazkey -B fcitx5-hazkey/build-ci \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DBUILD_TESTING=OFF
+          cmake --build fcitx5-hazkey/build-ci --parallel 2
+
+      - name: Build session client tests
+        run: |
+          cmake -S fcitx5-hazkey/tests -B fcitx5-hazkey/session-tests-ci \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build fcitx5-hazkey/session-tests-ci --parallel 2
+
+      - name: Run session client tests
+        run: ctest --test-dir fcitx5-hazkey/session-tests-ci --output-on-failure
+
+      - name: Build settings diagnostics UI
+        run: |
+          cmake -S hazkey-settings -B hazkey-settings/build-ci \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DBUILD_TESTING=ON
+          cmake --build hazkey-settings/build-ci --parallel 2
+
+      - name: Run settings tests
+        run: ctest --test-dir hazkey-settings/build-ci --output-on-failure
+
+      - name: Stage real Fcitx and settings CMake installs
+        run: |
+          mkdir -p "$RUNNER_TEMP/grimodex-staged-client"
+          DESTDIR="$RUNNER_TEMP/grimodex-staged-client" \
+            cmake --install fcitx5-hazkey/build-ci
+          DESTDIR="$RUNNER_TEMP/grimodex-staged-client" \
+            cmake --install hazkey-settings/build-ci
+          tar -C "$RUNNER_TEMP/grimodex-staged-client" \
+            -czf "$RUNNER_TEMP/grimodex-staged-client.tar.gz" .
+
+      - name: Upload real Fcitx and settings staged install
+        uses: actions/upload-artifact@v6
+        with:
+          name: grimodex-staged-client-${{ github.sha }}
+          path: ${{ runner.temp }}/grimodex-staged-client.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  swift-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Cache Swift toolchain
+        id: cache-swift
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/swift
+          key: ubuntu-24.04-swift-6.2-release
+
+      - name: Install Swift 6.2
+        if: steps.cache-swift.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "${{ github.workspace }}/swift"
+          wget --quiet https://download.swift.org/swift-6.2-release/ubuntu2404/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu24.04.tar.gz
+          tar xf swift-6.2-RELEASE-ubuntu24.04.tar.gz \
+            --strip-components=1 \
+            -C "${{ github.workspace }}/swift"
+
+      - name: Add Swift to PATH
+        run: echo "${{ github.workspace }}/swift/usr/bin" >> "$GITHUB_PATH"
+
+      - name: Verify SwiftProtobuf pin
+        run: |
+          jq -e '
+            .pins[] |
+            select(
+              .identity == "swift-protobuf" and
+              .state.version == "1.30.0" and
+              .state.revision == "102a647b573f60f73afdce5613a51d71349fe507"
+            )
+          ' hazkey-server/Package.resolved >/dev/null
+
+      - name: Cache protoc-gen-swift
+        id: swift-protobuf-generator
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/protobuf-tools/protoc-gen-swift
+          key: >-
+            protoc-gen-swift-v1-${{ runner.os }}-${{ runner.arch }}-swift-6.2-1.30.0-102a647b573f
+
+      - name: Build protoc-gen-swift 1.30.0
+        if: steps.swift-protobuf-generator.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet --depth 1 --branch 1.30.0 \
+            https://github.com/apple/swift-protobuf.git \
+            "$RUNNER_TEMP/swift-protobuf"
+          test "$(git -C "$RUNNER_TEMP/swift-protobuf" rev-parse HEAD)" = \
+            "102a647b573f60f73afdce5613a51d71349fe507"
+          swift build \
+            --package-path "$RUNNER_TEMP/swift-protobuf" \
+            --scratch-path "$RUNNER_TEMP/swift-protobuf-build" \
+            --configuration release \
+            --product protoc-gen-swift
+          install -Dm755 \
+            "$RUNNER_TEMP/swift-protobuf-build/release/protoc-gen-swift" \
+            "$RUNNER_TEMP/protobuf-tools/protoc-gen-swift"
+
+      - name: Install pinned protoc and generate Swift
+        run: |
+          test "$(uname -m)" = "x86_64"
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/protoc.zip" \
+            https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
+          echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $RUNNER_TEMP/protoc.zip" \
+            | sha256sum --check
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          PROTOC="$RUNNER_TEMP/protoc/bin/protoc" \
+          PROTOC_GEN_SWIFT="$RUNNER_TEMP/protobuf-tools/protoc-gen-swift" \
+            hazkey-server/scripts/generate-swift-protobuf.sh \
+            "$RUNNER_TEMP/generated-swift-protobuf"
+
+      - name: Upload generated Swift protobuf
+        uses: actions/upload-artifact@v6
+        with:
+          name: swift-protobuf-generated-${{ github.sha }}
+          path: ${{ runner.temp }}/generated-swift-protobuf/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Gate generated Swift protobuf drift
+        run: |
+          diff --recursive --unified \
+            hazkey-server/Sources/hazkey-server/Protocol \
+            "$RUNNER_TEMP/generated-swift-protobuf"
+
+      - name: Fingerprint runner image
+        id: runner-image
+        run: echo "value=${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache SwiftPM scratch
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/hazkey-server/build-ci/swift-build
+          key: >-
+            swiftpm-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.runner-image.outputs.value }}-swift-6.2-zenzai-${{ hashFiles('hazkey-server/Package.swift', 'hazkey-server/Package.resolved', 'hazkey-server/CMakeLists.txt', 'hazkey-server/build_swift.cmake', '.github/workflows/grimodex-spike-ci.yml') }}-${{ github.sha }}
+          restore-keys: |
+            swiftpm-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.runner-image.outputs.value }}-swift-6.2-zenzai-${{ hashFiles('hazkey-server/Package.swift', 'hazkey-server/Package.resolved', 'hazkey-server/CMakeLists.txt', 'hazkey-server/build_swift.cmake', '.github/workflows/grimodex-spike-ci.yml') }}-
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential ninja-build
+
+      - name: Configure Hazkey with Zenzai support
+        run: |
+          cmake -S hazkey-server -B hazkey-server/build-ci \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DGGML_VULKAN=OFF \
+            -DHAZKEY_SERVER_ENABLE_ZENZAI=ON \
+            -DHAZKEY_SERVER_BUILD_LLAMA_LIBS=ON \
+            -DHAZKEY_SERVER_INSTALL_LLAMA_LIBS=OFF \
+            -DHAZKEY_SERVER_ZENZAI_TRAIT=ON \
+            -DHAZKEY_SERVER_STATIC_SWIFT_STDLIB=OFF \
+            -DHAZKEY_SERVER_INSTALL_DICTIONARY=OFF
+
+      - name: Build Hazkey and llama
+        run: cmake --build hazkey-server/build-ci --target build_hazkey_server --parallel 2
+
+      - name: Audit pinned local-only Swift Hub dependency
+        run: |
+          python3 packaging/scripts/audit_swift_hub_offline.py \
+            --package-resolved hazkey-server/Package.resolved \
+            --checkout hazkey-server/build-ci/swift-build/checkouts/swift-tokenizers \
+            --expected-revision 4a606f66e0cc4d7d9f0197649e812f7fc86a4c34
+
+      - name: Stage real server CMake install
+        run: |
+          mkdir -p "$RUNNER_TEMP/grimodex-staged-server"
+          DESTDIR="$RUNNER_TEMP/grimodex-staged-server" \
+            cmake --install hazkey-server/build-ci
+          tar -C "$RUNNER_TEMP/grimodex-staged-server" \
+            -czf "$RUNNER_TEMP/grimodex-staged-server.tar.gz" .
+
+      - name: Upload real server staged install
+        uses: actions/upload-artifact@v6
+        with:
+          name: grimodex-staged-server-${{ github.sha }}
+          path: ${{ runner.temp }}/grimodex-staged-server.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Checkout pinned Grimodex consumer E2E
+        uses: actions/checkout@v6
+        with:
+          repository: kazormia296/Grimodex
+          ref: eaa795c0009ffd48715ddebf12a08e880092a529
+          path: grimodex-consumer-e2e
+          submodules: false
+
+      - name: Run consumer writer-to-reader process E2E
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/hazkey-server/build-ci/bin
+          GRIMODEX_LINUX_IME_SERVER: ${{ github.workspace }}/hazkey-server/build-ci/swift-build/release/hazkey-server
+          FCITX5_GRIMODEX_DICTIONARY: ${{ github.workspace }}/hazkey-server/azooKey_dictionary_storage/Dictionary
+        run: |
+          cargo test \
+            --manifest-path grimodex-consumer-e2e/src-tauri/Cargo.toml \
+            -p grimodex-db \
+            --test linux_ime_server_e2e \
+            -- --ignored --nocapture
+
+      - name: Run Grimodex spike tests
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/hazkey-server/build-ci/bin
+          GRIMODEX_PROCESS_E2E_SERVER: ${{ github.workspace }}/hazkey-server/build-ci/swift-build/release/hazkey-server
+          FCITX5_GRIMODEX_DICTIONARY: ${{ github.workspace }}/hazkey-server/azooKey_dictionary_storage/Dictionary
+        run: |
+          set -o pipefail
+          swift test \
+            --package-path hazkey-server \
+            --scratch-path hazkey-server/build-ci/swift-build \
+            --configuration release \
+            --traits ZenzaiSupport \
+            -Xlinker -L${{ github.workspace }}/hazkey-server/build-ci/bin \
+            --filter Grimodex \
+            2>&1 | tee "$RUNNER_TEMP/grimodex-spike.log"
+
+      - name: Publish dynamic dictionary benchmark telemetry
+        run: |
+          benchmark_count="$(
+            awk '/GRIMODEX_BENCHMARK entries=/{count++} END{print count + 0}' \
+              "$RUNNER_TEMP/grimodex-spike.log"
+          )"
+          test "$benchmark_count" -eq 5
+          {
+            echo "### Grimodex dynamic dictionary benchmark"
+            echo '```text'
+            awk '/GRIMODEX_BENCHMARK entries=/' \
+              "$RUNNER_TEMP/grimodex-spike.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  real-staged-package-contract:
+    needs: [linux-client-tests, swift-tests]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+
+      - name: Download real Fcitx and settings staged install
+        uses: actions/download-artifact@v6
+        with:
+          name: grimodex-staged-client-${{ github.sha }}
+          path: ${{ runner.temp }}/grimodex-staged-parts/client
+
+      - name: Download real server staged install
+        uses: actions/download-artifact@v6
+        with:
+          name: grimodex-staged-server-${{ github.sha }}
+          path: ${{ runner.temp }}/grimodex-staged-parts/server
+
+      - name: Merge and validate real DESTDIR tree
+        env:
+          GRIMODEX_STAGED_ROOT: ${{ runner.temp }}/grimodex-staged-root
+        run: |
+          mkdir -p "$GRIMODEX_STAGED_ROOT"
+          tar -C "$GRIMODEX_STAGED_ROOT" -xzf \
+            "$RUNNER_TEMP/grimodex-staged-parts/client/grimodex-staged-client.tar.gz"
+          tar -C "$GRIMODEX_STAGED_ROOT" -xzf \
+            "$RUNNER_TEMP/grimodex-staged-parts/server/grimodex-staged-server.tar.gz"
+          python3 packaging/tests/package_contract_test.py

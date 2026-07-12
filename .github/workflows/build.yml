@@ -1,10 +1,25 @@
 name: Build
 
 on:
+  pull_request:
+    paths:
+      - "CMakeLists.txt"
+      - "fcitx5-hazkey/**"
+      - "hazkey-server/**"
+      - "hazkey-settings/**"
+      - "linux-shared/**"
+      - "protocol/**"
+      - "LICENSE"
+      - "NOTICE.md"
+      - "packaging/**"
+      - ".github/workflows/build.yml"
   push:
     tags:
       - "*"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -17,32 +32,52 @@ jobs:
             arch: x86_64
             swift_url: https://download.swift.org/swift-6.2-release/ubuntu2204/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu22.04.tar.gz
             static_protobuf: false
+            release_asset: false
+            install_libdir: lib/x86_64-linux-gnu
           - runner: ubuntu-24.04
             label: ubuntu-24.04
             arch: x86_64
             swift_url: https://download.swift.org/swift-6.2-release/ubuntu2404/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu24.04.tar.gz
             static_protobuf: false
+            release_asset: false
+            install_libdir: lib/x86_64-linux-gnu
           - runner: ubuntu-24.04-arm
             label: ubuntu-24.04
             arch: aarch64
             swift_url: https://download.swift.org/swift-6.2-release/ubuntu2404-aarch64/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu24.04-aarch64.tar.gz
             static_protobuf: false
+            release_asset: false
+            install_libdir: lib/aarch64-linux-gnu
           - runner: ubuntu-22.04
             label: ubuntu-22.04-static_protobuf
             arch: x86_64
             swift_url: https://download.swift.org/swift-6.2-release/ubuntu2204/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu22.04.tar.gz
             static_protobuf: true
+            release_asset: true
+            install_libdir: lib
           - runner: ubuntu-24.04-arm
             label: ubuntu-24.04-static_protobuf
             arch: aarch64
             swift_url: https://download.swift.org/swift-6.2-release/ubuntu2404-aarch64/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu24.04-aarch64.tar.gz
             static_protobuf: true
+            release_asset: true
+            install_libdir: lib
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
         with:
           submodules: "recursive"
+
+      - name: Resolve Grimodex IME version
+        shell: bash
+        run: |
+          version="$(sed -nE 's/^project\(grimodex-ime VERSION ([0-9]+\.[0-9]+\.[0-9]+)\)$/\1/p' CMakeLists.txt)"
+          test -n "$version"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            test "$GITHUB_REF_NAME" = "v${version}"
+          fi
+          echo "GRIMODEX_IME_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Cache Swift Environment
         id: cache-swift
@@ -70,9 +105,9 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends wget gnupg2 \
+          sudo apt-get install -y --no-install-recommends wget curl gnupg2 \
             build-essential gettext fakeroot libfcitx5core-dev libfcitx5config-dev libfcitx5utils-dev \
-            ninja-build qt6-base-dev qt6-tools-dev qt6-tools-dev-tools libqt6widgets6 libqt6gui6 qt6-l10n-tools libglx-dev libgl1-mesa-dev libxkbcommon-dev
+            ninja-build qt6-base-dev qt6-tools-dev qt6-tools-dev-tools libqt6widgets6 libqt6gui6 qt6-l10n-tools libglx-dev libgl1-mesa-dev libxkbcommon-dev zstd
 
       - name: Install Dependencies (protobuf)
         if: ${{ !matrix.static_protobuf }}
@@ -127,7 +162,7 @@ jobs:
         run: |
           echo "${{ github.workspace }}/local_deps/bin" >> $GITHUB_PATH
 
-      - name: Build hazkey-settings
+      - name: Build Grimodex settings
         run: |
           mkdir -p ${{ github.workspace }}/hazkey-settings/build
           cd ${{ github.workspace }}/hazkey-settings/build
@@ -135,6 +170,7 @@ jobs:
           cmake \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_INSTALL_LIBDIR=${{ matrix.install_libdir }} \
             -DCMAKE_CXX_FLAGS=-I${{ github.workspace }}/local_deps/include \
             -DCMAKE_PREFIX_PATH=${{ github.workspace }}/local_deps \
             -DProtobuf_USE_STATIC_LIBS=${{ matrix.static_protobuf }} \
@@ -142,37 +178,154 @@ jobs:
           ninja -j$(nproc)
           env  DESTDIR=${{ github.workspace }}/workdir ninja install
 
-      - name: Build fcitx5-hazkey
+      - name: Build Grimodex Fcitx addon
         run: |
           mkdir -p ${{ github.workspace }}/fcitx5-hazkey/build
           cd ${{ github.workspace }}/fcitx5-hazkey/build
           cmake -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_INSTALL_LIBDIR=${{ matrix.install_libdir }} \
             -DCMAKE_PREFIX_PATH=${{ github.workspace }}/local_deps \
             -DProtobuf_USE_STATIC_LIBS=${{ matrix.static_protobuf }} \
             -G Ninja ..
           ninja -j$(nproc)
           env DESTDIR=${{ github.workspace }}/workdir ninja install
 
-      - name: Build hazkey-server
+      - name: Build Grimodex server
         run: |
           mkdir -p ${{ github.workspace }}/hazkey-server/build
           cd ${{ github.workspace }}/hazkey-server/build
-          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DHAZKEY_SERVER_SWIFT_LTO_MODE=full -G Ninja ..
+          cmake -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_INSTALL_LIBDIR=${{ matrix.install_libdir }} \
+            -DHAZKEY_SERVER_SWIFT_LTO_MODE=full \
+            -G Ninja ..
           ninja -j$(nproc)
           env DESTDIR=${{ github.workspace }}/workdir ninja install
+
+      - name: Audit pinned local-only Swift Hub dependency
+        run: |
+          python3 packaging/scripts/audit_swift_hub_offline.py \
+            --package-resolved hazkey-server/Package.resolved \
+            --checkout hazkey-server/build/swift-build/checkouts/swift-tokenizers \
+            --expected-revision 4a606f66e0cc4d7d9f0197649e812f7fc86a4c34
+
+      - name: Audit product network capability metadata
+        run: |
+          python3 packaging/scripts/audit_product_network_capabilities.py --root ${{ github.workspace }}/workdir \
+            --source-root fcitx5-hazkey/src \
+            --source-root hazkey-settings \
+            --source-root hazkey-server/Sources \
+            --source-root linux-shared \
+            --source-root protocol \
+            --source-file hazkey-server/hazkey-server.sh.in
 
       - name: Strip binaries
         run: |
           find ${{ github.workspace }}/workdir/usr/ -type f -print0 | xargs -0 file -i | grep -E "application/(x-pie-executable|x-sharedlib)" | cut -d: -f1 | xargs -I{} strip "{}"
 
-      - name: Create tar.gz archive
+      - name: Fetch pinned redistribution licenses
+        if: matrix.release_asset
+        shell: bash
+        run: |
+          license_dir="$RUNNER_TEMP/grimodex-license-inputs"
+          mkdir -p "$license_dir"
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/swiftlang/swift/swift-6.2-RELEASE/LICENSE.txt \
+            --output "$license_dir/swift-LICENSE.txt"
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/protocolbuffers/protobuf/v21.12/LICENSE \
+            --output "$license_dir/protobuf-LICENSE"
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/google/mozc/0651fbcae495ff98f6ae17bb59e2bee0e3a79661/LICENSE \
+            --output "$license_dir/mozc-LICENSE"
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/unicode-org/cldr/b3bfdd73897b32f6a3e7cb39f7f09aadfafaabf8/LICENSE \
+            --output "$license_dir/unicode-LICENSE"
+          cd "$license_dir"
+          sha256sum --check <<'CHECKSUMS'
+          770af8291f708538d8ff885a0bbc4e045cd700531741c4f99528d435c14d7f55  swift-LICENSE.txt
+          6e5e117324afd944dcf67f36cf329843bc1a92229a8cd9bb573d7a83130fea7d  protobuf-LICENSE
+          44cdd923b91ea9199293abecc2762c70c87dbf1e581c027a94c416368d1a648c  mozc-LICENSE
+          65eb33419e22a297550a811b5b535f5e532f9a7e0114b516c0ea18afd53c3804  unicode-LICENSE
+          CHECKSUMS
+
+      - name: Collect complete third-party license set
+        if: matrix.release_asset
+        shell: bash
+        run: |
+          python3 packaging/scripts/collect_third_party_licenses.py \
+            --repository-root "${{ github.workspace }}" \
+            --swift-checkouts "${{ github.workspace }}/hazkey-server/build/swift-build/checkouts" \
+            --swift-runtime-license "$RUNNER_TEMP/grimodex-license-inputs/swift-LICENSE.txt" \
+            --protobuf-license "$RUNNER_TEMP/grimodex-license-inputs/protobuf-LICENSE" \
+            --emoji-mozc-license "$RUNNER_TEMP/grimodex-license-inputs/mozc-LICENSE" \
+            --emoji-unicode-license "$RUNNER_TEMP/grimodex-license-inputs/unicode-LICENSE" \
+            --destination-root "${{ github.workspace }}/workdir"
+
+      - name: Validate canonical release tree
+        if: matrix.release_asset
+        env:
+          GRIMODEX_STAGED_ROOT: ${{ github.workspace }}/workdir
+        run: python3 packaging/tests/package_contract_test.py
+
+      - name: Create immutable Grimodex release assets
+        if: matrix.release_asset
+        shell: bash
         run: |
           cd ${{ github.workspace }}/workdir
-          tar -czvf ${{ github.workspace }}/packages/fcitx5-hazkey-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz ./usr
+          archive="fcitx5-grimodex-${GRIMODEX_IME_VERSION}-${{ matrix.arch }}.tar.zst"
+          tar --zstd -cf "${{ github.workspace }}/packages/$archive" ./usr
+          cd ${{ github.workspace }}/packages
+          sha256sum "$archive" > "$archive.sha256"
 
-      - name: Upload Build Artifacts
+      - name: Upload Grimodex release assets
+        if: matrix.release_asset
         uses: actions/upload-artifact@v6
         with:
-          name: fcitx5-hazkey-${{ matrix.label }}-${{ matrix.arch }}
-          path: ${{ github.workspace }}/packages/*
+          name: fcitx5-grimodex-release-${{ matrix.arch }}
+          path: |
+            ${{ github.workspace }}/packages/fcitx5-grimodex-*-${{ matrix.arch }}.tar.zst
+            ${{ github.workspace }}/packages/fcitx5-grimodex-*-${{ matrix.arch }}.tar.zst.sha256
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish immutable Grimodex release assets
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download canonical architecture assets
+        uses: actions/download-artifact@v6
+        with:
+          pattern: fcitx5-grimodex-release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Validate release checksums
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cd release-assets
+          for arch in x86_64 aarch64; do
+            archive="fcitx5-grimodex-${version}-${arch}.tar.zst"
+            test -f "$archive"
+            test -f "$archive.sha256"
+            sha256sum --check "$archive.sha256"
+          done
+
+      - name: Publish release without overwriting assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "fcitx5-grimodex $GITHUB_REF_NAME" \
+              --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" release-assets/* \
+            --repo "$GITHUB_REPOSITORY"

@@ -1,7 +1,12 @@
 #include "controllers/input_style_tab_controller.h"
 
+#include <unistd.h>
+
+#include <cstdlib>
+
 #include <QColor>
 #include <QComboBox>
+#include <QDir>
 #include <QLayoutItem>
 #include <QLineEdit>
 #include <QListWidget>
@@ -12,6 +17,7 @@
 
 #include "config_macros.h"
 #include "controllers/warning_widget_factory.h"
+#include "settings_product_paths.h"
 #include "ui_mainwindow.h"
 
 namespace hazkey::settings {
@@ -898,22 +904,30 @@ QString InputStyleTabController::translateTableName(const QString& tableName,
 }
 
 void InputStyleTabController::updateNoteTextPlaceholders() {
-    if (!context_.currentConfig) return;
-    QString xdgConfigHome =
-        QString::fromStdString(context_.currentConfig->xdg_config_home_path());
-    if (!xdgConfigHome.isEmpty()) {
-        if (xdgConfigHome.endsWith('/')) {
-            xdgConfigHome.chop(1);
-        }
+    using grimodex::ime::settings::SettingsEnvironment;
+    using grimodex::ime::settings::resolveSettingsProductPaths;
 
-        QString keymapNoteText = ui_->keymapAdvancedNote->text();
-        keymapNoteText.replace("$XDG_CONFIG_HOME/hazkey", xdgConfigHome);
-        ui_->keymapAdvancedNote->setText(keymapNoteText);
+    const SettingsEnvironment environment{
+        .runtimeHome = std::getenv("XDG_RUNTIME_DIR"),
+        .configHome = std::getenv("XDG_CONFIG_HOME"),
+        .dataHome = std::getenv("XDG_DATA_HOME"),
+        .stateHome = std::getenv("XDG_STATE_HOME"),
+        .cacheHome = std::getenv("XDG_CACHE_HOME"),
+    };
+    const auto paths = resolveSettingsProductPaths(
+        environment, QDir::homePath().toStdString(), getuid());
+    const QString configDirectory =
+        QString::fromStdString(paths.configDirectory);
 
-        QString inputTableNoteText = ui_->inputTableAdvancedNote->text();
-        inputTableNoteText.replace("$XDG_CONFIG_HOME/hazkey", xdgConfigHome);
-        ui_->inputTableAdvancedNote->setText(inputTableNoteText);
-    }
+    QString keymapNoteText = ui_->keymapAdvancedNote->text();
+    keymapNoteText.replace("$XDG_CONFIG_HOME/fcitx5-grimodex",
+                           configDirectory);
+    ui_->keymapAdvancedNote->setText(keymapNoteText);
+
+    QString inputTableNoteText = ui_->inputTableAdvancedNote->text();
+    inputTableNoteText.replace("$XDG_CONFIG_HOME/fcitx5-grimodex",
+                               configDirectory);
+    ui_->inputTableAdvancedNote->setText(inputTableNoteText);
 }
 
 }  // namespace hazkey::settings

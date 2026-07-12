@@ -14,12 +14,15 @@
 #include <QMessageBox>
 #include <QProcess>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 
 #include "qdir.h"
 #include "qlogging.h"
+#include "grimodex_product_identity.h"
 
 static std::mutex transact_mutex;
 
@@ -28,14 +31,9 @@ ServerConnector::ServerConnector() : session_socket_(-1) {}
 ServerConnector::~ServerConnector() { endSession(); }
 
 std::string ServerConnector::getSocketPath() {
-    const char* xdg_runtime_dir = std::getenv("XDG_RUNTIME_DIR");
-    uid_t uid = getuid();
-    std::string sockname = "hazkey-server." + std::to_string(uid) + ".sock";
-    if (xdg_runtime_dir && xdg_runtime_dir[0] != '\0') {
-        return std::string(xdg_runtime_dir) + "/" + sockname;
-    } else {
-        return "/tmp/" + sockname;
-    }
+    return grimodex::ime::resolveRuntimePaths(std::getenv("XDG_RUNTIME_DIR"),
+                                              getuid())
+        .socket;
 }
 
 bool writeAll(int fd, const void* data, size_t len) {
@@ -141,9 +139,15 @@ int ServerConnector::createConnection() {
         }
         close(sock);
         if (attempt == ATTEMPT_TRY_START) {
-            QProcess::startDetached("hazkey-server", {}, "/");
+            QProcess::startDetached(
+                QString::fromStdString(
+                    std::string(grimodex::ime::kServerExecutable)),
+                {}, "/");
         } else if (attempt == ATTEMPT_TRY_START_FORCE) {
-            QProcess::startDetached("hazkey-server", {"-r"}, "/");
+            QProcess::startDetached(
+                QString::fromStdString(
+                    std::string(grimodex::ime::kServerExecutable)),
+                {"-r"}, "/");
         }
         std::this_thread::sleep_for(
             std::chrono::milliseconds(RETRY_INTERVAL_MS));
@@ -299,11 +303,16 @@ void ServerConnector::setCurrentConfig(
     *props->mutable_profiles() = currentConfig.profiles();
     auto response = transact(request);
     if (response == std::nullopt) {
-        return;
+        throw std::runtime_error(
+            "Failed to communicate with the Grimodex IME service.");
     }
     auto responseVal = response.value();
     if (responseVal.status() != hazkey::SUCCESS) {
-        return;
+        if (!responseVal.error_message().empty()) {
+            throw std::runtime_error(responseVal.error_message());
+        }
+        throw std::runtime_error(
+            "The Grimodex IME service rejected the configuration.");
     }
 }
 

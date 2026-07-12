@@ -1,0 +1,119 @@
+# Maintainer: Grimodex Project <kazormia296@users.noreply.github.com>
+
+pkgname=fcitx5-grimodex-bin
+_pkgname=fcitx5-grimodex
+pkgver=0.2.1
+pkgrel=1
+pkgdesc='Project-aware Japanese input method for Grimodex and Fcitx5 (binary release)'
+arch=('x86_64' 'aarch64')
+url='https://github.com/kazormia296/hazkey'
+license=('MIT')
+depends=('fcitx5' 'glibc' 'gcc-libs' 'protobuf' 'qt6-base')
+optdepends=('grimodex: publish project dictionaries and local conversion conditions')
+provides=("fcitx5-grimodex=${pkgver}")
+conflicts=('fcitx5-grimodex')
+options=('!strip')
+install=fcitx5-grimodex.install
+
+source_x86_64=(
+  "${_pkgname}-${pkgver}-x86_64.tar.zst::${url}/releases/download/v${pkgver}/${_pkgname}-${pkgver}-x86_64.tar.zst"
+  "${_pkgname}-${pkgver}-x86_64.tar.zst.sha256::${url}/releases/download/v${pkgver}/${_pkgname}-${pkgver}-x86_64.tar.zst.sha256"
+)
+sha256sums_x86_64=('SKIP' 'SKIP')
+source_aarch64=(
+  "${_pkgname}-${pkgver}-aarch64.tar.zst::${url}/releases/download/v${pkgver}/${_pkgname}-${pkgver}-aarch64.tar.zst"
+  "${_pkgname}-${pkgver}-aarch64.tar.zst.sha256::${url}/releases/download/v${pkgver}/${_pkgname}-${pkgver}-aarch64.tar.zst.sha256"
+)
+sha256sums_aarch64=('SKIP' 'SKIP')
+
+prepare() {
+  local archive="${_pkgname}-${pkgver}-${CARCH}.tar.zst"
+  local checksum="${archive}.sha256"
+  local expected actual
+
+  expected="$(awk 'NR == 1 { print $1 }' "${srcdir}/${checksum}")"
+  actual="$(sha256sum "${srcdir}/${archive}" | awk '{ print $1 }')"
+  if [[ ! "${expected}" =~ ^[[:xdigit:]]{64}$ || "${actual}" != "${expected}" ]]; then
+    printf 'Release checksum validation failed for %s\n' "${archive}" >&2
+    return 1
+  fi
+}
+
+package() {
+  local archive="${_pkgname}-${pkgver}-${CARCH}.tar.zst"
+
+  if bsdtar -tf "${srcdir}/${archive}" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+    printf 'Release archive contains an unsafe path\n' >&2
+    return 1
+  fi
+  bsdtar -xf "${srcdir}/${archive}" -C "${pkgdir}"
+
+  if find "${pkgdir}" -mindepth 1 -maxdepth 1 ! -name usr -print -quit | grep -q .; then
+    printf 'Release archive contains files outside usr/\n' >&2
+    return 1
+  fi
+
+  test -f "${pkgdir}/usr/lib/fcitx5/fcitx5-grimodex.so"
+  test -x "${pkgdir}/usr/bin/fcitx5-grimodex-server"
+  test -e "${pkgdir}/usr/bin/fcitx5-grimodex-settings"
+  test -f "${pkgdir}/usr/share/licenses/fcitx5-grimodex/LICENSE"
+  test -f "${pkgdir}/usr/share/licenses/fcitx5-grimodex/NOTICE.md"
+
+  if find "${pkgdir}/usr" -print | grep -Eqi '(^|/)hazkey([^/]*)(/|$)'; then
+    printf 'Release archive contains a public Hazkey path\n' >&2
+    return 1
+  fi
+  local artifact metadata magic package_root raw_target resolved target
+  package_root="$(realpath -e -- "${pkgdir}")"
+  while IFS= read -r -d '' artifact; do
+    if [[ -L "${artifact}" ]]; then
+      raw_target="$(readlink -- "${artifact}")"
+      if [[ "${raw_target}" = /* ]]; then
+        target="${package_root}${raw_target}"
+      else
+        target="$(dirname -- "${artifact}")/${raw_target}"
+      fi
+      target="$(realpath -m -s -- "${target}")"
+      if [[ "${target}" != "${package_root}"/* ]] || \
+        [[ ! -f "${target}" ]] || [[ -L "${target}" ]]; then
+        printf 'Release archive contains an unsafe symbolic link: %s -> %s\n' \
+          "${artifact}" "${raw_target}" >&2
+        return 1
+      fi
+      resolved="$(realpath -e -- "${target}")"
+      if [[ "${resolved}" != "${target}" ]]; then
+        printf 'Release archive contains a chained symbolic link: %s -> %s\n' \
+          "${artifact}" "${raw_target}" >&2
+        return 1
+      fi
+      artifact="${target}"
+    fi
+    magic="$(LC_ALL=C head -c 4 "${artifact}")"
+    if [[ "${magic}" == $'\177ELF' ]]; then
+      if ! metadata="$(
+        readelf -dW "${artifact}" &&
+        readelf -sW "${artifact}"
+      )"; then
+        printf 'Cannot inspect ELF metadata for %s\n' "${artifact}" >&2
+        return 1
+      fi
+      if grep -Eqi 'Qt6Network|QNetwork(AccessManager|Request|Reply)|FoundationNetworking|URLSession|NSURLConnection|AsyncHTTPClient|NIOHTTP(Client|1)|curl_(easy|multi|share|url)_|libcurl\.so' <<<"${metadata}"; then
+        printf 'Release archive exposes forbidden network capability metadata in %s\n' "${artifact}" >&2
+        return 1
+      fi
+      if grep -aEqi 'libcurl\.so|curl_(easy|multi|share|url)_' "${artifact}"; then
+        printf 'Release archive embeds a forbidden network capability identifier in %s\n' "${artifact}" >&2
+        return 1
+      fi
+    elif [[ -x "${artifact}" ]]; then
+      if [[ "$(head -c 2 "${artifact}")" != '#!' ]]; then
+        printf 'Release archive contains an unsupported executable format: %s\n' "${artifact}" >&2
+        return 1
+      fi
+      if grep -Eqi '(^[[:space:]]*|[;&|()][[:space:]]*|(exec|env|command|sudo|if|then|do|while|until)[[:space:]]+)([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*(/[^[:space:]]+/)?(curl|wget|aria2c|ftp|nc|ncat|netcat|socat)([[:space:]]|$)' "${artifact}"; then
+        printf 'Release archive script invokes a forbidden network command: %s\n' "${artifact}" >&2
+        return 1
+      fi
+    fi
+  done < <(find "${pkgdir}/usr" \( -type f -o -type l \) -print0)
+}

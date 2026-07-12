@@ -7,7 +7,27 @@ option optimize_for = LITE_RUNTIME;
 import "commands.proto";
 import "config.proto";
 
+message ClientContext {
+    string program = 1;
+    string frontend = 2;
+    bool secure_input = 3;
+}
+
+message OpenSession {
+    ClientContext client = 1;
+}
+
+message OpenSessionResult {
+    string session_id = 1;
+}
+
+message CloseSession {
+    string session_id = 1;
+}
+
 message RequestEnvelope {
+    string session_id = 200;
+
     oneof payload {
         hazkey.commands.NewComposingText new_composing_text = 1;
         hazkey.commands.SetContext set_context = 2;
@@ -28,6 +48,9 @@ message RequestEnvelope {
         hazkey.config.GetDefaultProfile get_default_profile = 102;
         hazkey.config.ClearAllHistory clear_all_history = 103;
         hazkey.config.ReloadZenzaiModel reload_zenzai_model = 104;
+
+        OpenSession open_session = 201;
+        CloseSession close_session = 202;
     }
 }
 
@@ -35,6 +58,7 @@ enum StatusCode {
     UNSPECIFIED = 0;
     SUCCESS = 1;
     FAILED = 2;
+    SESSION_NOT_FOUND = 3;
 }
 
 message ResponseEnvelope {
@@ -46,5 +70,6 @@ message ResponseEnvelope {
         hazkey.commands.TextWithCursor text_with_cursor = 5;
         hazkey.commands.CurrentInputModeInfo current_input_mode_info = 6;
         hazkey.config.CurrentConfig current_config = 100;
+        OpenSessionResult open_session_result = 200;
     }
 }

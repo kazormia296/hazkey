@@ -1,7 +1,7 @@
 [InputMethod]
-Name=Hazkey
+Name=Grimodex IME
 Icon=@HAZKEY_ICON_NAME@
-Label=Hazkey
+Label=Grimodex
 LangCode=ja
-Addon=hazkey
+Addon=grimodex
 Configurable=True

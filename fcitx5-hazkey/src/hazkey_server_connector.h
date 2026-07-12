@@ -1,81 +1,89 @@
 #ifndef HAZKEY_SERVER_CONNECTOR_H
 #define HAZKEY_SERVER_CONNECTOR_H
 
-#include <fcitx-utils/log.h>
 #include <fcitx/text.h>
-#include <sys/socket.h>
-#include <sys/un.h>
 
+#include <optional>
 #include <string>
 
 #include "base.pb.h"
 #include "commands.pb.h"
+#include "hazkey_session_client.h"
 
-class HazkeyServerConnector {
+class HazkeyServerConnector;
+
+class HazkeyServerSession {
    public:
-    // HazkeyServerConnector();
-    // ~HazkeyServerConnector();
+    HazkeyServerSession(HazkeyServerConnector& connector,
+                        HazkeyClientContext context,
+                        HazkeyClientSession::RecoveryHandler recoveryHandler = {});
+    ~HazkeyServerSession();
 
-    HazkeyServerConnector() {
-        // kill_existing_hazkey_server();
-        connectServer();
-        FCITX_DEBUG() << "Connector initialized";
-    };
+    HazkeyServerSession(const HazkeyServerSession&) = delete;
+    HazkeyServerSession& operator=(const HazkeyServerSession&) = delete;
 
-    std::string getSocketPath();
-
-    void connectServer();
-
-    void startHazkeyServer(bool force_restart);
-
-    std::optional<hazkey::ResponseEnvelope> transact(
-        const hazkey::RequestEnvelope& send_data, bool tryConnect = true);
+    const HazkeyClientContext& context() const { return session_.context(); }
+    bool updateClientContext(HazkeyClientContext context);
 
     std::string getComposingText(
         hazkey::commands::GetComposingString::CharType type,
         std::string currentPreedit);
-
     fcitx::Text getComposingHiraganaWithCursor();
-
     void inputChar(std::string text);
-
     void shiftKeyEvent(bool isRelease);
-
     bool currentInputModeIsDirect();
-
     void deleteLeft();
-
     void deleteRight();
-
     void moveCursor(int offset);
-
     void setContext(std::string context, int anchor);
-
-    void setServerConfig(int zenzaiEnabled, int zenzaiInferLimit,
-                         int numberFullwidth, int symbolFullwidth,
-                         int periodStyleIndex, int commaStyleIndex,
-                         int spaceFullwidth, int tenCombining,
-                         std::string profileText);
-
     void newComposingText();
-
     void completePrefix(int index);
-
     void saveLearningData(bool tryConnect = true);
-
-    struct CandidateData {
-        std::string candidateText;
-        std::string subHiragana;
-    };
-
     hazkey::commands::CandidatesResult getCandidates(bool isSuggest);
 
    private:
-    bool retryConnect();
-    bool isHazkeyServerRunning();
-    bool requestSuccess(hazkey::ResponseEnvelope);
+    HazkeyServerConnector& connector_;
+    HazkeyClientSession session_;
+};
+
+class HazkeyServerConnector {
+   public:
+    HazkeyServerConnector();
+    ~HazkeyServerConnector();
+
+    HazkeyServerConnector(const HazkeyServerConnector&) = delete;
+    HazkeyServerConnector& operator=(const HazkeyServerConnector&) = delete;
+
+    std::string getSocketPath();
+    void connectServer();
+    void startHazkeyServer(bool forceRestart);
+
+    std::optional<hazkey::ResponseEnvelope> transact(
+        const hazkey::RequestEnvelope& sendData, bool tryConnect = true);
+
+   private:
+    friend class HazkeyServerSession;
+
+    std::string getComposingText(
+        HazkeyClientSession& session,
+        hazkey::commands::GetComposingString::CharType type,
+        std::string currentPreedit);
+    fcitx::Text getComposingHiraganaWithCursor(HazkeyClientSession& session);
+    void inputChar(HazkeyClientSession& session, std::string text);
+    void shiftKeyEvent(HazkeyClientSession& session, bool isRelease);
+    bool currentInputModeIsDirect(HazkeyClientSession& session);
+    void deleteLeft(HazkeyClientSession& session);
+    void deleteRight(HazkeyClientSession& session);
+    void moveCursor(HazkeyClientSession& session, int offset);
+    void setContext(HazkeyClientSession& session, std::string context, int anchor);
+    void newComposingText(HazkeyClientSession& session);
+    void completePrefix(HazkeyClientSession& session, int index);
+    void saveLearningData(HazkeyClientSession& session, bool tryConnect = true);
+    hazkey::commands::CandidatesResult getCandidates(
+        HazkeyClientSession& session, bool isSuggest);
+
+    HazkeySessionClient sessionClient_;
     int sock_ = -1;
-    std::string socket_path_;
 };
 
 #endif  // HAZKEY_SERVER_CONNECTOR_H
