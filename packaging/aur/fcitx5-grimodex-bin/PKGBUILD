@@ -8,7 +8,7 @@ pkgdesc='Project-aware Japanese input method for Grimodex and Fcitx5 (binary rel
 arch=('x86_64' 'aarch64')
 url='https://github.com/kazormia296/hazkey'
 license=('MIT')
-depends=('fcitx5' 'glibc' 'gcc-libs' 'protobuf' 'qt6-base')
+depends=('fcitx5' 'glibc' 'gcc-libs' 'protobuf' 'qt6-base' 'vulkan-icd-loader')
 optdepends=('grimodex: publish project dictionaries and local conversion conditions')
 provides=("fcitx5-grimodex=${pkgver}")
 conflicts=('fcitx5-grimodex')

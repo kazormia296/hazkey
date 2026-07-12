@@ -414,6 +414,27 @@ class PackageMetadataContractTests(unittest.TestCase):
         self.assertIsNone(relationship_pattern.search(pkgbuild))
         self.assertIsNone(relationship_pattern.search(srcinfo))
 
+    def test_aur_declares_and_installs_the_vulkan_runtime_provider(self) -> None:
+        pkgbuild = (AUR_DIRECTORY / "PKGBUILD").read_text(encoding="utf-8")
+        srcinfo = (AUR_DIRECTORY / ".SRCINFO").read_text(encoding="utf-8")
+        workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertRegex(
+            pkgbuild,
+            r"(?m)^depends=\([^\n]*'vulkan-icd-loader'[^\n]*\)$",
+        )
+        self.assertRegex(
+            srcinfo,
+            r"(?m)^\s*depends = vulkan-icd-loader$",
+        )
+        arch_job = workflow.split("  arch-package-transaction:", 1)[1].split(
+            "  publish-release:", 1
+        )[0]
+        self.assertRegex(
+            arch_job,
+            r"(?m)^\s+vulkan-icd-loader\s*\\?$",
+        )
+
     def test_all_release_versions_are_consistent(self) -> None:
         def match(pattern: str, text: str, label: str) -> str:
             result = re.search(pattern, text, re.MULTILINE)

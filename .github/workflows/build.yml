@@ -509,7 +509,8 @@ jobs:
             fcitx5 \
             protobuf \
             python \
-            qt6-base
+            qt6-base \
+            vulkan-icd-loader
 
       - name: Download canonical architecture payloads
         uses: actions/download-artifact@v6

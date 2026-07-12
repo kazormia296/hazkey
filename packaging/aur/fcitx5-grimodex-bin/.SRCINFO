@@ -12,6 +12,7 @@ pkgbase = fcitx5-grimodex-bin
 	depends = gcc-libs
 	depends = protobuf
 	depends = qt6-base
+	depends = vulkan-icd-loader
 	optdepends = grimodex: publish project dictionaries and local conversion conditions
 	provides = fcitx5-grimodex=0.2.1
 	conflicts = fcitx5-grimodex
