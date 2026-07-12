@@ -20,16 +20,34 @@ vendored. See `debian/README.source` for the precise constraint. Package CI may
 create and inspect a `.dsc`, but that is not evidence of a policy-compliant
 offline binary build.
 
+The release workflow also creates an ephemeral payload `.deb` from the
+already-validated x86_64 release tree. It relocates the Fcitx addon from the
+cross-distribution `/usr/lib/fcitx5` archive path to Ubuntu's multiarch addon
+directory, then performs a real `dpkg` install, verify, and remove transaction
+on Ubuntu 22.04. This exercises package ownership and removal without claiming
+that the source snapshot is an offline-buildable Debian package. The payload
+`.deb` is a CI fixture and is not a release asset.
+
 ## AUR binary release
 
 `aur/fcitx5-grimodex-bin` consumes one release archive per architecture. Each
 archive is a DESTDIR-style tree rooted at `usr/` and must ship the root
 `LICENSE`, `NOTICE.md`, and all third-party notices required by its linked or
 bundled components. A same-release `.sha256` sidecar is mandatory and is
-checked before extraction. This is a staging definition until matching release
-assets exist. Before publishing an AUR revision, the release maintainer must
-replace `SKIP` integrity entries with immutable archive and sidecar hashes once
-the final assets exist, then regenerate `.SRCINFO` with `makepkg --printsrcinfo`.
+checked before extraction. The committed PKGBUILD is an intentionally
+unpublishable template: its four `RELEASE_*` values must be replaced with the
+archive and sidecar SHA-256 values by `scripts/render_aur_release.py`.
+`noextract` keeps makepkg from unpacking either archive before verification.
+
+The release workflow renders this fixed-hash PKGBUILD from both architecture
+artifacts, regenerates `.SRCINFO` with `makepkg --printsrcinfo`, builds the
+x86_64 package from the local artifact cache, and performs a real `pacman`
+install, verify, upgrade, and remove transaction. The rendered PKGBUILD and
+`.SRCINFO` are preserved with the release inputs for the later AUR publication
+step; the template itself must never be pushed to AUR. Both native release
+runners validate the canonical tree and every ELF dependency before archiving,
+including aarch64. The full `makepkg`/`pacman` transaction is x86_64-only until
+a maintained native Arch Linux ARM runner image is available.
 
 ## Validation
 
@@ -68,8 +86,12 @@ both install and uninstall ownership manifests against every real staged file
 and simulates removal of those owned files. This reuses the functional-test
 builds and does not perform a second Swift build.
 
-This gate is evidence for the CMake install tree, not a full `dpkg` or `pacman`
-transaction. A fully offline Debian binary build remains unavailable for the
-reasons above, and the AUR definition cannot be installed until immutable
-release archives exist. Package-manager install/uninstall tests remain a
-release requirement once those inputs are publishable.
+The release workflow adds the package-manager layer. It normalizes archive
+ordering, timestamp, and ownership metadata, then passes the same immutable
+artifact through the `dpkg` payload transaction and the fixed-hash AUR package
+through the `pacman` transaction. Both jobs preserve Hazkey system and user
+paths, the four Grimodex IME XDG roots, and the Grimodex protocol snapshot root
+as sentinels.
+`publish-release` depends on both transactions, so a tag cannot publish assets
+that failed either package gate.
+A fully offline Debian source build remains unavailable for the reasons above.

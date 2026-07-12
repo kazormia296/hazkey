@@ -185,6 +185,7 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DCMAKE_INSTALL_LIBDIR=${{ matrix.install_libdir }} \
+            -DGRIMODEX_FCITX_ADDON_INSTALL_DIR=${{ matrix.install_libdir }}/fcitx5 \
             -DCMAKE_PREFIX_PATH=${{ github.workspace }}/local_deps \
             -DProtobuf_USE_STATIC_LIBS=${{ matrix.static_protobuf }} \
             -G Ninja ..
@@ -269,13 +270,53 @@ jobs:
           GRIMODEX_STAGED_ROOT: ${{ github.workspace }}/workdir
         run: python3 packaging/tests/package_contract_test.py
 
+      - name: Validate native release runtime dependencies
+        if: matrix.release_asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          staged="${{ github.workspace }}/workdir"
+          private_libs="$staged/usr/lib/fcitx5-grimodex/libllama:$staged/usr/lib/fcitx5-grimodex/libllama/backends"
+          while IFS= read -r -d '' artifact; do
+            if ! file --brief "$artifact" | grep -q 'ELF'; then
+              continue
+            fi
+            if ! dependencies="$(
+              LC_ALL=C LD_LIBRARY_PATH="$private_libs" ldd "$artifact" 2>&1
+            )"; then
+              if grep -Eq 'not a dynamic executable|statically linked' \
+                <<<"$dependencies"; then
+                continue
+              fi
+              printf 'ldd failed for %s:\n%s\n' \
+                "$artifact" "$dependencies" >&2
+              exit 1
+            fi
+            if grep -F 'not found' <<<"$dependencies"; then
+              printf 'Unresolved runtime dependency for %s\n' \
+                "$artifact" >&2
+              exit 1
+            fi
+          done < <(find "$staged/usr" -type f -print0)
+
       - name: Create immutable Grimodex release assets
         if: matrix.release_asset
         shell: bash
         run: |
+          export LC_ALL=C
+          export TZ=UTC
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          export SOURCE_DATE_EPOCH
           cd ${{ github.workspace }}/workdir
           archive="fcitx5-grimodex-${GRIMODEX_IME_VERSION}-${{ matrix.arch }}.tar.zst"
-          tar --zstd -cf "${{ github.workspace }}/packages/$archive" ./usr
+          tar --zstd -cf "${{ github.workspace }}/packages/$archive" ./usr \
+            --format=posix \
+            --sort=name \
+            --mtime="@${SOURCE_DATE_EPOCH}" \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --pax-option=delete=atime,delete=ctime
           cd ${{ github.workspace }}/packages
           sha256sum "$archive" > "$archive.sha256"
 
@@ -289,10 +330,356 @@ jobs:
             ${{ github.workspace }}/packages/fcitx5-grimodex-*-${{ matrix.arch }}.tar.zst.sha256
           if-no-files-found: error
 
+  debian-payload-transaction:
+    name: Ubuntu 22.04 amd64 test-only dpkg payload transaction
+    needs: build
+    runs-on: ubuntu-22.04
+    container: ubuntu:22.04
+    steps:
+      - name: Install transaction tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends \
+            dpkg-dev \
+            fcitx5 \
+            file \
+            libgomp1 \
+            libqt6widgets6 \
+            libvulkan1 \
+            passwd \
+            zstd
+
+      - name: Download canonical x86_64 release payload
+        uses: actions/download-artifact@v6
+        with:
+          name: fcitx5-grimodex-release-x86_64
+          path: ${{ runner.temp }}/debian-release-assets
+
+      - name: Build test-only multiarch payload package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          assets="$RUNNER_TEMP/debian-release-assets"
+          archive="$(find "$assets" -maxdepth 1 -type f \
+            -name 'fcitx5-grimodex-*-x86_64.tar.zst' -print -quit)"
+          test -n "$archive"
+          archive_name="$(basename "$archive")"
+          (
+            cd "$assets"
+            sha256sum --check "${archive_name}.sha256"
+          )
+
+          version="${archive_name#fcitx5-grimodex-}"
+          version="${version%-x86_64.tar.zst}"
+          test -n "$version"
+          test "$(dpkg --print-architecture)" = amd64
+          multiarch="$(dpkg-architecture -qDEB_HOST_MULTIARCH)"
+
+          payload_root="$RUNNER_TEMP/debian-payload-root"
+          install -d "$payload_root"
+          tar --zstd --extract --file "$archive" --directory "$payload_root"
+
+          test -f "$payload_root/usr/lib/fcitx5/fcitx5-grimodex.so"
+          install -d "$payload_root/usr/lib/$multiarch/fcitx5"
+          mv "$payload_root/usr/lib/fcitx5/fcitx5-grimodex.so" \
+            "$payload_root/usr/lib/$multiarch/fcitx5/fcitx5-grimodex.so"
+          rmdir "$payload_root/usr/lib/fcitx5"
+
+          install -d "$payload_root/DEBIAN"
+          {
+            printf 'Package: fcitx5-grimodex\n'
+            printf 'Version: %s-1\n' "$version"
+            printf 'Architecture: amd64\n'
+            printf 'Maintainer: Grimodex Project <kazormia296@users.noreply.github.com>\n'
+            printf 'Section: utils\n'
+            printf 'Priority: optional\n'
+            printf 'Depends: fcitx5, libgomp1, libqt6widgets6, libvulkan1\n'
+            printf 'Description: test-only Grimodex canonical payload transaction package\n'
+          } > "$payload_root/DEBIAN/control"
+          (
+            cd "$payload_root"
+            find usr -type f -print0 \
+              | sort -z \
+              | xargs -0 md5sum
+          ) > "$payload_root/DEBIAN/md5sums"
+          test -s "$payload_root/DEBIAN/md5sums"
+
+          find "$payload_root/usr" \( -type f -o -type l \) \
+            -printf '/usr/%P\0' \
+            > "$RUNNER_TEMP/debian-payload-paths"
+
+          deb="$RUNNER_TEMP/fcitx5-grimodex_${version}-1_amd64.deb"
+          dpkg-deb --root-owner-group --build "$payload_root" "$deb"
+          echo "GRIMODEX_TEST_DEB=$deb" >> "$GITHUB_ENV"
+
+      - name: Install, verify, and remove the test-only dpkg payload
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          useradd --create-home --shell /bin/bash grimodex-test
+          sentinels=(
+            /usr/bin/hazkey-server
+            /usr/lib/fcitx5/fcitx5-hazkey.so
+            /usr/share/fcitx5/addon/hazkey.conf
+            /usr/share/fcitx5/inputmethod/hazkey.conf
+            /usr/share/hazkey/package-contract
+            /usr/share/icons/hicolor/scalable/apps/fcitx5-hazkey.svg
+            /home/grimodex-test/.config/hazkey/package-contract
+            /home/grimodex-test/.local/share/hazkey/package-contract
+            /home/grimodex-test/.local/state/hazkey/package-contract
+            /home/grimodex-test/.cache/hazkey/package-contract
+            /home/grimodex-test/.config/fcitx5-grimodex/package-contract
+            /home/grimodex-test/.local/share/fcitx5-grimodex/package-contract
+            /home/grimodex-test/.local/share/com.miyakey.grimodex/ime/package-contract
+            /home/grimodex-test/.local/state/fcitx5-grimodex/package-contract
+            /home/grimodex-test/.cache/fcitx5-grimodex/package-contract
+          )
+          for sentinel in "${sentinels[@]}"; do
+            install -Dm644 /dev/null "$sentinel"
+            printf 'preserve %s\n' "$sentinel" > "$sentinel"
+          done
+          chmod 755 /usr/bin/hazkey-server
+          chown -R grimodex-test:grimodex-test /home/grimodex-test
+          sha256sum "${sentinels[@]}" \
+            > "$RUNNER_TEMP/hazkey-sentinels.sha256"
+
+          dpkg --install "$GRIMODEX_TEST_DEB"
+          dpkg --verify fcitx5-grimodex
+          dpkg-query --show --showformat='${db:Status-Abbrev}\n' \
+            fcitx5-grimodex | grep -Fx 'ii '
+          test -f "/usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)/fcitx5/fcitx5-grimodex.so"
+          test -x /usr/bin/fcitx5-grimodex-server
+          test -L /usr/bin/fcitx5-grimodex-settings
+          private_libs="/usr/lib/fcitx5-grimodex/libllama:/usr/lib/fcitx5-grimodex/libllama/backends"
+          while IFS= read -r -d '' path; do
+            if [[ ! -f "$path" || -L "$path" ]] || \
+              ! file --brief "$path" | grep -q 'ELF'; then
+              continue
+            fi
+            if ! dependencies="$(
+              LC_ALL=C LD_LIBRARY_PATH="$private_libs" ldd "$path" 2>&1
+            )"; then
+              if grep -Eq 'not a dynamic executable|statically linked' \
+                <<<"$dependencies"; then
+                continue
+              fi
+              printf 'ldd failed for %s:\n%s\n' "$path" "$dependencies" >&2
+              exit 1
+            fi
+            if grep -F 'not found' <<<"$dependencies"; then
+              printf 'Unresolved runtime dependency for %s\n' "$path" >&2
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/debian-payload-paths"
+          sha256sum --check "$RUNNER_TEMP/hazkey-sentinels.sha256"
+
+          dpkg --remove fcitx5-grimodex
+          while IFS= read -r -d '' path; do
+            if [[ -e "$path" || -L "$path" ]]; then
+              printf 'dpkg removal left package payload path: %s\n' "$path" >&2
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/debian-payload-paths"
+          sha256sum --check "$RUNNER_TEMP/hazkey-sentinels.sha256"
+          dpkg --purge fcitx5-grimodex
+          if dpkg-query --show fcitx5-grimodex >/dev/null 2>&1; then
+            printf 'dpkg still reports fcitx5-grimodex after purge\n' >&2
+            exit 1
+          fi
+
+  arch-package-transaction:
+    name: Arch x86_64 rendered AUR package transaction
+    needs: build
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+
+      - name: Install package build and runtime dependencies
+        run: |
+          pacman --sync --refresh --sysupgrade --noconfirm
+          pacman --sync --needed --noconfirm \
+            fcitx5 \
+            protobuf \
+            python \
+            qt6-base
+
+      - name: Download canonical architecture payloads
+        uses: actions/download-artifact@v6
+        with:
+          pattern: fcitx5-grimodex-release-*
+          path: ${{ runner.temp }}/arch-release-assets
+          merge-multiple: true
+
+      - name: Render fixed AUR metadata and build from local artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(sed -nE \
+            's/^project\(grimodex-ime VERSION ([0-9]+\.[0-9]+\.[0-9]+)\)$/\1/p' \
+            CMakeLists.txt)"
+          test -n "$version"
+
+          assets="$RUNNER_TEMP/arch-release-assets"
+          rendered="$RUNNER_TEMP/rendered-aur"
+          sources="$RUNNER_TEMP/makepkg-sources"
+          packages="$RUNNER_TEMP/makepkg-packages"
+          build_root="$RUNNER_TEMP/makepkg-build"
+
+          python3 packaging/scripts/render_aur_release.py \
+            --template-dir packaging/aur/fcitx5-grimodex-bin \
+            --asset-dir "$assets" \
+            --output-dir "$rendered" \
+            --version "$version"
+
+          if grep -R -E 'SKIP|RELEASE_' "$rendered"; then
+            printf 'Rendered AUR metadata still contains a release placeholder\n' >&2
+            exit 1
+          fi
+
+          install -d "$sources" "$packages" "$build_root"
+          cp "$assets"/* "$sources"/
+          useradd --create-home --shell /bin/bash builder
+          chown -R builder:builder \
+            "$rendered" "$sources" "$packages" "$build_root"
+
+          cd "$rendered"
+          runuser -u builder -- env \
+            HOME=/home/builder \
+            RENDERED_AUR="$rendered" \
+            bash -c 'cd "$RENDERED_AUR" && makepkg --printsrcinfo > .SRCINFO'
+          runuser -u builder -- env \
+            HOME=/home/builder \
+            SRCDEST="$sources" \
+            PKGDEST="$packages" \
+            BUILDDIR="$build_root" \
+            makepkg --cleanbuild --noconfirm
+
+          package="$(find "$packages" -maxdepth 1 -type f \
+            -name 'fcitx5-grimodex-bin-*.pkg.tar.zst' -print -quit)"
+          test -n "$package"
+          echo "GRIMODEX_ARCH_PACKAGE=$package" >> "$GITHUB_ENV"
+
+          metadata_archive="$RUNNER_TEMP/fcitx5-grimodex-${version}-aur-metadata.tar.zst"
+          tar --zstd \
+            --format=posix \
+            --sort=name \
+            --mtime='@0' \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --pax-option=delete=atime,delete=ctime \
+            -cf "$metadata_archive" \
+            -C "$rendered" \
+            PKGBUILD .SRCINFO fcitx5-grimodex.install
+          (
+            cd "$RUNNER_TEMP"
+            sha256sum "$(basename "$metadata_archive")" \
+              > "$(basename "$metadata_archive").sha256"
+          )
+
+      - name: Install, upgrade, check, and remove with pacman
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          useradd --create-home --shell /bin/bash grimodex-test
+          sentinels=(
+            /usr/bin/hazkey-server
+            /usr/lib/fcitx5/fcitx5-hazkey.so
+            /usr/share/fcitx5/addon/hazkey.conf
+            /usr/share/fcitx5/inputmethod/hazkey.conf
+            /usr/share/hazkey/package-contract
+            /usr/share/icons/hicolor/scalable/apps/fcitx5-hazkey.svg
+            /home/grimodex-test/.config/hazkey/package-contract
+            /home/grimodex-test/.local/share/hazkey/package-contract
+            /home/grimodex-test/.local/state/hazkey/package-contract
+            /home/grimodex-test/.cache/hazkey/package-contract
+            /home/grimodex-test/.config/fcitx5-grimodex/package-contract
+            /home/grimodex-test/.local/share/fcitx5-grimodex/package-contract
+            /home/grimodex-test/.local/share/com.miyakey.grimodex/ime/package-contract
+            /home/grimodex-test/.local/state/fcitx5-grimodex/package-contract
+            /home/grimodex-test/.cache/fcitx5-grimodex/package-contract
+          )
+          for sentinel in "${sentinels[@]}"; do
+            install -Dm644 /dev/null "$sentinel"
+            printf 'preserve %s\n' "$sentinel" > "$sentinel"
+          done
+          chmod 755 /usr/bin/hazkey-server
+          chown -R grimodex-test:grimodex-test /home/grimodex-test
+          sha256sum "${sentinels[@]}" \
+            > "$RUNNER_TEMP/hazkey-sentinels.sha256"
+
+          pacman --upgrade --noconfirm "$GRIMODEX_ARCH_PACKAGE"
+          sha256sum --check "$RUNNER_TEMP/hazkey-sentinels.sha256"
+
+          pacman --upgrade --noconfirm "$GRIMODEX_ARCH_PACKAGE"
+          pacman --query --check --check fcitx5-grimodex-bin
+          pacman --query --list fcitx5-grimodex-bin \
+            | awk '{ print $2 }' \
+            > "$RUNNER_TEMP/arch-package-paths"
+          test -f /usr/lib/fcitx5/fcitx5-grimodex.so
+          test -x /usr/bin/fcitx5-grimodex-server
+          test -L /usr/bin/fcitx5-grimodex-settings
+          while IFS= read -r path; do
+            [[ "$path" == */ ]] && continue
+            if [[ ! -f "$path" || -L "$path" ]] || \
+              ! file --brief "$path" | grep -q 'ELF'; then
+              continue
+            fi
+            private_libs="/usr/lib/fcitx5-grimodex/libllama:/usr/lib/fcitx5-grimodex/libllama/backends"
+            if ! dependencies="$(
+              LC_ALL=C LD_LIBRARY_PATH="$private_libs" ldd "$path" 2>&1
+            )"; then
+              if grep -Eq 'not a dynamic executable|statically linked' \
+                <<<"$dependencies"; then
+                continue
+              fi
+              printf 'ldd failed for %s:\n%s\n' "$path" "$dependencies" >&2
+              exit 1
+            fi
+            if grep -F 'not found' <<<"$dependencies"; then
+              printf 'Unresolved runtime dependency for %s\n' "$path" >&2
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/arch-package-paths"
+          sha256sum --check "$RUNNER_TEMP/hazkey-sentinels.sha256"
+
+          pacman --remove --noconfirm fcitx5-grimodex-bin
+          while IFS= read -r path; do
+            [[ "$path" == */ ]] && continue
+            if [[ -e "$path" || -L "$path" ]]; then
+              printf 'pacman removal left package payload path: %s\n' "$path" >&2
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/arch-package-paths"
+          if pacman --query fcitx5-grimodex-bin; then
+            printf 'pacman still reports fcitx5-grimodex-bin after removal\n' >&2
+            exit 1
+          fi
+          sha256sum --check "$RUNNER_TEMP/hazkey-sentinels.sha256"
+
+      - name: Upload verified fixed AUR metadata
+        uses: actions/upload-artifact@v6
+        with:
+          name: fcitx5-grimodex-release-aur-metadata
+          path: |
+            ${{ runner.temp }}/fcitx5-grimodex-*-aur-metadata.tar.zst
+            ${{ runner.temp }}/fcitx5-grimodex-*-aur-metadata.tar.zst.sha256
+          if-no-files-found: error
+
   publish-release:
     name: Publish immutable Grimodex release assets
     if: github.ref_type == 'tag'
-    needs: build
+    needs: [build, debian-payload-transaction, arch-package-transaction]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -315,17 +702,59 @@ jobs:
             test -f "$archive.sha256"
             sha256sum --check "$archive.sha256"
           done
+          metadata="fcitx5-grimodex-${version}-aur-metadata.tar.zst"
+          test -f "$metadata"
+          test -f "$metadata.sha256"
+          sha256sum --check "$metadata.sha256"
+          expected_assets="$RUNNER_TEMP/expected-release-assets"
+          actual_assets="$RUNNER_TEMP/actual-release-assets"
+          printf '%s\n' \
+            "fcitx5-grimodex-${version}-x86_64.tar.zst" \
+            "fcitx5-grimodex-${version}-x86_64.tar.zst.sha256" \
+            "fcitx5-grimodex-${version}-aarch64.tar.zst" \
+            "fcitx5-grimodex-${version}-aarch64.tar.zst.sha256" \
+            "fcitx5-grimodex-${version}-aur-metadata.tar.zst" \
+            "fcitx5-grimodex-${version}-aur-metadata.tar.zst.sha256" \
+            | sort > "$expected_assets"
+          find . -maxdepth 1 -type f -printf '%f\n' \
+            | sort > "$actual_assets"
+          diff -u "$expected_assets" "$actual_assets"
 
-      - name: Publish release without overwriting assets
+      - name: Publish release without exposing partial or overwritten assets
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json isDraft \
+              --jq .isDraft)"
+            if [[ "$is_draft" != true ]]; then
+              printf 'Refusing to mutate published release %s\n' \
+                "$GITHUB_REF_NAME" >&2
+              exit 1
+            fi
+            asset_count="$(gh release view "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json assets \
+              --jq '.assets | length')"
+            if [[ "$asset_count" != 0 ]]; then
+              printf 'Refusing to mutate non-empty draft release %s\n' \
+                "$GITHUB_REF_NAME" >&2
+              exit 1
+            fi
+          else
             gh release create "$GITHUB_REF_NAME" \
               --repo "$GITHUB_REPOSITORY" \
               --title "fcitx5-grimodex $GITHUB_REF_NAME" \
-              --generate-notes
+              --generate-notes \
+              --verify-tag \
+              --draft
           fi
           gh release upload "$GITHUB_REF_NAME" release-assets/* \
             --repo "$GITHUB_REPOSITORY"
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false

@@ -15,14 +15,16 @@ pkgbase = fcitx5-grimodex-bin
 	optdepends = grimodex: publish project dictionaries and local conversion conditions
 	provides = fcitx5-grimodex=0.2.1
 	conflicts = fcitx5-grimodex
+	noextract = fcitx5-grimodex-0.2.1-x86_64.tar.zst
+	noextract = fcitx5-grimodex-0.2.1-aarch64.tar.zst
 	options = !strip
 	source_x86_64 = fcitx5-grimodex-0.2.1-x86_64.tar.zst::https://github.com/kazormia296/hazkey/releases/download/v0.2.1/fcitx5-grimodex-0.2.1-x86_64.tar.zst
 	source_x86_64 = fcitx5-grimodex-0.2.1-x86_64.tar.zst.sha256::https://github.com/kazormia296/hazkey/releases/download/v0.2.1/fcitx5-grimodex-0.2.1-x86_64.tar.zst.sha256
-	sha256sums_x86_64 = SKIP
-	sha256sums_x86_64 = SKIP
+	sha256sums_x86_64 = RELEASE_X86_64_ARCHIVE_SHA256
+	sha256sums_x86_64 = RELEASE_X86_64_SIDECAR_SHA256
 	source_aarch64 = fcitx5-grimodex-0.2.1-aarch64.tar.zst::https://github.com/kazormia296/hazkey/releases/download/v0.2.1/fcitx5-grimodex-0.2.1-aarch64.tar.zst
 	source_aarch64 = fcitx5-grimodex-0.2.1-aarch64.tar.zst.sha256::https://github.com/kazormia296/hazkey/releases/download/v0.2.1/fcitx5-grimodex-0.2.1-aarch64.tar.zst.sha256
-	sha256sums_aarch64 = SKIP
-	sha256sums_aarch64 = SKIP
+	sha256sums_aarch64 = RELEASE_AARCH64_ARCHIVE_SHA256
+	sha256sums_aarch64 = RELEASE_AARCH64_SIDECAR_SHA256
 
 pkgname = fcitx5-grimodex-bin
