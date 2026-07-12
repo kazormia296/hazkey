@@ -43,8 +43,13 @@ To inspect a real staged install, set `GRIMODEX_STAGED_ROOT` to its DESTDIR.
 To inspect individual unpacked executables or libraries, set
 `GRIMODEX_PRODUCT_ARTIFACTS` to an `os.pathsep`-separated list. Staged files and
 provided product artifacts are rejected if they expose old Hazkey paths or
-embed concrete Qt, Foundation, Swift NIO, or libcurl network-client APIs. A
-separate fail-closed source audit verifies that the exact pinned
+link concrete Qt, Foundation, Swift NIO, or libcurl network-client libraries
+or symbols. The release build inspects full ELF symbol tables before stripping;
+the package and AUR checks repeat the dependency and dynamic-symbol inspection
+without treating arbitrary license or resource text as executable capability.
+The same release gate rejects Internet socket families, dynamic loading, and
+download clients in production source while allowing the required AF_UNIX IPC.
+A separate fail-closed source audit verifies that the exact pinned
 `swift-tokenizers` checkout still uses its historical Hub module only for local
 JSON configuration; provider-domain metadata by itself is not treated as a
 network capability. These checks complement, rather than replace, package

@@ -76,6 +76,11 @@ FORBIDDEN_ARTIFACT_MARKERS = (
     b"curl_share_",
     b"curl_url_",
     b"libcurl.so",
+    b"getaddrinfo",
+    b"getnameinfo",
+    b"gethostbyname",
+    b"inet_pton",
+    b"inet_ntop",
 )
 
 REQUIRED_PACKAGED_PATHS = (
@@ -193,13 +198,30 @@ def staged_public_paths(root: Path) -> list[str]:
     )
 
 
-def validate_artifact_bytes(path: Path) -> None:
-    content = path.read_bytes().lower()
-    present = [marker.decode("ascii") for marker in FORBIDDEN_ARTIFACT_MARKERS if marker in content]
-    if present:
-        raise AssertionError(
-            f"{path} contains forbidden product-network marker(s): {', '.join(present)}"
+_PRODUCT_NETWORK_AUDITOR_MODULE = None
+
+
+def load_product_network_auditor():
+    global _PRODUCT_NETWORK_AUDITOR_MODULE
+    if _PRODUCT_NETWORK_AUDITOR_MODULE is None:
+        spec = importlib.util.spec_from_file_location(
+            "audit_product_network_capabilities_for_contract",
+            PRODUCT_NETWORK_AUDITOR,
         )
+        if spec is None or spec.loader is None:
+            raise AssertionError(f"cannot load {PRODUCT_NETWORK_AUDITOR}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _PRODUCT_NETWORK_AUDITOR_MODULE = module
+    return _PRODUCT_NETWORK_AUDITOR_MODULE
+
+
+def validate_artifact_bytes(path: Path) -> None:
+    auditor = load_product_network_auditor()
+    try:
+        auditor.audit_artifact(path)
+    except auditor.ProductNetworkAuditError as error:
+        raise AssertionError(str(error)) from error
 
 
 def validate_staged_root(root: Path, entries: list[tuple[str, str]]) -> None:
@@ -227,9 +249,11 @@ def validate_staged_root(root: Path, entries: list[tuple[str, str]]) -> None:
         ):
             raise AssertionError(f"required packaged path is missing: {pattern}")
 
-    for path in root.rglob("*"):
-        if path.is_file() and not path.is_symlink():
-            validate_artifact_bytes(path)
+    auditor = load_product_network_auditor()
+    try:
+        auditor.audit_tree(root, require_elf=False)
+    except auditor.ProductNetworkAuditError as error:
+        raise AssertionError(str(error)) from error
 
 
 def validate_staged_install_and_uninstall(
@@ -391,6 +415,10 @@ class PackageMetadataContractTests(unittest.TestCase):
         pkgbuild = (AUR_DIRECTORY / "PKGBUILD").read_text(encoding="utf-8")
         self.assertIn("readelf -dW", pkgbuild)
         self.assertIn("readelf -sW", pkgbuild)
+        self.assertIn("-type f -o -type l", pkgbuild)
+        self.assertIn("readlink --", pkgbuild)
+        self.assertIn("unsafe symbolic link", pkgbuild)
+        self.assertIn("grep -aEqi 'libcurl", pkgbuild)
         command = re.search(
             r"if grep (?P<flags>-\w+) '(?P<pattern>[^']+)' "
             r'<<<"\$\{metadata\}"',
@@ -493,12 +521,22 @@ class PackageMetadataContractTests(unittest.TestCase):
         workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
         audit = (
             "python3 packaging/scripts/audit_product_network_capabilities.py "
-            "--root ${{ github.workspace }}/workdir/usr"
+            "--root ${{ github.workspace }}/workdir"
         )
         strip_step = "- name: Strip binaries"
 
         self.assertIn(audit, workflow)
         self.assertLess(workflow.index(audit), workflow.index(strip_step))
+        for source in (
+            "fcitx5-hazkey/src",
+            "hazkey-settings",
+            "hazkey-server/Sources",
+            "linux-shared",
+            "protocol",
+            "hazkey-server/hazkey-server.sh.in",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, workflow)
 
     def test_swift_runtime_resources_are_installed_and_owned(self) -> None:
         cmake = SERVER_CMAKE.read_text(encoding="utf-8")
@@ -697,6 +735,42 @@ class ProductArtifactContractTests(unittest.TestCase):
                     [("required", "/usr/lib/{,*/}fcitx5/fcitx5-grimodex.so")],
                 )
 
+    def test_staged_validator_accepts_owned_internal_binary_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            target = root / "usr/lib/fcitx5-grimodex/fcitx5-grimodex-settings"
+            target.parent.mkdir(parents=True)
+            target.write_bytes(b"packaged target")
+            link = root / "usr/bin/fcitx5-grimodex-settings"
+            link.parent.mkdir(parents=True)
+            link.symlink_to(
+                "/usr/lib/fcitx5-grimodex/fcitx5-grimodex-settings"
+            )
+
+            validate_staged_root(
+                root,
+                [
+                    ("required", "/usr/bin/fcitx5-grimodex-settings"),
+                    (
+                        "required",
+                        "/usr/lib/fcitx5-grimodex/fcitx5-grimodex-settings",
+                    ),
+                ],
+            )
+
+    def test_staged_validator_rejects_external_binary_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            link = root / "usr/bin/fcitx5-grimodex-server"
+            link.parent.mkdir(parents=True)
+            link.symlink_to("/usr/bin/curl")
+
+            with self.assertRaisesRegex(AssertionError, "symbolic link"):
+                validate_staged_root(
+                    root,
+                    [("required", "/usr/bin/fcitx5-grimodex-server")],
+                )
+
     def test_artifact_validator_accepts_domain_only_dependency_metadata(self) -> None:
         with tempfile.NamedTemporaryFile() as artifact:
             Path(artifact.name).write_bytes(
@@ -731,6 +805,21 @@ class ProductArtifactContractTests(unittest.TestCase):
             )
             with mock.patch.object(auditor.subprocess, "run", return_value=clean):
                 auditor.audit_artifact(path)
+
+            path.write_bytes(b"\x7fELF\0libcurl.so.4\0curl_easy_perform\0")
+            with mock.patch.object(auditor.subprocess, "run", return_value=clean):
+                with self.assertRaisesRegex(
+                    auditor.ProductNetworkAuditError,
+                    "network capability identifier",
+                ):
+                    auditor.audit_artifact(path)
+
+    def test_elf_audit_marker_set_matches_package_contract(self) -> None:
+        auditor = self._load_product_network_auditor()
+        self.assertEqual(
+            tuple(marker.decode("ascii") for marker in FORBIDDEN_ARTIFACT_MARKERS),
+            auditor.FORBIDDEN_ELF_METADATA_MARKERS,
+        )
 
     def test_elf_audit_rejects_network_dependencies_and_symbols(self) -> None:
         auditor = self._load_product_network_auditor()
@@ -785,6 +874,29 @@ class ProductArtifactContractTests(unittest.TestCase):
                 "network command",
             ):
                 auditor.audit_artifact(path)
+
+    def test_source_audit_allows_only_local_unix_socket_code(self) -> None:
+        auditor = self._load_product_network_auditor()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory) / "connector.cpp"
+            source.write_text(
+                "int fd = socket(AF_UNIX, SOCK_STREAM, 0);\n",
+                encoding="utf-8",
+            )
+            auditor.audit_source_file(source)
+
+            for capability in (
+                "int fd = socket(AF_INET, SOCK_STREAM, 0);\n",
+                'void *h = dlopen("libcurl.so.4", RTLD_NOW);\n',
+                'auto task = URLSession.shared.dataTask(with: request);\n',
+            ):
+                with self.subTest(capability=capability):
+                    source.write_text(capability, encoding="utf-8")
+                    with self.assertRaisesRegex(
+                        auditor.ProductNetworkAuditError,
+                        "source capability",
+                    ):
+                        auditor.audit_source_file(source)
 
     def test_swift_hub_source_audit_accepts_local_config_with_domain_metadata(self) -> None:
         auditor = self._load_swift_hub_auditor()
@@ -906,15 +1018,7 @@ class ProductArtifactContractTests(unittest.TestCase):
 
     @staticmethod
     def _load_product_network_auditor():
-        spec = importlib.util.spec_from_file_location(
-            "audit_product_network_capabilities",
-            PRODUCT_NETWORK_AUDITOR,
-        )
-        if spec is None or spec.loader is None:
-            raise AssertionError(f"cannot load {PRODUCT_NETWORK_AUDITOR}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
+        return load_product_network_auditor()
 
     def test_staged_install_and_uninstall_manifests_own_the_real_tree(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

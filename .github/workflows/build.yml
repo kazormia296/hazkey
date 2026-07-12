@@ -210,6 +210,16 @@ jobs:
             --checkout hazkey-server/build/swift-build/checkouts/swift-tokenizers \
             --expected-revision 4a606f66e0cc4d7d9f0197649e812f7fc86a4c34
 
+      - name: Audit product network capability metadata
+        run: |
+          python3 packaging/scripts/audit_product_network_capabilities.py --root ${{ github.workspace }}/workdir \
+            --source-root fcitx5-hazkey/src \
+            --source-root hazkey-settings \
+            --source-root hazkey-server/Sources \
+            --source-root linux-shared \
+            --source-root protocol \
+            --source-file hazkey-server/hazkey-server.sh.in
+
       - name: Strip binaries
         run: |
           find ${{ github.workspace }}/workdir/usr/ -type f -print0 | xargs -0 file -i | grep -E "application/(x-pie-executable|x-sharedlib)" | cut -d: -f1 | xargs -I{} strip "{}"

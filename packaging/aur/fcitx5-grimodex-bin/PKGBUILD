@@ -63,9 +63,57 @@ package() {
     printf 'Release archive contains a public Hazkey path\n' >&2
     return 1
   fi
-  if grep -aiRlE 'Qt6Network|QNetwork(AccessManager|Request|Reply)|FoundationNetworking|URLSession|NSURLConnection|AsyncHTTPClient|NIOHTTP(Client|1)|curl_(easy|multi|share|url)_|libcurl\.so' \
-    "${pkgdir}/usr" >/dev/null; then
-    printf 'Release archive contains a forbidden network/download marker\n' >&2
-    return 1
-  fi
+  local artifact metadata magic package_root raw_target resolved target
+  package_root="$(realpath -e -- "${pkgdir}")"
+  while IFS= read -r -d '' artifact; do
+    if [[ -L "${artifact}" ]]; then
+      raw_target="$(readlink -- "${artifact}")"
+      if [[ "${raw_target}" = /* ]]; then
+        target="${package_root}${raw_target}"
+      else
+        target="$(dirname -- "${artifact}")/${raw_target}"
+      fi
+      target="$(realpath -m -s -- "${target}")"
+      if [[ "${target}" != "${package_root}"/* ]] || \
+        [[ ! -f "${target}" ]] || [[ -L "${target}" ]]; then
+        printf 'Release archive contains an unsafe symbolic link: %s -> %s\n' \
+          "${artifact}" "${raw_target}" >&2
+        return 1
+      fi
+      resolved="$(realpath -e -- "${target}")"
+      if [[ "${resolved}" != "${target}" ]]; then
+        printf 'Release archive contains a chained symbolic link: %s -> %s\n' \
+          "${artifact}" "${raw_target}" >&2
+        return 1
+      fi
+      artifact="${target}"
+    fi
+    magic="$(LC_ALL=C head -c 4 "${artifact}")"
+    if [[ "${magic}" == $'\177ELF' ]]; then
+      if ! metadata="$(
+        readelf -dW "${artifact}" &&
+        readelf -sW "${artifact}"
+      )"; then
+        printf 'Cannot inspect ELF metadata for %s\n' "${artifact}" >&2
+        return 1
+      fi
+      if grep -Eqi 'Qt6Network|QNetwork(AccessManager|Request|Reply)|FoundationNetworking|URLSession|NSURLConnection|AsyncHTTPClient|NIOHTTP(Client|1)|curl_(easy|multi|share|url)_|libcurl\.so|get(addr|name)info|gethostbyname|inet_(pton|ntop)' <<<"${metadata}"; then
+        printf 'Release archive exposes forbidden network capability metadata in %s\n' "${artifact}" >&2
+        return 1
+      fi
+      if grep -aEqi 'libcurl\.so|curl_(easy|multi|share|url)_' "${artifact}"; then
+        printf 'Release archive embeds a forbidden network capability identifier in %s\n' "${artifact}" >&2
+        return 1
+      fi
+    elif [[ -x "${artifact}" ]]; then
+      if [[ "$(head -c 2 "${artifact}")" != '#!' ]]; then
+        printf 'Release archive contains an unsupported executable format: %s\n' "${artifact}" >&2
+        return 1
+      fi
+      if grep -Eqi '(^[[:space:]]*|[;&|()][[:space:]]*|(exec|env|command|sudo|if|then|do|while|until)[[:space:]]+)([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*(/[^[:space:]]+/)?(curl|wget|aria2c|ftp|nc|ncat|netcat|socat)([[:space:]]|$)' "${artifact}"; then
+        printf 'Release archive script invokes a forbidden network command: %s\n' "${artifact}" >&2
+        return 1
+      fi
+    fi
+  done < <(find "${pkgdir}/usr" \( -type f -o -type l \) -print0)
 }
