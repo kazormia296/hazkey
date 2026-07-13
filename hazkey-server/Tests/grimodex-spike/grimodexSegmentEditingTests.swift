@@ -304,7 +304,7 @@ final class GrimodexSegmentEditingTests: XCTestCase {
     XCTAssertNil(reducer.session.activeSegmentIndex)
   }
 
-  func testLeftDuringLiveAutoConversionSelectsLastSegmentWithoutShowingRawReading() {
+  func testLeftDuringLiveAutoConversionKeepsCharacterCursorEditing() {
     let converter = SegmentEditingFixtureConverter()
     var session = CompositionSession()
     session.policy.autoConvertMode = .always
@@ -315,12 +315,15 @@ final class GrimodexSegmentEditingTests: XCTestCase {
     let moved = reducer.reduce(.moveCursor(-1), requestID: "left-live")
 
     XCTAssertEqual(moved.status, .success)
-    XCTAssertEqual(moved.snapshot.phase, .selecting)
-    XCTAssertEqual(moved.snapshot.preedit.map(\.text), ["東京", "に", "行く"])
-    XCTAssertEqual(moved.snapshot.preedit.map(\.style), [.underline, .underline, .active])
-    XCTAssertEqual(moved.snapshot.caretUtf8ByteOffset, UInt32("東京に行く".utf8.count))
-    XCTAssertEqual(reducer.session.activeSegmentIndex, 2)
-    XCTAssertNotEqual(moved.snapshot.preedit.map(\.text), [reading])
+    XCTAssertEqual(moved.snapshot.phase, .composing)
+    XCTAssertEqual(moved.snapshot.preedit, [PreeditSpan(text: reading, style: .underline)])
+    XCTAssertEqual(
+      moved.snapshot.caretUtf8ByteOffset,
+      UInt32(String(reading.dropLast()).utf8.count)
+    )
+    XCTAssertEqual(reducer.session.composingText.cursor, reading.count - 1)
+    XCTAssertNil(reducer.session.activeSegmentIndex)
+    XCTAssertTrue(reducer.session.segments.isEmpty)
   }
 
   private func makeConvertedReducer(

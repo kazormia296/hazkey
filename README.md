@@ -33,7 +33,8 @@ Grimodexとの共有契約は
 基本カーソル編集、候補/文節操作、部分確定、JISキー、F6–F10、再接続、
 secure inputに加え、ユーザー辞書CRUD/import/export、候補忘却、再変換、
 Unicode入力、right context、予測候補を実装しています。
-変換中はLeft / Rightで未確定の文節を移動し、Shift+Left / Shift+Rightで
+自動変換中のLeft / Rightは入力文字カーソルを移動し、候補選択中のみ
+Left / Rightで未確定の文節を移動します。Shift+Left / Shift+Rightで
 選択文節の境界を変更できます。Space / Up / Downは選択文節だけを変換し、
 Enterで全文節をまとめて確定します。各文節の間は表示専用の `│` で示します。
 

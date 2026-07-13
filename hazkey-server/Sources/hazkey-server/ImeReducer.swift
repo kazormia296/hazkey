@@ -118,25 +118,9 @@ final class ImeReducer {
                 result = failure(.invalidAction, "cursor movement requires a composing session")
                 break
             }
-            if session.phase == .composing,
-               session.candidates?.liveCandidate != nil {
-                // Realtime conversion is still reported as `composing` so
-                // typing remains editable. An arrow key, however, means the
-                // user wants to enter clause editing rather than discard the
-                // converted surface and expose a raw input cursor.
-                let conversion = convert(advanceRevision: false)
-                guard conversion.status == .success else {
-                    result = conversion
-                    break
-                }
-                if !session.segments.isEmpty {
-                    activateSegment(at: session.segments.count - 1)
-                    session.phase = .selecting
-                }
-                session.advanceRevision()
-                result = success()
-                break
-            }
+            // Realtime conversion stays in `composing`, so Left/Right must keep
+            // moving the editable reading cursor. Segment movement begins only
+            // after an explicit transition to candidate selection.
             let input = CompositionInput(
                 elements: session.composingText.elements,
                 cursor: session.composingText.cursor,

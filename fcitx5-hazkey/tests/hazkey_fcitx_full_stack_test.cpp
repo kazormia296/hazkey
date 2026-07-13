@@ -116,16 +116,25 @@ int main() {
                  FcitxKey_h, FcitxKey_a, FcitxKey_i, FcitxKey_s,
                  FcitxKey_h, FcitxKey_a, FcitxKey_n, FcitxKey_i,
                  FcitxKey_i, FcitxKey_k, FcitxKey_u, FcitxKey_Left});
-        const auto segmentedPreedit =
+        const auto cursorEditedPreedit =
             clientPreeditContext->inputPanel().clientPreedit();
-        const auto segmentedCommit = segmentedPreedit.toStringForCommit();
-        if (segmentedCommit.empty()) {
+        const auto cursorEditedText = cursorEditedPreedit.toString();
+        const auto cursorEditedCommit = cursorEditedPreedit.toStringForCommit();
+        if (cursorEditedCommit.empty()) {
             fail("Left during live conversion unexpectedly lost the composition");
         }
+        if (cursorEditedText.find("│") != std::string::npos) {
+            fail("Left during live conversion unexpectedly entered segment editing");
+        }
+        if (cursorEditedPreedit.cursor() < 0 ||
+            cursorEditedPreedit.cursor() >=
+                static_cast<int>(cursorEditedText.size())) {
+            fail("Left during live conversion did not move the character cursor");
+        }
         frontend->call<fcitx::ITestFrontend::pushCommitExpectation>(
-            segmentedCommit);
+            cursorEditedCommit);
         runKeys(clientPreeditUUID, {FcitxKey_Return});
-        milestone("live-conversion Left preserved composition and committed");
+        milestone("live-conversion Left kept character cursor editing");
 
         frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("カナ");
         runKeys(clientPreeditUUID, {FcitxKey_k, FcitxKey_a, FcitxKey_n,
