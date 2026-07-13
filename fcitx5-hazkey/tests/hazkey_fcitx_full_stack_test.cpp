@@ -4,6 +4,7 @@
 #include <string>
 
 #include <testfrontend_public.h>
+#include <fcitx-utils/eventdispatcher.h>
 #include <fcitx-utils/key.h>
 #include <fcitx-utils/keysym.h>
 #include <fcitx/addonmanager.h>
@@ -41,7 +42,9 @@ int main() {
     // registry. The shared loader is sufficient for the isolated test addons
     // and the product addon.
     instance.addonManager().registerDefaultLoader(nullptr);
-    instance.eventDispatcher().schedule([&instance] {
+    fcitx::EventDispatcher dispatcher;
+    dispatcher.attach(&instance.eventLoop());
+    dispatcher.schedule([&instance] {
         milestone("scenario callback started");
         auto* frontend = instance.addonManager().addon("testfrontend", true);
         if (frontend == nullptr) {
@@ -122,5 +125,7 @@ int main() {
         milestone("all scenarios passed");
         instance.exit(0);
     });
-    return instance.exec();
+    const int result = instance.exec();
+    dispatcher.detach();
+    return result;
 }
