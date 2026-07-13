@@ -38,7 +38,8 @@ final class GrimodexStateIntegrationTests: XCTestCase {
     )
     let environment = HazkeySessionEnvironment(
       revisionProvider: MutableEnvironmentRevisionProvider(revision),
-      converter: .withDefaultDictionary()
+      converter: .withDefaultDictionary(),
+      boundaryConverter: .withDefaultDictionary()
     )
     environment.refreshGrimodexIntegration()
 
@@ -65,7 +66,8 @@ final class GrimodexStateIntegrationTests: XCTestCase {
     )
     let environment = HazkeySessionEnvironment(
       revisionProvider: provider,
-      converter: .withDefaultDictionary()
+      converter: .withDefaultDictionary(),
+      boundaryConverter: .withDefaultDictionary()
     )
     environment.refreshGrimodexIntegration()
     XCTAssertTrue(environment.grimodexAllowsLearning)

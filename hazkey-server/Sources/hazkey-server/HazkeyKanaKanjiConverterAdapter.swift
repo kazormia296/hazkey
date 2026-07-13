@@ -11,6 +11,7 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
     let supportsSegmentEditing = true
 
     private let converter: KanaKanjiConverter
+    private let boundaryConverter: KanaKanjiConverter
     private let optionsProvider: (ConversionOptions) -> ConvertRequestOptions
     private let mappedInputStyleProvider: () -> InputStyle
     private let predictionConfigurationProvider: () -> (enabled: Bool, limit: Int)
@@ -20,6 +21,7 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
 
     init(
         converter: KanaKanjiConverter,
+        boundaryConverter: KanaKanjiConverter,
         optionsProvider: @escaping (ConversionOptions) -> ConvertRequestOptions,
         mappedInputStyleProvider: @escaping () -> InputStyle = { .roman2kana },
         predictionConfigurationProvider: @escaping () -> (enabled: Bool, limit: Int) = {
@@ -27,7 +29,12 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         },
         suggestionListModeProvider: @escaping () -> ImeSuggestionListMode = { .predictive }
     ) {
+        precondition(
+            converter !== boundaryConverter,
+            "primary and boundary converters must be distinct instances"
+        )
         self.converter = converter
+        self.boundaryConverter = boundaryConverter
         self.optionsProvider = optionsProvider
         self.mappedInputStyleProvider = mappedInputStyleProvider
         self.predictionConfigurationProvider = predictionConfigurationProvider
@@ -84,20 +91,36 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             from: composition.elements[...],
             mappedTableName: composition.mappedTableName
         )
-        var requestOptions = optionsProvider(options)
-        requestOptions.N_best = max(1, requestOptions.N_best)
-        requestOptions.requireJapanesePrediction = .disabled
-        requestOptions.requireEnglishPrediction = .disabled
-        if !options.zenzaiEnabled {
-            requestOptions.zenzaiMode = .off
-        }
+        var boundaryOptions = optionsProvider(options)
+        boundaryOptions.N_best = 9
+        boundaryOptions.needTypoCorrection = false
+        boundaryOptions.requireJapanesePrediction = .disabled
+        boundaryOptions.requireEnglishPrediction = .disabled
+        boundaryOptions.englishCandidateInRoman2KanaInput = false
+        boundaryOptions.fullWidthRomanCandidate = false
+        boundaryOptions.halfWidthKanaCandidate = false
+        boundaryOptions.learningType = .nothing
+        boundaryOptions.shouldResetMemory = false
+        boundaryOptions.specialCandidateProviders = []
+        boundaryOptions.zenzaiMode = .off
 
-        let result = converter.requestCandidates(composingText, options: requestOptions)
+        // AzooKey learns a completed multi-word sentence as an additional
+        // single dictionary node. Such a node intentionally keeps no internal
+        // clause metadata, so it must never define the automatic segment
+        // layout. A separate converter shares the base dictionary cache but
+        // owns an independent lattice and always discovers boundaries without
+        // history or Zenzai. The primary converter still ranks the candidates
+        // for the chosen boundary with the user's normal options below.
+        boundaryConverter.stopComposition()
+        let result = boundaryConverter.requestCandidates(
+            composingText,
+            options: boundaryOptions
+        )
+
         // firstClauseResults mixes several clause lengths and is ordered with
-        // longer readings first. Filtering that list after the fact can leave
-        // the initially active segment with only one candidate. Derive the
-        // natural boundary from the best whole-sentence path, then collect all
-        // alternatives for exactly that boundary.
+        // longer readings first. Derive the natural boundary from the best
+        // dictionary-only whole-sentence path, falling back to the longest
+        // proper clause when that path exposes no POS boundary.
         let inputCount = composition.elements.count
         func consumedInputCount(_ candidate: Candidate) -> Int {
             min(
@@ -116,7 +139,12 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             ? result.mainResults
             : result.firstClauseResults
         let preferredClause: Candidate?
-        if let best = result.mainResults.first, !best.data.isEmpty {
+        let best = result.mainResults.first { candidate in
+            candidate.isLearningTarget
+                && !candidate.data.isEmpty
+                && consumedInputCount(candidate) == inputCount
+        }
+        if let best {
             let derived = Candidate.makePrefixClauseCandidate(data: best.data)
             let derivedCount = consumedInputCount(derived)
             if derivedCount < inputCount {
@@ -124,17 +152,20 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
                     candidate.text == derived.text
                         && consumedInputCount(candidate) == derivedCount
                 } ?? derived
+            } else if best.data.count == 1 {
+                // An exact dictionary entry is a word/term boundary in its own
+                // right. In particular, do not split a long user-dictionary
+                // term merely because shorter built-in clauses also exist.
+                preferredClause = derived
             } else {
                 // Some best paths contain no POS boundary and therefore make
                 // makePrefixClauseCandidate return the whole sentence. In
-                // that case choose the longest proper clause whose surface is
-                // still a prefix of the best sentence. This keeps particles
-                // with the preceding phrase without collapsing every segment.
-                let bestSurface = best.text
+                // that case choose the longest proper clause from the same
+                // reading lattice. This keeps particles with the preceding
+                // phrase without collapsing every segment.
                 preferredClause = result.firstClauseResults
                     .filter { candidate in
                         consumedInputCount(candidate) < inputCount
-                            && bestSurface.hasPrefix(candidate.text)
                     }
                     .max { lhs, rhs in
                         let lhsCount = consumedInputCount(lhs)
@@ -160,16 +191,38 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         }
 
         let segmentCount = consumedInputCount(preferredClause)
-        var seenTexts = Set<String>()
-        let sameBoundary = ([preferredClause] + result.firstClauseResults)
-            .filter { candidate in
-                consumedInputCount(candidate) == segmentCount
-                    && !candidate.text.isEmpty
-                    && seenTexts.insert(candidate.text).inserted
+        var requestOptions = optionsProvider(options)
+        requestOptions.N_best = max(1, requestOptions.N_best)
+        requestOptions.requireJapanesePrediction = .disabled
+        requestOptions.requireEnglishPrediction = .disabled
+        if !options.zenzaiEnabled {
+            requestOptions.zenzaiMode = .off
+        }
+        let primaryResult = converter.requestCandidates(
+            composingText,
+            options: requestOptions
+        )
+        let primaryClauses = primaryResult.mainResults.compactMap { candidate in
+            guard !candidate.data.isEmpty,
+                  consumedInputCount(candidate) == inputCount else {
+                return nil
             }
-        var candidates = sameBoundary.map {
-            makeConverterCandidate(
-                $0,
+            let clause = segmentCount == inputCount
+                ? candidate
+                : Candidate.makePrefixClauseCandidate(data: candidate.data)
+            return consumedInputCount(clause) == segmentCount ? clause : nil
+        } + primaryResult.firstClauseResults.filter { candidate in
+            consumedInputCount(candidate) == segmentCount
+        }
+
+        var seenTexts = Set<String>()
+        var candidates: [ConverterCandidate] = primaryClauses.compactMap { candidate in
+            guard !candidate.text.isEmpty,
+                  seenTexts.insert(candidate.text).inserted else {
+                return nil
+            }
+            return makeConverterCandidate(
+                candidate,
                 in: composingText,
                 elementCount: composition.elements.count
             )
@@ -186,9 +239,12 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             for: targetedInput,
             options: options
         )
-        for candidate in targeted.candidates
-            where candidate.consumingCount == segmentCount
-                && seenTexts.insert(candidate.text).inserted {
+        for candidate in targeted.candidates {
+            guard candidate.consumingCount == segmentCount,
+                  !candidate.text.isEmpty,
+                  seenTexts.insert(candidate.text).inserted else {
+                continue
+            }
             candidates.append(candidate)
         }
 
@@ -404,6 +460,9 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
 
     func stopComposition() {
         converter.stopComposition()
+        if boundaryConverter !== converter {
+            boundaryConverter.stopComposition()
+        }
         completedCandidates.removeAll(keepingCapacity: true)
     }
 

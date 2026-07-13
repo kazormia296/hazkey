@@ -10,6 +10,7 @@ import KanaKanjiConverterModule
 final class HazkeySessionEnvironment {
     let serverConfig: HazkeyServerConfig
     let converter: KanaKanjiConverter
+    let boundaryConverter: KanaKanjiConverter
     private let grimodexRevisionProvider: any GrimodexRevisionProviding
 
     var keymap: Keymap
@@ -68,14 +69,37 @@ final class HazkeySessionEnvironment {
     init(
         serverConfig injectedServerConfig: HazkeyServerConfig? = nil,
         revisionProvider: any GrimodexRevisionProviding = GrimodexDisabledRevisionProvider(),
-        converter injectedConverter: KanaKanjiConverter? = nil
+        converter injectedConverter: KanaKanjiConverter? = nil,
+        boundaryConverter injectedBoundaryConverter: KanaKanjiConverter? = nil
     ) {
         grimodexRevisionProvider = revisionProvider
         let serverConfig = injectedServerConfig ?? HazkeyServerConfig()
         self.serverConfig = serverConfig
-        let converter = injectedConverter
-            ?? KanaKanjiConverter(dictionaryURL: serverConfig.dictionaryPath)
+        let converter: KanaKanjiConverter
+        let boundaryConverter: KanaKanjiConverter
+        if let injectedConverter {
+            guard let injectedBoundaryConverter else {
+                preconditionFailure(
+                    "an injected primary converter requires an independent boundary converter"
+                )
+            }
+            precondition(
+                injectedConverter !== injectedBoundaryConverter,
+                "primary and boundary converters must be distinct instances"
+            )
+            converter = injectedConverter
+            boundaryConverter = injectedBoundaryConverter
+        } else {
+            precondition(
+                injectedBoundaryConverter == nil,
+                "a boundary converter cannot be injected without a primary converter"
+            )
+            let store = DicdataStore(dictionaryURL: serverConfig.dictionaryPath)
+            converter = KanaKanjiConverter(dicdataStore: store)
+            boundaryConverter = KanaKanjiConverter(dicdataStore: store)
+        }
         self.converter = converter
+        self.boundaryConverter = boundaryConverter
 
         let spikeEntries = GrimodexDictionarySpike.isEnabled(
             environment: ProcessInfo.processInfo.environment
@@ -83,6 +107,9 @@ final class HazkeySessionEnvironment {
         spikeDictionaryEntries = spikeEntries
         if !spikeEntries.isEmpty {
             converter.importDynamicUserDictionary(spikeEntries)
+            if boundaryConverter !== converter {
+                boundaryConverter.importDynamicUserDictionary(spikeEntries)
+            }
             NSLog(
                 "Injected \(spikeEntries.count) fixed Grimodex dictionary spike entries"
             )
@@ -141,12 +168,12 @@ final class HazkeySessionEnvironment {
         var probe = ComposingText()
         probe.insertAtCursorPosition("あ", inputStyle: .direct)
         _ = converter.requestCandidates(probe, options: options)
-        converter.stopComposition()
+        stopComposition()
         converter.resetMemory()
     }
 
     func reinitializeConfiguration() {
-        converter.stopComposition()
+        stopComposition()
         keymap = serverConfig.loadKeymap()
         let newTableName = UUID().uuidString
         serverConfig.loadInputTable(tableName: newTableName)
@@ -156,16 +183,25 @@ final class HazkeySessionEnvironment {
     }
 
     func close() {
+        stopComposition()
+    }
+
+    func stopComposition() {
         converter.stopComposition()
+        if boundaryConverter !== converter {
+            boundaryConverter.stopComposition()
+        }
     }
 
     private func applyDynamicDictionaries() {
-        converter.importDynamicUserDictionary(
-            spikeDictionaryEntries
-                + grimodexDynamicDictionaryEntries
-                + personalDynamicDictionaryEntries,
-            shortcuts: personalDynamicDictionaryEntries + temporaryShortcutEntries
-        )
+        let entries = spikeDictionaryEntries
+            + grimodexDynamicDictionaryEntries
+            + personalDynamicDictionaryEntries
+        let shortcuts = personalDynamicDictionaryEntries + temporaryShortcutEntries
+        converter.importDynamicUserDictionary(entries, shortcuts: shortcuts)
+        if boundaryConverter !== converter {
+            boundaryConverter.importDynamicUserDictionary(entries, shortcuts: shortcuts)
+        }
     }
 
     private func refreshResolvedZenzaiConditions() {

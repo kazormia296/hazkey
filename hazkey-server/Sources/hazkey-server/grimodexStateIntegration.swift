@@ -92,11 +92,11 @@ final class GrimodexEnvironmentDictionaryApplier: GrimodexDynamicDictionaryApply
     }
 
     func stopComposition() {
-        environment.converter.stopComposition()
+        environment.stopComposition()
     }
 
     func abortSessionComposition() {
-        environment.converter.stopComposition()
+        environment.stopComposition()
     }
 
     func replaceDynamicDictionary(_ entries: [GrimodexMappedDictionaryEntry]) {

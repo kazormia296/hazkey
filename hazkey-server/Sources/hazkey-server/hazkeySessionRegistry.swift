@@ -93,7 +93,7 @@ enum HazkeySessionOpenError: Error, Equatable {
 final class HazkeySessionRegistry {
     typealias RevisionProviderFactory =
         (GrimodexClientContext) -> any GrimodexRevisionProviding
-    typealias ConverterFactory = () -> KanaKanjiConverter
+    typealias DicdataStoreFactory = () -> DicdataStore
 
     private struct Session {
         let ownerFd: Int32
@@ -105,7 +105,7 @@ final class HazkeySessionRegistry {
 
     let serverConfig: HazkeyServerConfig
     private let revisionProviderFactory: RevisionProviderFactory
-    private let converterFactory: ConverterFactory
+    private let dicdataStoreFactory: DicdataStoreFactory
     private let userDictionaryStore: UserDictionaryStore
     private let learningRevisionStore = HazkeyLearningRevisionStore()
     private let maximumSessions: Int
@@ -125,7 +125,7 @@ final class HazkeySessionRegistry {
         revisionProviderFactory: @escaping RevisionProviderFactory = {
             _ in GrimodexDisabledRevisionProvider()
         },
-        converterFactory: ConverterFactory? = nil,
+        dicdataStoreFactory: DicdataStoreFactory? = nil,
         userDictionaryStore: UserDictionaryStore? = nil,
         maximumSessions: Int = 128,
         maximumSessionsPerOwner: Int = 16,
@@ -135,8 +135,8 @@ final class HazkeySessionRegistry {
     ) {
         self.serverConfig = serverConfig
         self.revisionProviderFactory = revisionProviderFactory
-        self.converterFactory = converterFactory ?? {
-            KanaKanjiConverter(dictionaryURL: serverConfig.dictionaryPath)
+        self.dicdataStoreFactory = dicdataStoreFactory ?? {
+            DicdataStore(dictionaryURL: serverConfig.dictionaryPath)
         }
         self.userDictionaryStore = userDictionaryStore ?? UserDictionaryStore(
             persistenceURL: HazkeyServerConfig.getDataDirectory()
@@ -192,11 +192,14 @@ final class HazkeySessionRegistry {
             removeSession(sessionID: leastRecentlyUsed)
         }
         let sessionID = UUID().uuidString.lowercased()
-        let converter = converterFactory()
+        let store = dicdataStoreFactory()
+        let converter = KanaKanjiConverter(dicdataStore: store)
+        let boundaryConverter = KanaKanjiConverter(dicdataStore: store)
         let environment = HazkeySessionEnvironment(
             serverConfig: serverConfig,
             revisionProvider: revisionProviderFactory(clientContext),
-            converter: converter
+            converter: converter,
+            boundaryConverter: boundaryConverter
         )
         environment.refreshGrimodexIntegration()
         environment.replaceUserDictionary(userDictionaryStore.entries)
@@ -220,6 +223,7 @@ final class HazkeySessionRegistry {
         )
         let productionConverter = HazkeyKanaKanjiConverterAdapter(
             converter: converter,
+            boundaryConverter: environment.boundaryConverter,
             optionsProvider: { [environment] options in
                 var requestOptions = environment.baseConvertRequestOptions
                 requestOptions.zenzaiMode = environment.serverConfig.genZenzaiMode(

@@ -104,7 +104,7 @@ final class GrimodexUserDictionaryTests: XCTestCase {
       )
     ])
     let registry = HazkeySessionRegistry(
-      converterFactory: { .withDefaultDictionary() },
+      dicdataStoreFactory: { .withDefaultDictionary() },
       userDictionaryStore: store
     )
     let session = registry.open(
