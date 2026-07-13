@@ -677,18 +677,20 @@ final class ImeReducer {
         }
     }
 
-    /// Decomposes the whole composition into first-clause results. Every
-    /// segment owns its candidate set, allowing focus to move without losing
-    /// choices already made in other segments.
+    /// Decomposes the supplied composition slice into first-clause results.
+    /// Every segment owns its candidate set, allowing focus to move without
+    /// losing choices already made in other segments. `initialLeftContext`
+    /// lets callers rebuild a suffix while reusing the segments before it.
     private func buildSegments(
         from elements: [CompositionElement],
         forcedLeadingCounts: [Int] = [],
-        preferredTextsByStart: [Int: String] = [:]
+        preferredTextsByStart: [Int: String] = [:],
+        initialLeftContext: String? = nil
     ) throws -> [CompositionSegment] {
         var result: [CompositionSegment] = []
         var offset = 0
         var forcedIndex = 0
-        var leftContext = session.context.leftContext
+        var leftContext = initialLeftContext ?? session.context.leftContext
 
         while offset < elements.count {
             let remaining = Array(elements.dropFirst(offset))
@@ -820,11 +822,12 @@ final class ImeReducer {
         let totalCount = session.composingText.elements.count
         let oldSegments = session.segments
         let activeIndex = session.activeSegmentIndex ?? 0
-        let prefixCounts: [Int]
+        let prefixSegments: [CompositionSegment]
+        let prefixTotal: Int
         let newCount: Int
         if oldSegments.indices.contains(activeIndex) {
-            prefixCounts = oldSegments.prefix(activeIndex).map(\.inputCount)
-            let prefixTotal = prefixCounts.reduce(0, +)
+            prefixSegments = Array(oldSegments.prefix(activeIndex))
+            prefixTotal = prefixSegments.reduce(0) { $0 + $1.inputCount }
             let currentCount = oldSegments[activeIndex].inputCount
             newCount = min(
                 max(currentCount + delta, 1),
@@ -832,26 +835,42 @@ final class ImeReducer {
             )
             guard newCount != currentCount else { return success() }
         } else {
-            prefixCounts = []
+            prefixSegments = []
+            prefixTotal = 0
             newCount = delta > 0
                 ? min(max(delta, 1), totalCount)
                 : min(max(totalCount + delta, 1), totalCount)
         }
+
+        // A resize cannot affect converted text before the active boundary.
+        // Keep those candidate sets (including their generation and selected
+        // item) and feed their selected text into the suffix conversion.
+        var suffixLeftContext = session.context.leftContext
+        for segment in prefixSegments {
+            if let selected = segment.selectedCandidate {
+                suffixLeftContext.append(selected.text)
+            }
+        }
         var preferredTextsByStart: [Int: String] = [:]
         var start = 0
         for segment in oldSegments {
-            if let selected = segment.selectedCandidate {
-                preferredTextsByStart[start] = selected.text
+            if start >= prefixTotal, let selected = segment.selectedCandidate {
+                preferredTextsByStart[start - prefixTotal] = selected.text
             }
             start += segment.inputCount
         }
         converter.stopComposition()
         do {
-            session.segments = try buildSegments(
-                from: session.composingText.elements,
-                forcedLeadingCounts: prefixCounts + [newCount],
-                preferredTextsByStart: preferredTextsByStart
+            let suffixElements = Array(
+                session.composingText.elements.dropFirst(prefixTotal)
             )
+            let rebuiltSuffix = try buildSegments(
+                from: suffixElements,
+                forcedLeadingCounts: [newCount],
+                preferredTextsByStart: preferredTextsByStart,
+                initialLeftContext: suffixLeftContext
+            )
+            session.segments = prefixSegments + rebuiltSuffix
             activateSegment(at: activeIndex)
             session.phase = .selecting
             session.advanceRevision()

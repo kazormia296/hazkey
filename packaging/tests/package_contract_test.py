@@ -57,8 +57,8 @@ DEBIAN_CHANGELOG = REPOSITORY_ROOT / "debian/changelog"
 SWIFT_TOKENIZERS_REVISION = "4a606f66e0cc4d7d9f0197649e812f7fc86a4c34"
 SERVER_CMAKE = REPOSITORY_ROOT / "hazkey-server/CMakeLists.txt"
 SWIFT_BUILD_DRIVER = REPOSITORY_ROOT / "hazkey-server/build_swift.cmake"
-NO_ZENZAI_PREPARER = (
-    REPOSITORY_ROOT / "hazkey-server/prepare_no_zenzai_dependency.cmake"
+AZOOKEY_PREPARER = (
+    REPOSITORY_ROOT / "hazkey-server/prepare_azookey_dependency.cmake"
 )
 
 SWIFT_RUNTIME_RESOURCES = (
@@ -825,30 +825,88 @@ class PackageMetadataContractTests(unittest.TestCase):
                 self.assertIn(("optional", recursive), uninstall_entries)
                 self.assertIn(required, uninstall_entries)
 
-    def test_non_zenzai_build_prepares_the_pinned_upstream_mock_idempotently(self) -> None:
+    def test_swift_build_patches_the_pinned_azookey_checkout_idempotently(self) -> None:
         driver = SWIFT_BUILD_DRIVER.read_text(encoding="utf-8")
+        integration_workflow = INTEGRATION_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn('"${SWIFT_EXECUTABLE}" package resolve', driver)
-        self.assertIn("prepare_no_zenzai_dependency.cmake", driver)
+        self.assertIn("prepare_azookey_dependency.cmake", driver)
         self.assertLess(
-            driver.index("prepare_no_zenzai_dependency.cmake"),
+            driver.index("prepare_azookey_dependency.cmake"),
             driver.index("COMMAND ${SWIFT_COMMAND}"),
+        )
+        self.assertIn(
+            "hazkey-server/prepare_azookey_dependency.cmake",
+            integration_workflow,
+        )
+        self.assertIn(
+            "hazkey-server/patches/AzooKeyKanaKanjiConverter/*.patch",
+            integration_workflow,
         )
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             scratch = Path(temporary_directory) / "swift-build"
+            checkout = scratch / "checkouts/AzooKeyKanaKanjiConverter"
+            context_file = (
+                checkout
+                / "Sources/KanaKanjiConverterModule/ConversionAlgorithms"
+                / "Zenzai/Zenz/ZenzContext.swift"
+            )
             mock_file = (
-                scratch
-                / "checkouts/AzooKeyKanaKanjiConverter"
+                checkout
                 / "Sources/KanaKanjiConverterModule/ConversionAlgorithms"
                 / "Zenzai/Zenz/llama-mock.swift"
             )
-            mock_file.parent.mkdir(parents=True)
+            context_file.parent.mkdir(parents=True)
+            context_file.write_text(
+                """final class ZenzContext {
+    func previousMethod() {
+    }
+
+    func reset_context() throws {
+        llama_free(self.context)
+        let params = Self.ctx_params(deviceConfig: self.currentDeviceConfig)
+        let context = llama_init_from_model(self.model, params)
+        guard let context else {
+            debug("Could not load context!")
+            throw ZenzError.couldNotLoadContext
+        }
+        self.context = context
+        self.prevInput = []
+        self.prevPrompt = []
+    }
+
+    private func get_logits(tokens: [llama_token], logits_start_index: Int = 0) -> UnsafeMutablePointer<Float>? {
+        nil
+    }
+}
+""",
+                encoding="utf-8",
+            )
+            mock_file.parent.mkdir(parents=True, exist_ok=True)
             mock_file.write_text(
                 """#if !Zenzai
+package typealias llama_vocab = OpaquePointer
+
+package func llama_model_free(_: llama_model) {}
+
 package func ggml_backend_load_all() {}
 package func ggml_backend_dev_count() {}
 
 package func llama_backend_init() {}
+package func llama_backend_free() {}
+
+package typealias llama_context = OpaquePointer
+package typealias llama_seq_id = Int32
+package typealias llama_pos = Int32
+package func llama_model_load_from_file(_: String, _: llama_model_params) -> llama_model? { unimplemented() }
+
+package func llama_kv_cache_seq_rm(_: llama_context, _: llama_seq_id, _: llama_pos, _: llama_pos) {}
+package func llama_kv_cache_seq_pos_max(_: llama_context, _: llama_seq_id) -> Int { unimplemented() }
+
+package struct llama_batch {
+    package var token: [llama_token]
+}
+
 package func ggml_backend_load_all() {}
 package func ggml_backend_load_all_from_path(_: String) {}
 package func ggml_backend_dev_count() -> Int { 0 }
@@ -857,11 +915,33 @@ package func ggml_backend_dev_count() -> Int { 0 }
                 encoding="utf-8",
             )
 
+            subprocess.run(["git", "init", "--quiet", checkout], check=True)
+            subprocess.run(
+                ["git", "-C", checkout, "config", "user.name", "Grimodex CI"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", checkout, "config", "user.email", "ci@example.invalid"],
+                check=True,
+            )
+            subprocess.run(["git", "-C", checkout, "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", checkout, "commit", "--quiet", "-m", "fixture"],
+                check=True,
+            )
+            revision = subprocess.run(
+                ["git", "-C", checkout, "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
             command = [
                 "cmake",
                 f"-DSWIFT_SCRATCH_PATH={scratch}",
+                f"-DAZOOKEY_EXPECTED_REVISION={revision}",
                 "-P",
-                str(NO_ZENZAI_PREPARER),
+                str(AZOOKEY_PREPARER),
             ]
             for _ in range(2):
                 completed = subprocess.run(
@@ -879,6 +959,10 @@ package func ggml_backend_dev_count() -> Int { 0 }
             prepared = mock_file.read_text(encoding="utf-8")
             self.assertEqual(prepared.count("ggml_backend_load_all()"), 1)
             self.assertEqual(prepared.count("ggml_backend_dev_count()"), 1)
+            self.assertEqual(prepared.count("llama_kv_cache_clear(_: llama_context)"), 1)
+            context = context_file.read_text(encoding="utf-8")
+            self.assertIn("llama_kv_cache_clear(self.context)", context)
+            self.assertNotIn("llama_free(self.context)", context)
 
     def test_license_collector_copies_every_resolved_and_bundled_license(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

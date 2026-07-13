@@ -412,6 +412,8 @@ void AiTabController::refreshWarnings() {
 
 void AiTabController::populateDeviceList() {
     ui_->zenzaiBackendDevice->clear();
+    ui_->zenzaiBackendDevice->addItem(tr("Automatic (GPU preferred)"),
+                                      QString());
     for (int i = 0;
          i < context_.currentConfig->available_zenzai_backend_devices_size();
          ++i) {
@@ -592,11 +594,14 @@ void AiTabController::refreshGrimodexDiagnostics() {
 void AiTabController::updateSelectionFromProfile() {
     QString currentDevice = QString::fromStdString(
         context_.currentProfile->zenzai_backend_device_name());
-    if (!currentDevice.isEmpty()) {
-        int index = ui_->zenzaiBackendDevice->findData(currentDevice);
-        if (index >= 0) {
-            ui_->zenzaiBackendDevice->setCurrentIndex(index);
-        }
+    int index = ui_->zenzaiBackendDevice->findData(currentDevice);
+    if (index < 0) {
+        // An explicitly configured device disappeared. Runtime selection also
+        // falls back to CPU rather than silently choosing a different GPU.
+        index = ui_->zenzaiBackendDevice->findData(QStringLiteral("CPU"));
+    }
+    if (index >= 0) {
+        ui_->zenzaiBackendDevice->setCurrentIndex(index);
     }
 }
 

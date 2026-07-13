@@ -7,6 +7,54 @@ let TABLE_FILE_SIZE_LIMIT = 1024 * 1024  //1MB
 
 private let zenzaiRuntimeGenerationQueryName = "grimodex_zenzai_generation"
 
+/// An empty saved device name means "Automatic (GPU preferred)". Keep the
+/// selection independent of backend-specific names such as Vulkan0 or CUDA0,
+/// and retain CPU as the safe fallback for CPU-only or stale configurations.
+struct ZenzaiBackendDeviceCandidate: Sendable {
+    enum Kind: Sendable {
+        case cpu
+        case gpu
+        case other
+    }
+
+    let name: String
+    let kind: Kind
+
+    init(name: String, kind: Kind) {
+        self.name = name
+        self.kind = kind
+    }
+
+    init(_ device: GGMLBackendDevice) {
+        self.name = device.name
+        self.kind = switch device.type {
+        case .cpu: .cpu
+        case .gpu: .gpu
+        case .accel, .unknown: .other
+        }
+    }
+}
+
+func resolveZenzaiBackendDeviceName(
+    configuredName: String,
+    availableDevices: [ZenzaiBackendDeviceCandidate]
+) -> String {
+    let cpuName = availableDevices.first {
+        if case .cpu = $0.kind { return true }
+        return false
+    }?.name ?? "CPU"
+
+    if !configuredName.isEmpty {
+        return availableDevices.contains { $0.name == configuredName }
+            ? configuredName : cpuName
+    }
+
+    return availableDevices.first {
+        if case .gpu = $0.kind { return true }
+        return false
+    }?.name ?? cpuName
+}
+
 /// Gives each model reload a distinct cache identity without changing the file
 /// that the pinned Zenzai runtime opens.
 ///
@@ -348,7 +396,9 @@ class HazkeyServerConfig {
             }
         ]
         newConf.submodeEntryPointChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        newConf.zenzaiBackendDeviceName = "CPU"
+        // Empty means automatic selection: prefer an enumerated GPU and fall
+        // back to CPU when no GPU backend is available.
+        newConf.zenzaiBackendDeviceName = ""
         newConf.zenzaiEnable = true
         newConf.zenzaiInferLimit = 10
         newConf.zenzaiContextualMode = true
@@ -456,9 +506,10 @@ class HazkeyServerConfig {
         ) else {
             return .off
         }
-        let deviceName =
-            currentProfile.zenzaiBackendDeviceName.isEmpty
-            ? "CPU" : currentProfile.zenzaiBackendDeviceName
+        let deviceName = resolveZenzaiBackendDeviceName(
+            configuredName: currentProfile.zenzaiBackendDeviceName,
+            availableDevices: ggmlBackendDevices.map(ZenzaiBackendDeviceCandidate.init)
+        )
         let resolved = GrimodexZenzaiConditionResolver.resolve(
             profile: currentProfile.zenzaiProfile,
             topic: currentProfile.zenzaiTopic,

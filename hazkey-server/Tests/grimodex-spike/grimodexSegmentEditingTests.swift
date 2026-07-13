@@ -7,6 +7,7 @@ private struct SegmentEditingRequest: Equatable {
   let remainingReading: String
   let targetCount: Int?
   let consumedReading: String
+  let leftContext: String
 }
 
 private final class SegmentEditingFixtureConverter: KanaKanjiConverting {
@@ -75,7 +76,8 @@ private final class SegmentEditingFixtureConverter: KanaKanjiConverting {
     requests.append(SegmentEditingRequest(
       remainingReading: reading,
       targetCount: composition.targetCount,
-      consumedReading: consumedReading
+      consumedReading: consumedReading,
+      leftContext: composition.leftContext
     ))
     let texts = candidateTexts(for: consumedReading)
     return ConversionOutput(
@@ -205,6 +207,63 @@ final class GrimodexSegmentEditingTests: XCTestCase {
       counts: [5, 1, 2],
       expectedSlices: ["とうきょう", "に", "いく"]
     )
+  }
+
+  func testResizeReusesPrefixAndOnlyRebuildsActiveSuffix() throws {
+    let converter = SegmentEditingFixtureConverter()
+    let reducer = makeConvertedReducer(converter: converter)
+    let firstWindow = reducer.currentSnapshot().candidateWindow
+    let alternateFirst = try XCTUnwrap(firstWindow.items.dropFirst().first)
+    _ = reducer.reduce(
+      .selectCandidate(id: alternateFirst.id, generation: firstWindow.generation),
+      requestID: "select-prefix"
+    )
+    _ = reducer.reduce(.moveActiveSegment(1), requestID: "focus-middle")
+    let preservedPrefix = try XCTUnwrap(reducer.session.segments.first)
+    converter.requests.removeAll()
+
+    let resized = reducer.reduce(.resizeSegment(1), requestID: "expand-middle")
+
+    XCTAssertEqual(resized.status, .success)
+    XCTAssertEqual(reducer.session.activeSegmentIndex, 1)
+    XCTAssertEqual(reducer.session.segments.map(\.inputCount), [5, 2, 1])
+    XCTAssertEqual(reducer.session.segments.first, preservedPrefix)
+    XCTAssertEqual(
+      converter.requests,
+      [
+        SegmentEditingRequest(
+          remainingReading: "にいく",
+          targetCount: 2,
+          consumedReading: "にい",
+          leftContext: "東亰"
+        ),
+        SegmentEditingRequest(
+          remainingReading: "く",
+          targetCount: nil,
+          consumedReading: "く",
+          leftContext: "東亰にい"
+        ),
+      ]
+    )
+    XCTAssertEqual(resized.snapshot.preedit.map(\.text), ["東亰", "にい", "く"])
+    XCTAssertEqual(resized.snapshot.preedit.map(\.style), [.underline, .active, .underline])
+  }
+
+  func testResizePreservesMatchingSelectionInRebuiltSuffix() {
+    let converter = SegmentEditingFixtureConverter()
+    let reducer = makeConvertedReducer(converter: converter)
+    _ = reducer.reduce(.moveActiveSegment(1), requestID: "focus-middle")
+    _ = reducer.reduce(.moveActiveSegment(1), requestID: "focus-last")
+    _ = reducer.reduce(.navigateCandidate(1), requestID: "choose-last")
+    _ = reducer.reduce(.moveActiveSegment(-2), requestID: "focus-first")
+
+    let resized = reducer.reduce(.resizeSegment(1), requestID: "expand-first")
+
+    XCTAssertEqual(resized.status, .success)
+    XCTAssertEqual(reducer.session.activeSegmentIndex, 0)
+    XCTAssertEqual(reducer.session.segments.map(\.inputCount), [6, 2])
+    XCTAssertEqual(reducer.session.segments.map { $0.candidates.selectedIndex }, [0, 1])
+    XCTAssertEqual(resized.snapshot.preedit.map(\.text), ["東京に", "往く"])
   }
 
   func testCommitAllEmitsOneJoinedEffectAndLearnsSegmentsLeftToRightOnce() {

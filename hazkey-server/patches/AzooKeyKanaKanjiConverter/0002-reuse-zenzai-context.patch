@@ -1,0 +1,27 @@
+diff --git a/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/ZenzContext.swift b/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/ZenzContext.swift
+--- a/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/ZenzContext.swift
++++ b/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/ZenzContext.swift
+@@ -356,12 +356,5 @@ final class ZenzContext {
+     func reset_context() throws {
+-        llama_free(self.context)
+-        let params = Self.ctx_params(deviceConfig: self.currentDeviceConfig)
+-        let context = llama_init_from_model(self.model, params)
+-        guard let context else {
+-            debug("Could not load context!")
+-            throw ZenzError.couldNotLoadContext
+-        }
+-        self.context = context
++        llama_kv_cache_clear(self.context)
+         self.prevInput = []
+         self.prevPrompt = []
+     }
+diff --git a/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/llama-mock.swift b/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/llama-mock.swift
+--- a/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/llama-mock.swift
++++ b/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/llama-mock.swift
+@@ -64,4 +64,5 @@ package func llama_model_load_from_file(_: String, _: llama_model_params) -> llam
+ package func llama_kv_cache_seq_rm(_: llama_context, _: llama_seq_id, _: llama_pos, _: llama_pos) {}
+ package func llama_kv_cache_seq_pos_max(_: llama_context, _: llama_seq_id) -> Int { unimplemented() }
+-
++package func llama_kv_cache_clear(_: llama_context) {}
++
+ package struct llama_batch {

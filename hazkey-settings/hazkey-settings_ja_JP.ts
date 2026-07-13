@@ -4,6 +4,11 @@
 <context>
     <name>AiTabController</name>
     <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="415"/>
+        <source>Automatic (GPU preferred)</source>
+        <translation>自動（GPU優先）</translation>
+    </message>
+    <message>
         <location filename="controllers/ai_tab_controller.cpp" line="166"/>
         <source>Select a local Zenzai model</source>
         <translation>ローカルのZenzaiモデルを選択</translation>
@@ -144,136 +149,136 @@
         <translation>現在のモデルは動作確認済みのZenzaiモデルと異なります。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="433"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="435"/>
         <source>Grimodex only (recommended)</source>
         <translation>Grimodexのみ（推奨）</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="436"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="438"/>
         <source>Off</source>
         <translation>オフ</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="438"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="440"/>
         <source>All applications</source>
         <translation>すべてのアプリケーション</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="454"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="456"/>
         <source>Ready; no Zenzai-enabled conversion request has been observed yet</source>
         <translation>準備完了（Zenzaiを有効にした変換要求はまだ確認されていません）</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="456"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="458"/>
         <source>Model loaded; the latest Zenzai-enabled request reached the converter</source>
         <translation>モデル読込確認済み（直近のZenzai有効変換要求が変換器に到達しました）</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="466"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="468"/>
         <source>Model loading failed for the latest request</source>
         <translation>直近の要求でモデルの読み込みに失敗しました</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="502"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="504"/>
         <source>&lt;b&gt;Zenzai runtime diagnostics&lt;/b&gt;&lt;br/&gt;Status: %1&lt;br/&gt;Model load verified: %2 / Zenzai-enabled requests: %3 / Model-load failures: %4&lt;br/&gt;Last Zenzai-enabled request: %5&lt;br/&gt;Detail: %6&lt;br/&gt;Note: the converter does not expose per-candidate AI evaluation results.</source>
         <translation>&lt;b&gt;Zenzai実行時診断&lt;/b&gt;&lt;br/&gt;状態: %1&lt;br/&gt;モデル読込確認: %2 / Zenzai有効変換要求: %3 / モデル読込失敗: %4&lt;br/&gt;最終Zenzai有効変換要求: %5&lt;br/&gt;詳細: %6&lt;br/&gt;注: 変換器は候補ごとのAI評価結果を公開していません。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="523"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="525"/>
         <source>Allowed: current application is Grimodex</source>
         <translation>許可: 現在のアプリケーションはGrimodexです</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="525"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="527"/>
         <source>Allowed: all-applications mode is enabled</source>
         <translation>許可: すべてのアプリケーションで有効です</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="527"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="529"/>
         <source>Blocked: Grimodex integration is off</source>
         <translation>ブロック: Grimodex連携がオフです</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="529"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="531"/>
         <source>Blocked: secure input is active</source>
         <translation>ブロック: セキュア入力が有効です</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="531"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="533"/>
         <source>Blocked: application identity is unavailable</source>
         <translation>ブロック: アプリケーションを識別できません</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="533"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="535"/>
         <source>Blocked: current application is not Grimodex</source>
         <translation>ブロック: 現在のアプリケーションはGrimodexではありません</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="536"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="538"/>
         <source>No active input context</source>
         <translation>有効な入力コンテキストがありません</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="544"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="546"/>
         <source>&lt;b&gt;Diagnostics unavailable.&lt;/b&gt; Restart the Grimodex IME service after updating it.</source>
         <translation>&lt;b&gt;診断情報を取得できません。&lt;/b&gt; Grimodex IMEを更新したあと、サービスを再起動してください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="551"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="553"/>
         <source>active</source>
         <translation>稼働中</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="551"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="553"/>
         <source>stopped</source>
         <translation>停止中</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="553"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="555"/>
         <source>registered</source>
         <translation>登録済み</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="554"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="556"/>
         <source>not registered</source>
         <translation>未登録</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="499"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="557"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="501"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="559"/>
         <source>none</source>
         <translation>なし</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="560"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="563"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="562"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="565"/>
         <source>unknown</source>
         <translation>不明</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="567"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="569"/>
         <source>enabled for current context</source>
         <translation>現在の入力コンテキストで有効</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="568"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="570"/>
         <source>disabled for current context</source>
         <translation>現在の入力コンテキストで無効</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="487"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="569"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="489"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="571"/>
         <source>yes</source>
         <translation>はい</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="487"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="569"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="489"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="571"/>
         <source>no</source>
         <translation>いいえ</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="573"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="575"/>
         <source>&lt;b&gt;Runtime diagnostics&lt;/b&gt;&lt;br/&gt;Watcher: %1 / Consumer: %2&lt;br/&gt;Snapshot: %3 / Generation: %4 / Project: %5&lt;br/&gt;Sessions: %6 / Program: %7 / Frontend: %8 / Secure: %9&lt;br/&gt;Integration: %10&lt;br/&gt;Reason: %11</source>
         <translation>&lt;b&gt;実行時診断&lt;/b&gt;&lt;br/&gt;監視: %1 / コンシューマー: %2&lt;br/&gt;スナップショット: %3 / 世代: %4 / プロジェクト: %5&lt;br/&gt;セッション: %6 / プログラム: %7 / フロントエンド: %8 / セキュア入力: %9&lt;br/&gt;連携: %10&lt;br/&gt;理由: %11</translation>
     </message>
@@ -293,37 +298,37 @@
         <translation>&lt;b&gt;Zenzai実行時診断を更新できませんでした。&lt;/b&gt; Grimodex IMEサービスへの接続を確認して、もう一度お試しください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="458"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="460"/>
         <source>Disabled in the current profile</source>
         <translation>現在のプロファイルで無効です</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="460"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="462"/>
         <source>Disabled by input security policy</source>
         <translation>入力セキュリティポリシーにより無効です</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="462"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="464"/>
         <source>Zenzai backend is unavailable</source>
         <translation>Zenzaiバックエンドを利用できません</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="464"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="466"/>
         <source>Zenzai model file is missing</source>
         <translation>Zenzaiモデルファイルがありません</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="469"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="471"/>
         <source>Unknown</source>
         <translation>不明</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="497"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="499"/>
         <source>never</source>
         <translation>未実行</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="477"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="479"/>
         <source>&lt;b&gt;Zenzai runtime diagnostics unavailable.&lt;/b&gt; Restart the Grimodex IME service after updating it.</source>
         <translation>&lt;b&gt;Zenzai実行時診断を取得できません。&lt;/b&gt; Grimodex IMEを更新したあと、サービスを再起動してください。</translation>
     </message>

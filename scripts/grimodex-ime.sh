@@ -7,7 +7,7 @@ REPO_ROOT=$(cd -- "${SCRIPT_DIR}/.." && pwd)
 
 BUILD_DIR=${BUILD_DIR:-"${REPO_ROOT}/build-grimodex"}
 INSTALL_PREFIX=${INSTALL_PREFIX:-/usr}
-GGML_VULKAN=${GGML_VULKAN:-OFF}
+GGML_VULKAN=${GGML_VULKAN:-ON}
 SERVER=${GRIMODEX_SERVER:-/usr/bin/fcitx5-grimodex-server}
 RESTART_LOG=${GRIMODEX_RESTART_LOG:-"${HOME}/.cache/fcitx5-grimodex-restart.log"}
 
