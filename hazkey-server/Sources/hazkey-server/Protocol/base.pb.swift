@@ -175,6 +175,11 @@ struct Hazkey_OpenSession: Sendable {
   /// Clears the value of `client`. Subsequent reads from it will return its default value.
   mutating func clearClient() {self._client = nil}
 
+  /// Client capabilities understood by the server. Bit 0 means the client
+  /// can apply SCHEDULE_LIVE_CONVERSION effects. An omitted value identifies
+  /// a pre-debounce client and makes the server preserve immediate conversion.
+  var clientFeatureBits: UInt64 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -545,6 +550,10 @@ struct Hazkey_ClientEffect: Sendable {
 
   var message: String = String()
 
+  var delayMsec: UInt32 = 0
+
+  var scheduledRevision: UInt64 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   enum TypeEnum: SwiftProtobuf.Enum, Swift.CaseIterable {
@@ -554,6 +563,7 @@ struct Hazkey_ClientEffect: Sendable {
     case deleteSurroundingText // = 2
     case switchInputMode // = 3
     case notify // = 4
+    case scheduleLiveConversion // = 5
     case UNRECOGNIZED(Int)
 
     init() {
@@ -567,6 +577,7 @@ struct Hazkey_ClientEffect: Sendable {
       case 2: self = .deleteSurroundingText
       case 3: self = .switchInputMode
       case 4: self = .notify
+      case 5: self = .scheduleLiveConversion
       default: self = .UNRECOGNIZED(rawValue)
       }
     }
@@ -578,6 +589,7 @@ struct Hazkey_ClientEffect: Sendable {
       case .deleteSurroundingText: return 2
       case .switchInputMode: return 3
       case .notify: return 4
+      case .scheduleLiveConversion: return 5
       case .UNRECOGNIZED(let i): return i
       }
     }
@@ -589,6 +601,7 @@ struct Hazkey_ClientEffect: Sendable {
       .deleteSurroundingText,
       .switchInputMode,
       .notify,
+      .scheduleLiveConversion,
     ]
 
   }
@@ -766,6 +779,7 @@ extension Hazkey_OpenSession: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   static let protoMessageName: String = _protobuf_package + ".OpenSession"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "client"),
+    2: .standard(proto: "client_feature_bits"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -775,6 +789,7 @@ extension Hazkey_OpenSession: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularMessageField(value: &self._client) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.clientFeatureBits) }()
       default: break
       }
     }
@@ -788,11 +803,15 @@ extension Hazkey_OpenSession: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
     try { if let v = self._client {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
     } }()
+    if self.clientFeatureBits != 0 {
+      try visitor.visitSingularUInt64Field(value: self.clientFeatureBits, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Hazkey_OpenSession, rhs: Hazkey_OpenSession) -> Bool {
     if lhs._client != rhs._client {return false}
+    if lhs.clientFeatureBits != rhs.clientFeatureBits {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1490,6 +1509,8 @@ extension Hazkey_ClientEffect: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
     5: .same(proto: "after"),
     6: .same(proto: "mode"),
     7: .same(proto: "message"),
+    8: .standard(proto: "delay_msec"),
+    9: .standard(proto: "scheduled_revision"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -1505,6 +1526,8 @@ extension Hazkey_ClientEffect: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
       case 5: try { try decoder.decodeSingularSInt32Field(value: &self.after) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.mode) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self.message) }()
+      case 8: try { try decoder.decodeSingularUInt32Field(value: &self.delayMsec) }()
+      case 9: try { try decoder.decodeSingularUInt64Field(value: &self.scheduledRevision) }()
       default: break
       }
     }
@@ -1532,6 +1555,12 @@ extension Hazkey_ClientEffect: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
     if !self.message.isEmpty {
       try visitor.visitSingularStringField(value: self.message, fieldNumber: 7)
     }
+    if self.delayMsec != 0 {
+      try visitor.visitSingularUInt32Field(value: self.delayMsec, fieldNumber: 8)
+    }
+    if self.scheduledRevision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.scheduledRevision, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1543,6 +1572,8 @@ extension Hazkey_ClientEffect: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
     if lhs.after != rhs.after {return false}
     if lhs.mode != rhs.mode {return false}
     if lhs.message != rhs.message {return false}
+    if lhs.delayMsec != rhs.delayMsec {return false}
+    if lhs.scheduledRevision != rhs.scheduledRevision {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1555,6 +1586,7 @@ extension Hazkey_ClientEffect.TypeEnum: SwiftProtobuf._ProtoNameProviding {
     2: .same(proto: "DELETE_SURROUNDING_TEXT"),
     3: .same(proto: "SWITCH_INPUT_MODE"),
     4: .same(proto: "NOTIFY"),
+    5: .same(proto: "SCHEDULE_LIVE_CONVERSION"),
   ]
 }
 

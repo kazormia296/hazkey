@@ -62,6 +62,14 @@ void HazkeyEngine::deactivate([[maybe_unused]] const InputMethodEntry &entry,
     inputContext->updateUserInterface(UserInterfaceComponent::InputPanel);
 }
 
+void HazkeyEngine::reset([[maybe_unused]] const InputMethodEntry &entry,
+                         InputContextEvent &event) {
+    auto* inputContext = event.inputContext();
+    inputContext->propertyFor(&factory_)->reset();
+    inputContext->updatePreedit();
+    inputContext->updateUserInterface(UserInterfaceComponent::InputPanel);
+}
+
 void HazkeyEngine::setConfig(const RawConfig &config) {
     config_.load(config, true);
     safeSaveAsIni(config_, "conf/grimodex.conf");

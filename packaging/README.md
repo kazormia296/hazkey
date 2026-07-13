@@ -32,11 +32,12 @@ that the source snapshot is an offline-buildable Debian package. The payload
 
 `aur/fcitx5-grimodex-bin` consumes one release archive per architecture. Each
 archive is a DESTDIR-style tree rooted at `usr/` and must ship the root
-`LICENSE`, `NOTICE.md`, and all third-party notices required by its linked or
-bundled components. A same-release `.sha256` sidecar is mandatory and is
-checked before extraction. The committed PKGBUILD is an intentionally
-unpublishable template: its four `RELEASE_*` values must be replaced with the
-archive and sidecar SHA-256 values by `scripts/render_aur_release.py`.
+`LICENSE`, `NOTICE.md`, `THIRDPARTYLICENSE`, and all third-party notices
+required by its linked or bundled components. A same-release `.sha256` sidecar
+is mandatory and is checked before extraction. The committed PKGBUILD is an
+intentionally unpublishable template: its four `RELEASE_*` values must be
+replaced with the archive and sidecar SHA-256 values by
+`scripts/render_aur_release.py`.
 `noextract` keeps makepkg from unpacking either archive before verification.
 
 The release workflow renders this fixed-hash PKGBUILD from both architecture

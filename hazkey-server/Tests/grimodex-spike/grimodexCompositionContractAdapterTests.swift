@@ -334,6 +334,8 @@ final class GrimodexCompositionContractAdapterTests: XCTestCase {
         XCTAssertEqual(expectedEffect.type, "notify", scenarioID)
         XCTAssertEqual(effectID, expectedEffect.effectID, scenarioID)
         XCTAssertEqual(message, expectedEffect.message, scenarioID)
+      case .scheduleLiveConversion:
+        XCTFail("Unexpected schedule_live_conversion effect: \(scenarioID)")
       }
     }
   }

@@ -11,6 +11,7 @@ private final class ReducerFixtureConverter: KanaKanjiConverting {
   var completed = 0
   var forgotten = 0
   var stopCount = 0
+  var realtimeRequests = 0
   var displayOverride: String?
   var predictionCandidates: [ConverterCandidate] = []
   var lastOptions: ConversionOptions?
@@ -67,6 +68,19 @@ private final class ReducerFixtureConverter: KanaKanjiConverting {
     return ConversionOutput(
       candidates: predictionCandidates,
       pageSize: predictionCandidates.count
+    )
+  }
+
+  func realtimeCandidates(
+    for composition: CompositionInput,
+    options: ConversionOptions
+  ) throws -> RealtimeConversionOutput {
+    realtimeRequests += 1
+    let output = try candidates(for: composition, options: options)
+    return RealtimeConversionOutput(
+      liveCandidate: output.candidates.first,
+      candidates: output.candidates,
+      pageSize: output.pageSize
     )
   }
 
@@ -661,6 +675,7 @@ final class GrimodexImeReducerTests: XCTestCase {
     let converter = ReducerFixtureConverter()
     var session = CompositionSession()
     session.policy.autoConvertMode = .forMultipleChars
+    session.policy.liveConversionDelayMilliseconds = 0
     let reducer = ImeReducer(session: session, converter: converter)
 
     let first = reducer.reduce(.insertText("か"), requestID: "first")
@@ -686,12 +701,171 @@ final class GrimodexImeReducerTests: XCTestCase {
     let converter = ReducerFixtureConverter()
     var session = CompositionSession()
     session.policy.autoConvertMode = .always
+    session.policy.liveConversionDelayMilliseconds = 0
     let reducer = ImeReducer(session: session, converter: converter)
 
     let result = reducer.reduce(.insertText("か"), requestID: "insert")
     XCTAssertEqual(result.snapshot.phase, .composing)
     XCTAssertEqual(result.snapshot.preedit.first?.text, "変換")
     XCTAssertEqual(result.snapshot.preedit.first?.style, .active)
+    XCTAssertTrue(result.snapshot.effects.isEmpty)
+    XCTAssertEqual(converter.realtimeRequests, 1)
+  }
+
+  func testAutoConversionSchedulesWithoutCallingTheConverter() throws {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.policy.autoConvertMode = .always
+    session.policy.liveConversionDelayMilliseconds = 228
+    let reducer = ImeReducer(session: session, converter: converter)
+
+    let result = reducer.reduce(.insertText("か"), requestID: "insert")
+
+    XCTAssertEqual(result.status, .success)
+    XCTAssertEqual(result.snapshot.revision, 1)
+    XCTAssertEqual(result.snapshot.phase, .composing)
+    XCTAssertEqual(
+      result.snapshot.preedit,
+      [PreeditSpan(text: "か", style: .underline)]
+    )
+    XCTAssertEqual(
+      result.snapshot.effects,
+      [
+        .scheduleLiveConversion(
+          effectID: 1,
+          delayMilliseconds: 228,
+          scheduledRevision: 1
+        )
+      ]
+    )
+    XCTAssertEqual(converter.realtimeRequests, 0)
+    XCTAssertEqual(try XCTUnwrap(result.snapshot.recovery).nextEffectID, 2)
+  }
+
+  func testOnlyLatestScheduledRevisionAppliesLiveConversionOnce() {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.policy.autoConvertMode = .always
+    session.policy.liveConversionDelayMilliseconds = 228
+    let reducer = ImeReducer(session: session, converter: converter)
+
+    let first = reducer.reduce(.insertText("か"), requestID: "first")
+    let second = reducer.reduce(
+      .insertText("な"),
+      requestID: "second",
+      expectedRevision: first.snapshot.revision
+    )
+    XCTAssertEqual(
+      second.snapshot.effects,
+      [
+        .scheduleLiveConversion(
+          effectID: 2,
+          delayMilliseconds: 228,
+          scheduledRevision: 2
+        )
+      ]
+    )
+    XCTAssertEqual(converter.realtimeRequests, 0)
+
+    let stale = reducer.reduce(
+      .applyLiveConversion(scheduledRevision: 1),
+      requestID: "stale-timer",
+      expectedRevision: second.snapshot.revision
+    )
+    XCTAssertEqual(stale.status, .success)
+    XCTAssertEqual(stale.snapshot.revision, second.snapshot.revision)
+    XCTAssertEqual(
+      stale.snapshot.preedit,
+      [PreeditSpan(text: "かな", style: .underline)]
+    )
+    XCTAssertTrue(stale.snapshot.effects.isEmpty)
+    XCTAssertEqual(converter.realtimeRequests, 0)
+
+    let latest = reducer.reduce(
+      .applyLiveConversion(scheduledRevision: second.snapshot.revision),
+      requestID: "latest-timer",
+      expectedRevision: second.snapshot.revision
+    )
+    XCTAssertEqual(latest.status, .success)
+    XCTAssertEqual(latest.snapshot.revision, 3)
+    XCTAssertEqual(
+      latest.snapshot.preedit,
+      [PreeditSpan(text: "変換", style: .active)]
+    )
+    XCTAssertTrue(latest.snapshot.effects.isEmpty)
+    XCTAssertEqual(converter.realtimeRequests, 1)
+
+    let duplicate = reducer.reduce(
+      .applyLiveConversion(scheduledRevision: second.snapshot.revision),
+      requestID: "latest-timer",
+      expectedRevision: second.snapshot.revision
+    )
+    XCTAssertEqual(duplicate, latest)
+    XCTAssertEqual(converter.realtimeRequests, 1)
+  }
+
+  func testSecureInputNeverSchedulesOrAppliesLiveConversion() {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.policy.autoConvertMode = .always
+    session.policy.liveConversionDelayMilliseconds = 228
+    session.policy.secureInput = true
+    let reducer = ImeReducer(session: session, converter: converter)
+
+    let result = reducer.reduce(.insertText("秘密"), requestID: "secure")
+
+    XCTAssertEqual(result.status, .success)
+    XCTAssertEqual(
+      result.snapshot.preedit,
+      [PreeditSpan(text: "秘密", style: .underline)]
+    )
+    XCTAssertTrue(result.snapshot.effects.isEmpty)
+    XCTAssertNil(result.snapshot.recovery)
+    XCTAssertEqual(converter.realtimeRequests, 0)
+
+    let delayed = reducer.reduce(
+      .applyLiveConversion(scheduledRevision: result.snapshot.revision),
+      requestID: "secure-timer",
+      expectedRevision: result.snapshot.revision
+    )
+    XCTAssertEqual(delayed.status, .success)
+    XCTAssertEqual(delayed.snapshot.revision, result.snapshot.revision)
+    XCTAssertTrue(delayed.snapshot.effects.isEmpty)
+    XCTAssertEqual(converter.realtimeRequests, 0)
+  }
+
+  func testReturningTheCaretToTheEndSchedulesLiveConversion() {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.policy.autoConvertMode = .always
+    session.policy.liveConversionDelayMilliseconds = 228
+    let reducer = ImeReducer(session: session, converter: converter)
+
+    let inserted = reducer.reduce(.insertText("かな"), requestID: "insert")
+    let movedLeft = reducer.reduce(
+      .moveCursor(-1),
+      requestID: "left",
+      expectedRevision: inserted.snapshot.revision
+    )
+    XCTAssertTrue(movedLeft.snapshot.effects.isEmpty)
+    XCTAssertEqual(movedLeft.snapshot.caretUtf8ByteOffset, UInt32("か".utf8.count))
+
+    let movedToEnd = reducer.reduce(
+      .moveCursorToEnd,
+      requestID: "end",
+      expectedRevision: movedLeft.snapshot.revision
+    )
+    XCTAssertEqual(
+      movedToEnd.snapshot.effects,
+      [
+        .scheduleLiveConversion(
+          effectID: 2,
+          delayMilliseconds: 228,
+          scheduledRevision: 3
+        )
+      ]
+    )
+    XCTAssertEqual(converter.realtimeRequests, 0)
   }
 
   func testAutoConversionForMultipleCharsUsesRenderedReadingLength() {
@@ -699,6 +873,7 @@ final class GrimodexImeReducerTests: XCTestCase {
     converter.displayOverride = "か"
     var session = CompositionSession()
     session.policy.autoConvertMode = .forMultipleChars
+    session.policy.liveConversionDelayMilliseconds = 228
     let reducer = ImeReducer(session: session, converter: converter)
 
     let result = reducer.reduce(.insertText("ka"), requestID: "insert")
@@ -706,12 +881,47 @@ final class GrimodexImeReducerTests: XCTestCase {
     XCTAssertEqual(result.snapshot.preedit.first?.text, "か")
     XCTAssertEqual(result.snapshot.preedit.first?.style, .underline)
     XCTAssertNil(reducer.session.candidates?.liveCandidate)
+    XCTAssertTrue(result.snapshot.effects.isEmpty)
+    XCTAssertEqual(converter.realtimeRequests, 0)
+  }
+
+  func testForMultipleCharsStopsSchedulingAfterDeletionToOneCharacter() {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.policy.autoConvertMode = .forMultipleChars
+    session.policy.liveConversionDelayMilliseconds = 228
+    let reducer = ImeReducer(session: session, converter: converter)
+
+    let inserted = reducer.reduce(.insertText("かな"), requestID: "insert")
+    XCTAssertEqual(
+      inserted.snapshot.effects,
+      [
+        .scheduleLiveConversion(
+          effectID: 1,
+          delayMilliseconds: 228,
+          scheduledRevision: 1
+        )
+      ]
+    )
+
+    let deleted = reducer.reduce(
+      .deleteBackward,
+      requestID: "delete",
+      expectedRevision: inserted.snapshot.revision
+    )
+    XCTAssertEqual(
+      deleted.snapshot.preedit,
+      [PreeditSpan(text: "か", style: .underline)]
+    )
+    XCTAssertTrue(deleted.snapshot.effects.isEmpty)
+    XCTAssertEqual(converter.realtimeRequests, 0)
   }
 
   func testLeftDuringAutoConversionMovesTheReadingCursor() {
     let converter = ReducerFixtureConverter()
     var session = CompositionSession()
     session.policy.autoConvertMode = .always
+    session.policy.liveConversionDelayMilliseconds = 0
     let reducer = ImeReducer(session: session, converter: converter)
     _ = reducer.reduce(.insertText("かな"), requestID: "insert")
 
@@ -731,6 +941,7 @@ final class GrimodexImeReducerTests: XCTestCase {
     let converter = ReducerFixtureConverter()
     var session = CompositionSession()
     session.policy.autoConvertMode = .always
+    session.policy.liveConversionDelayMilliseconds = 0
     let reducer = ImeReducer(session: session, converter: converter)
     _ = reducer.reduce(.insertText("かな"), requestID: "insert")
 
@@ -900,7 +1111,8 @@ final class GrimodexImeReducerTests: XCTestCase {
       case .commitText(let id, _),
            .deleteSurroundingText(let id, _, _),
            .switchInputMode(let id, _),
-           .notify(let id, _):
+           .notify(let id, _),
+           .scheduleLiveConversion(let id, _, _):
         return id
       }
     }

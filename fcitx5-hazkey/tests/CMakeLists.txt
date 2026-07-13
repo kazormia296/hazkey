@@ -56,6 +56,19 @@ target_link_libraries(hazkey-session-client-test PRIVATE hazkey-session-protocol
 add_test(NAME hazkey-session-client-test COMMAND hazkey-session-client-test)
 
 add_executable(
+    hazkey-socket-io-test
+    hazkey_socket_io_test.cpp
+    ../src/hazkey_socket_io.cpp
+)
+target_compile_features(hazkey-socket-io-test PRIVATE cxx_std_20)
+target_compile_options(hazkey-socket-io-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(
+    hazkey-socket-io-test
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src"
+)
+add_test(NAME hazkey-socket-io-test COMMAND hazkey-socket-io-test)
+
+add_executable(
     grimodex-product-identity-test
     grimodex_product_identity_test.cpp
 )

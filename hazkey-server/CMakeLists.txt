@@ -203,4 +203,5 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/azooKey_emoji_dictionary_storage/Emoji
 install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE
         ${CMAKE_CURRENT_SOURCE_DIR}/../NOTICE.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/../THIRDPARTYLICENSE
         DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/licenses/fcitx5-grimodex)

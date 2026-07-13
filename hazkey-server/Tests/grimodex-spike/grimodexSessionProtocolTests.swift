@@ -51,6 +51,7 @@ final class GrimodexSessionProtocolTests: XCTestCase {
   func testOpenAndCloseSessionMessagesRoundTripClientIdentity() throws {
     let open = Hazkey_RequestEnvelope.with {
       $0.openSession = Hazkey_OpenSession.with {
+        $0.clientFeatureBits = ImeV2ClientFeatures.current
         $0.client = Hazkey_ClientContext.with {
           $0.program = "grimodex"
           $0.frontend = "wayland"
@@ -65,6 +66,7 @@ final class GrimodexSessionProtocolTests: XCTestCase {
     XCTAssertEqual(command.client.program, "grimodex")
     XCTAssertEqual(command.client.frontend, "wayland")
     XCTAssertTrue(command.client.secureInput)
+    XCTAssertEqual(command.clientFeatureBits, ImeV2ClientFeatures.current)
 
     let close = Hazkey_RequestEnvelope.with {
       $0.closeSession = Hazkey_CloseSession.with { $0.sessionID = "session-a" }

@@ -95,6 +95,9 @@ message Profile {
     optional SuggestionListMode suggestion_list_mode = 13;
     optional bool use_rich_suggestion = 14;
     optional int32 num_suggestions = 15;
+    // 0 applies live conversion immediately. If omitted, the server uses
+    // 228 ms. Values above 1000 ms are clamped by the server.
+    optional uint32 live_conversion_delay_msec = 16;
 
     optional bool use_default_conversion_ui_settings = 20;
     optional int32 num_candidates_per_page = 21;

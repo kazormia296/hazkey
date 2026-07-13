@@ -298,6 +298,7 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
     var secureInput: Bool
     var zenzaiEnabled: Bool
     var autoConvertMode: ImeAutoConvertMode
+    var liveConversionDelayMilliseconds: UInt32
     var projectRevision: UInt64
     var inputTableName: String? = nil
     var keymap: [String: PinnedKeymapRule] = [:]
@@ -308,6 +309,7 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         zenzaiEnabled: true,
         projectRevision: 0,
         autoConvertMode: .disabled,
+        liveConversionDelayMilliseconds: 228,
         inputTableName: nil,
         keymap: [:]
     )
@@ -317,6 +319,7 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         case secureInput
         case zenzaiEnabled
         case autoConvertMode
+        case liveConversionDelayMilliseconds
         case projectRevision
         case inputTableName
         case keymap
@@ -328,6 +331,7 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         zenzaiEnabled: Bool,
         projectRevision: UInt64,
         autoConvertMode: ImeAutoConvertMode = .disabled,
+        liveConversionDelayMilliseconds: UInt32 = 228,
         inputTableName: String? = nil,
         keymap: [String: PinnedKeymapRule] = [:]
     ) {
@@ -335,6 +339,7 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         self.secureInput = secureInput
         self.zenzaiEnabled = zenzaiEnabled
         self.autoConvertMode = autoConvertMode
+        self.liveConversionDelayMilliseconds = liveConversionDelayMilliseconds
         self.projectRevision = projectRevision
         self.inputTableName = inputTableName
         self.keymap = keymap
@@ -349,6 +354,10 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
             ImeAutoConvertMode.self,
             forKey: .autoConvertMode
         ) ?? .disabled
+        liveConversionDelayMilliseconds = try container.decodeIfPresent(
+            UInt32.self,
+            forKey: .liveConversionDelayMilliseconds
+        ) ?? 228
         projectRevision = try container.decode(UInt64.self, forKey: .projectRevision)
         inputTableName = try container.decodeIfPresent(
             String.self,

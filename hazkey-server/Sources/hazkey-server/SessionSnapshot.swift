@@ -72,6 +72,11 @@ enum ClientEffect: Equatable, Codable, Sendable {
     case deleteSurroundingText(effectID: UInt64, before: Int, after: Int)
     case switchInputMode(effectID: UInt64, mode: String)
     case notify(effectID: UInt64, message: String)
+    case scheduleLiveConversion(
+        effectID: UInt64,
+        delayMilliseconds: UInt32,
+        scheduledRevision: UInt64
+    )
 }
 
 struct SessionSnapshot: Equatable, Codable, Sendable {

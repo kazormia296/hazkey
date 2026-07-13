@@ -308,6 +308,7 @@ final class GrimodexSegmentEditingTests: XCTestCase {
     let converter = SegmentEditingFixtureConverter()
     var session = CompositionSession()
     session.policy.autoConvertMode = .always
+    session.policy.liveConversionDelayMilliseconds = 0
     let reducer = ImeReducer(session: session, converter: converter)
     let live = reducer.reduce(.insertText(reading), requestID: "insert-live")
     XCTAssertEqual(live.snapshot.preedit, [PreeditSpan(text: "東京に行く", style: .active)])

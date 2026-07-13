@@ -15,6 +15,10 @@ message ClientContext {
 
 message OpenSession {
     ClientContext client = 1;
+    // Client capabilities understood by the server. Bit 0 means the client
+    // can apply SCHEDULE_LIVE_CONVERSION effects. An omitted value identifies
+    // a pre-debounce client and makes the server preserve immediate conversion.
+    uint64 client_feature_bits = 2;
 }
 
 message OpenSessionResult {
@@ -131,6 +135,7 @@ message ClientEffect {
         DELETE_SURROUNDING_TEXT = 2;
         SWITCH_INPUT_MODE = 3;
         NOTIFY = 4;
+        SCHEDULE_LIVE_CONVERSION = 5;
     }
     uint64 effect_id = 1;
     Type type = 2;
@@ -139,6 +144,8 @@ message ClientEffect {
     sint32 after = 5;
     string mode = 6;
     string message = 7;
+    uint32 delay_msec = 8;
+    uint64 scheduled_revision = 9;
 }
 
 message RecoveryCheckpoint {

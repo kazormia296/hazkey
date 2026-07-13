@@ -30,6 +30,9 @@ class HazkeyEngine : public InputMethodEngineV2 {
     // called when input method changes to another input method
     void deactivate(const InputMethodEntry &, InputContextEvent &) override;
 
+    // called when the focused input context requests a composition reset
+    void reset(const InputMethodEntry &, InputContextEvent &) override;
+
     auto factory() const { return &factory_; }
     auto instance() const { return instance_; }
 

@@ -54,6 +54,12 @@ final class HazkeySessionEnvironment {
             return .disabled
         }
     }
+    var grimodexLiveConversionDelayMilliseconds: UInt32 {
+        guard serverConfig.currentProfile.hasLiveConversionDelayMsec else {
+            return 228
+        }
+        return min(serverConfig.currentProfile.liveConversionDelayMsec, 1_000)
+    }
     var grimodexSuggestionListMode: ImeSuggestionListMode {
         switch serverConfig.currentProfile.suggestionListMode {
         case .suggestionListShowNormalResults:

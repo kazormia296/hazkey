@@ -19,7 +19,7 @@ and their license texts are included in the source archive (or represented by
 Debian packages). Creating a `.dsc` proves the metadata is well-formed; it does
 not prove an offline binary build.
 
-The installed package retains the root `LICENSE` and `NOTICE.md` in
-`/usr/share/licenses/fcitx5-grimodex`. A release builder is also responsible for
-retaining every third-party license required by the recursively included
-sources and statically linked Swift components.
+The installed package retains the root `LICENSE`, `NOTICE.md`, and
+`THIRDPARTYLICENSE` in `/usr/share/licenses/fcitx5-grimodex`. A release builder
+is also responsible for retaining every third-party license required by the
+recursively included sources and statically linked Swift components.

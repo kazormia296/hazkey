@@ -81,9 +81,7 @@ final class ImeReducer {
             session.phase = .composing
             session.composingText.insert(text, keymap: session.policy.keymap)
             clearConversionState()
-            refreshInteractiveCandidates()
-            session.advanceRevision()
-            result = success()
+            result = finishInteractiveEdit()
 
         case .deleteBackward:
             if session.phase == .unicodeInput {
@@ -98,9 +96,7 @@ final class ImeReducer {
             }
             session.composingText.deleteBackward()
             normalizeAfterEditing()
-            refreshInteractiveCandidates()
-            session.advanceRevision()
-            result = success()
+            result = finishInteractiveEdit()
 
         case .deleteForward:
             guard session.phase != .unicodeInput else {
@@ -109,9 +105,7 @@ final class ImeReducer {
             }
             session.composingText.deleteForward()
             normalizeAfterEditing()
-            refreshInteractiveCandidates()
-            session.advanceRevision()
-            result = success()
+            result = finishInteractiveEdit()
 
         case .moveCursor(let offset):
             guard session.phase == .composing || session.phase == .previewing else {
@@ -137,9 +131,7 @@ final class ImeReducer {
             converter.stopComposition()
             session.phase = .composing
             clearConversionState()
-            refreshInteractiveCandidates()
-            session.advanceRevision()
-            result = success()
+            result = finishInteractiveEdit()
 
         case .moveCursorToStart, .moveCursorToEnd:
             guard session.phase == .composing || session.phase == .previewing else {
@@ -154,7 +146,22 @@ final class ImeReducer {
             converter.stopComposition()
             session.phase = .composing
             clearConversionState()
-            refreshInteractiveCandidates()
+            result = finishInteractiveEdit()
+
+        case .applyLiveConversion(let scheduledRevision):
+            guard scheduledRevision == session.revision else {
+                // The normal expected_revision field is refreshed by the C++
+                // client before retries. Preserve the timer's original
+                // revision here so an obsolete callback cannot convert newer
+                // input, while still returning success to prevent a retry.
+                result = success()
+                break
+            }
+            guard shouldScheduleLiveConversion() else {
+                result = success()
+                break
+            }
+            refreshRealtimeCandidates()
             session.advanceRevision()
             result = success()
 
@@ -410,12 +417,56 @@ final class ImeReducer {
         return result
     }
 
-    private func refreshInteractiveCandidates() {
+    private func finishInteractiveEdit() -> ImeReductionResult {
         guard session.policy.autoConvertMode != .disabled else {
             refreshPredictions()
-            return
+            session.advanceRevision()
+            return success()
         }
-        refreshRealtimeCandidates()
+        guard shouldScheduleLiveConversion() else {
+            session.advanceRevision()
+            return success()
+        }
+
+        let delay = min(session.policy.liveConversionDelayMilliseconds, 1_000)
+        if delay == 0 {
+            refreshRealtimeCandidates()
+            session.advanceRevision()
+            return success()
+        }
+
+        // Reserve the effect before checkpointing so recovery cannot reuse its
+        // ID. The scheduled revision is the post-edit revision published with
+        // this effect.
+        let effectID = session.allocateEffectID()
+        let scheduledRevision = session.revision &+ 1
+        session.advanceRevision()
+        return success(effects: [
+            .scheduleLiveConversion(
+                effectID: effectID,
+                delayMilliseconds: delay,
+                scheduledRevision: scheduledRevision
+            )
+        ])
+    }
+
+    private func shouldScheduleLiveConversion() -> Bool {
+        guard session.phase == .composing,
+              !session.composingText.isEmpty,
+              !session.policy.secureInput,
+              session.composingText.cursor == session.composingText.elements.count else {
+            return false
+        }
+        switch session.policy.autoConvertMode {
+        case .disabled:
+            return false
+        case .always:
+            return true
+        case .forMultipleChars:
+            // Composition elements are keystrokes. Use the rendered reading so
+            // Romaji such as "ka" still counts as one Japanese character.
+            return currentDisplay().text.count > 1
+        }
     }
 
     private func refreshRealtimeCandidates() {
@@ -1213,7 +1264,8 @@ final class ImeReducer {
                 && (element.mappedIntention?.count ?? 0) <= 1
                 && (element.mappedInputOverride?.count ?? 0) <= 1
         }) else { return false }
-        guard checkpoint.policy.keymap.count <= 4_096,
+        guard checkpoint.policy.liveConversionDelayMilliseconds <= 1_000,
+              checkpoint.policy.keymap.count <= 4_096,
               checkpoint.policy.keymap.allSatisfy({ key, rule in
                   key.count == 1
                       && rule.intention.count == 1

@@ -44,6 +44,13 @@ message MoveActiveSegment {
     int32 offset = 1;
 }
 
+message ApplyLiveConversion {
+    // CompositionSession revision captured when the debounce timer was
+    // scheduled. A mismatch is a successful no-op, not a retryable stale
+    // revision error.
+    uint64 scheduled_revision = 1;
+}
+
 message CommitSelected {}
 message CommitAll {}
 message Cancel {}
@@ -140,5 +147,6 @@ message HandleImeAction {
         AppendUnicodeDigit append_unicode_digit = 30;
         CommitUnicodeInput commit_unicode_input = 31;
         MoveActiveSegment move_active_segment = 32;
+        ApplyLiveConversion apply_live_conversion = 33;
     }
 }

@@ -15,3 +15,7 @@ verified copy of Grimodex's semantic contract. They contain behavior data, not
 macOS or Windows implementation source. No azooKey Desktop or azooKey Windows
 source was copied into the Linux runtime; those repositories remain reference
 implementations connected only through the shared contract.
+
+The delayed live-conversion debounce was independently implemented with
+reference to [Mozkey](https://github.com/koyasi777/mozkey). See
+`THIRDPARTYLICENSE` for the attribution and upstream license links.

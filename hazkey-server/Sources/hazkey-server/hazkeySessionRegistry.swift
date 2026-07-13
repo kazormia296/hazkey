@@ -162,9 +162,14 @@ final class HazkeySessionRegistry {
     @discardableResult
     func open(
         clientContext: GrimodexClientContext,
-        ownerFd: Int32
+        ownerFd: Int32,
+        clientFeatureBits: UInt64 = ImeV2ClientFeatures.current
     ) -> String {
-        switch attemptOpen(clientContext: clientContext, ownerFd: ownerFd) {
+        switch attemptOpen(
+            clientContext: clientContext,
+            ownerFd: ownerFd,
+            clientFeatureBits: clientFeatureBits
+        ) {
         case .success(let sessionID):
             return sessionID
         case .failure(.resourceExhausted):
@@ -175,7 +180,8 @@ final class HazkeySessionRegistry {
     @discardableResult
     func attemptOpen(
         clientContext: GrimodexClientContext,
-        ownerFd: Int32
+        ownerFd: Int32,
+        clientFeatureBits: UInt64 = ImeV2ClientFeatures.current
     ) -> Result<String, HazkeySessionOpenError> {
         pruneExpiredSessions()
         while sessions.values.lazy.filter({ $0.ownerFd == ownerFd }).count
@@ -208,6 +214,11 @@ final class HazkeySessionRegistry {
         environment.refreshGrimodexIntegration()
         environment.replaceUserDictionary(userDictionaryStore.entries)
         let appliedRevision = environment.grimodexAppliedRevision
+        let supportsScheduledLiveConversion =
+            clientFeatureBits & ImeV2ClientFeatures.scheduleLiveConversionEffect != 0
+        let liveConversionDelayMilliseconds = supportsScheduledLiveConversion
+            ? environment.grimodexLiveConversionDelayMilliseconds
+            : 0
         let semanticSession = CompositionSession(
             sessionID: sessionID,
             context: SessionContext(
@@ -221,6 +232,7 @@ final class HazkeySessionRegistry {
                 zenzaiEnabled: !environment.grimodexSecureInput,
                 projectRevision: appliedRevision?.generation ?? 0,
                 autoConvertMode: environment.grimodexAutoConvertMode,
+                liveConversionDelayMilliseconds: liveConversionDelayMilliseconds,
                 inputTableName: environment.currentTableName,
                 keymap: pinnedKeymap(environment.keymap)
             )
@@ -282,6 +294,9 @@ final class HazkeySessionRegistry {
                     zenzaiEnabled: !environment.grimodexSecureInput,
                     projectRevision: revision?.generation ?? 0,
                     autoConvertMode: environment.grimodexAutoConvertMode,
+                    liveConversionDelayMilliseconds: supportsScheduledLiveConversion
+                        ? environment.grimodexLiveConversionDelayMilliseconds
+                        : 0,
                     inputTableName: environment.currentTableName,
                     keymap: pinnedKeymap(environment.keymap)
                 )

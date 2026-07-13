@@ -28,6 +28,7 @@ enum ImeAction: Equatable, Codable, Sendable {
     case navigateCandidatePage(Int)
     case resizeSegment(Int)
     case moveActiveSegment(Int)
+    case applyLiveConversion(scheduledRevision: UInt64)
     case commitSelected
     case commitAll
     case cancel
@@ -111,6 +112,7 @@ extension ImeAction {
         case deleteBefore
         case deleteAfter
         case data
+        case scheduledRevision
     }
 
     private enum Kind: String, Codable {
@@ -125,6 +127,7 @@ extension ImeAction {
         case navigateCandidatePage
         case resizeSegment
         case moveActiveSegment
+        case applyLiveConversion
         case commitSelected
         case commitAll
         case cancel
@@ -155,6 +158,13 @@ extension ImeAction {
         case .resizeSegment: self = .resizeSegment(try container.decode(Int.self, forKey: .offset))
         case .moveActiveSegment:
             self = .moveActiveSegment(try container.decode(Int.self, forKey: .offset))
+        case .applyLiveConversion:
+            self = .applyLiveConversion(
+                scheduledRevision: try container.decode(
+                    UInt64.self,
+                    forKey: .scheduledRevision
+                )
+            )
         case .commitSelected: self = .commitSelected
         case .commitAll: self = .commitAll
         case .cancel: self = .cancel
@@ -224,6 +234,9 @@ extension ImeAction {
         case .resizeSegment(let delta): try encode(.resizeSegment); try container.encode(delta, forKey: .offset)
         case .moveActiveSegment(let delta):
             try encode(.moveActiveSegment); try container.encode(delta, forKey: .offset)
+        case .applyLiveConversion(let scheduledRevision):
+            try encode(.applyLiveConversion)
+            try container.encode(scheduledRevision, forKey: .scheduledRevision)
         case .commitSelected: try encode(.commitSelected)
         case .commitAll: try encode(.commitAll)
         case .cancel: try encode(.cancel)

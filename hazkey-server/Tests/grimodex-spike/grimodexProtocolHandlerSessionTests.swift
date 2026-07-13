@@ -37,6 +37,54 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
     )
   }
 
+  func testLegacyClientKeepsImmediateConversionWhileCurrentClientGetsDelayEffect() throws {
+    let config = HazkeyServerConfig()
+    config.currentProfile.autoConvertMode = .autoConvertAlways
+    config.currentProfile.liveConversionDelayMsec = 228
+    let registry = HazkeySessionRegistry(serverConfig: config)
+    let handler = ProtocolHandler(sessionRegistry: registry)
+
+    let legacySession = try openSession(
+      handler: handler,
+      clientFd: 10,
+      program: "legacy",
+      clientFeatureBits: 0
+    )
+    let legacyResponse = try process(
+      actionRequest(legacySession, requestID: "legacy-insert") {
+        $0.insertText = Hazkey_Commands_InsertText.with { $0.text = "あ" }
+      },
+      handler: handler,
+      clientFd: 10
+    )
+    XCTAssertEqual(legacyResponse.status, .success)
+    XCTAssertTrue(legacyResponse.handleImeActionResult.snapshot.effects.isEmpty)
+
+    let currentSession = try openSession(
+      handler: handler,
+      clientFd: 11,
+      program: "current",
+      clientFeatureBits: ImeV2ClientFeatures.current
+    )
+    let currentResponse = try process(
+      actionRequest(currentSession, requestID: "current-insert") {
+        $0.insertText = Hazkey_Commands_InsertText.with { $0.text = "あ" }
+      },
+      handler: handler,
+      clientFd: 11
+    )
+    XCTAssertEqual(currentResponse.status, .success)
+    XCTAssertEqual(currentResponse.handleImeActionResult.snapshot.effects.count, 1)
+    XCTAssertEqual(
+      currentResponse.handleImeActionResult.snapshot.effects.first?.type,
+      .scheduleLiveConversion
+    )
+    XCTAssertEqual(
+      currentResponse.handleImeActionResult.snapshot.effects.first?.delayMsec,
+      228
+    )
+  }
+
   func testConversionRequestsAreRoutedToIndependentSessions() throws {
     let registry = HazkeySessionRegistry()
     let handler = ProtocolHandler(sessionRegistry: registry)
@@ -446,11 +494,13 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
   private func openSession(
     handler: ProtocolHandler,
     clientFd: Int32,
-    program: String
+    program: String,
+    clientFeatureBits: UInt64 = 0
   ) throws -> String {
     let response = try process(
       Hazkey_RequestEnvelope.with {
         $0.openSession = Hazkey_OpenSession.with {
+          $0.clientFeatureBits = clientFeatureBits
           $0.client = Hazkey_ClientContext.with {
             $0.program = program
             $0.frontend = "wayland"

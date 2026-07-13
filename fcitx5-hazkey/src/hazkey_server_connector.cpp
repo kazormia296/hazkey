@@ -28,81 +28,24 @@
 #include "base.pb.h"
 #include "commands.pb.h"
 #include "grimodex_product_identity.h"
+#include "hazkey_socket_io.h"
 
 namespace {
 
 std::mutex transactMutex;
 
-bool writeAll(int fd, const void* data, std::size_t length) {
-    std::size_t sent = 0;
-    while (sent < length) {
-        const auto count =
-            write(fd, static_cast<const char*>(data) + sent, length - sent);
-        if (count < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                fd_set writable;
-                FD_ZERO(&writable);
-                FD_SET(fd, &writable);
-                timeval timeout = {2, 0};
-                const int result =
-                    select(fd + 1, nullptr, &writable, nullptr, &timeout);
-                if (result <= 0) {
-                    FCITX_ERROR() << "Grimodex socket write timeout";
-                    return false;
-                }
-                continue;
-            }
-            return false;
-        }
-        if (count == 0) {
-            return false;
-        }
-        sent += static_cast<std::size_t>(count);
-    }
-    return true;
-}
-
-bool readAll(int fd, void* data, std::size_t length) {
-    std::size_t received = 0;
-    while (received < length) {
-        const auto count =
-            read(fd, static_cast<char*>(data) + received, length - received);
-        if (count < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                fd_set readable;
-                FD_ZERO(&readable);
-                FD_SET(fd, &readable);
-                timeval timeout = {10, 0};
-                const int result =
-                    select(fd + 1, &readable, nullptr, nullptr, &timeout);
-                if (result <= 0) {
-                    FCITX_ERROR() << "Grimodex socket read timeout";
-                    return false;
-                }
-                continue;
-            }
-            return false;
-        }
-        if (count == 0) {
-            return false;
-        }
-        received += static_cast<std::size_t>(count);
-    }
-    return true;
-}
+constexpr auto bestEffortBudget = std::chrono::milliseconds(250);
 
 }  // namespace
 
 HazkeyServerConnector::HazkeyServerConnector()
     : sessionClient_([this](const hazkey::RequestEnvelope& request,
                             bool tryConnect) {
-          return transact(request, tryConnect);
+          return transact(request, tryConnect, HazkeyTransportPolicy::normal);
+      },
+      [this](const hazkey::RequestEnvelope& request, bool tryConnect) {
+          return transact(request, tryConnect,
+                          HazkeyTransportPolicy::bestEffort);
       }) {}
 
 HazkeyServerConnector::~HazkeyServerConnector() {
@@ -135,6 +78,12 @@ void HazkeyServerSession::abandonUnconfirmedInput() {
 std::optional<hazkey::ResponseEnvelope> HazkeyServerSession::transactV2(
     hazkey::commands::HandleImeAction action, bool tryConnect) {
     return connector_.transactV2(session_, std::move(action), tryConnect);
+}
+
+std::optional<hazkey::ResponseEnvelope>
+HazkeyServerSession::transactV2BestEffort(
+    hazkey::commands::HandleImeAction action) {
+    return connector_.transactV2BestEffort(session_, std::move(action));
 }
 
 std::string HazkeyServerConnector::getSocketPath() {
@@ -231,8 +180,21 @@ void HazkeyServerConnector::connectServer() {
 }
 
 std::optional<hazkey::ResponseEnvelope> HazkeyServerConnector::transact(
-    const hazkey::RequestEnvelope& request, bool tryConnect) {
-    std::lock_guard<std::mutex> lock(transactMutex);
+    const hazkey::RequestEnvelope& request, bool tryConnect,
+    HazkeyTransportPolicy policy) {
+    std::unique_lock<std::mutex> lock(transactMutex, std::defer_lock);
+    if (policy == HazkeyTransportPolicy::bestEffort) {
+        if (!lock.try_lock()) {
+            return std::nullopt;
+        }
+    } else {
+        lock.lock();
+    }
+
+    grimodex::ime::socketio::Deadline deadline;
+    if (policy == HazkeyTransportPolicy::bestEffort) {
+        deadline = std::chrono::steady_clock::now() + bestEffortBudget;
+    }
 
     if (sock_ < 0) {
         if (!tryConnect) {
@@ -252,8 +214,11 @@ std::optional<hazkey::ResponseEnvelope> HazkeyServerConnector::transact(
     }
 
     uint32_t networkLength = htonl(static_cast<uint32_t>(message.size()));
-    if (!writeAll(sock_, &networkLength, sizeof(networkLength)) ||
-        !writeAll(sock_, message.data(), message.size())) {
+    if (!grimodex::ime::socketio::writeAll(
+            sock_, &networkLength, sizeof(networkLength), deadline) ||
+        !grimodex::ime::socketio::writeAll(
+            sock_, message.data(), message.size(), deadline)) {
+        FCITX_ERROR() << "Grimodex socket write timeout or failure";
         close(sock_);
         sock_ = -1;
         if (tryConnect) {
@@ -263,7 +228,10 @@ std::optional<hazkey::ResponseEnvelope> HazkeyServerConnector::transact(
     }
 
     uint32_t responseLengthBuffer = 0;
-    if (!readAll(sock_, &responseLengthBuffer, sizeof(responseLengthBuffer))) {
+    if (!grimodex::ime::socketio::readAll(
+            sock_, &responseLengthBuffer, sizeof(responseLengthBuffer),
+            deadline)) {
+        FCITX_ERROR() << "Grimodex socket response-header timeout or failure";
         close(sock_);
         sock_ = -1;
         return std::nullopt;
@@ -278,7 +246,9 @@ std::optional<hazkey::ResponseEnvelope> HazkeyServerConnector::transact(
     }
 
     std::vector<char> buffer(responseLength);
-    if (!readAll(sock_, buffer.data(), buffer.size())) {
+    if (!grimodex::ime::socketio::readAll(
+            sock_, buffer.data(), buffer.size(), deadline)) {
+        FCITX_ERROR() << "Grimodex socket response-body timeout or failure";
         close(sock_);
         sock_ = -1;
         return std::nullopt;
@@ -298,4 +268,11 @@ std::optional<hazkey::ResponseEnvelope> HazkeyServerConnector::transactV2(
     hazkey::commands::HandleImeAction action,
     bool tryConnect) {
     return sessionClient_.transactV2(session, std::move(action), tryConnect);
+}
+
+std::optional<hazkey::ResponseEnvelope>
+HazkeyServerConnector::transactV2BestEffort(
+    HazkeyClientSession& session,
+    hazkey::commands::HandleImeAction action) {
+    return sessionClient_.transactV2BestEffort(session, std::move(action));
 }

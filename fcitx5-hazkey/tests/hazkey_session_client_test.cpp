@@ -13,11 +13,13 @@ namespace {
 class FakeTransport {
    public:
     std::vector<hazkey::RequestEnvelope> requests;
+    std::vector<bool> tryConnectValues;
     std::vector<std::optional<hazkey::ResponseEnvelope>> responses;
 
     std::optional<hazkey::ResponseEnvelope> transact(
-        const hazkey::RequestEnvelope& request, bool) {
+        const hazkey::RequestEnvelope& request, bool tryConnect) {
         requests.push_back(request);
+        tryConnectValues.push_back(tryConnect);
         if (responses.empty()) {
             return std::nullopt;
         }
@@ -112,6 +114,8 @@ void reopensAndRetriesOnlyOnce() {
     expect(response->status() == hazkey::SUCCESS, "retried command must succeed");
     expect(transport.requests.size() == 4, "exactly four RPCs are expected");
     expect(transport.requests[0].has_open_session(), "first RPC must open");
+    expect(transport.requests[0].open_session().client_feature_bits() == 1,
+           "current clients must advertise delayed-effect support");
     expect(transport.requests[1].session_id() == "session-1", "first command uses session-1");
     expect(transport.requests[2].has_open_session(), "third RPC must reopen");
     expect(transport.requests[3].session_id() == "session-2", "retry uses session-2");
@@ -346,6 +350,50 @@ void retriesLostV2ResponsesWithTheSameRequestID() {
            "the journal must retain the last confirmed snapshot");
 }
 
+void failedBestEffortActionIsNotReplayedBeforeTheNextAction() {
+    FakeTransport normalTransport;
+    normalTransport.responses = {
+        openSuccess("session-v2"),
+        v2Response(1, "checkpoint-1", hazkey::SUCCESS, "a"),
+    };
+    FakeTransport bestEffortTransport;
+    bestEffortTransport.responses = {
+        std::nullopt,
+    };
+    HazkeySessionClient client(
+        [&normalTransport](const auto& request, bool tryConnect) {
+            return normalTransport.transact(request, tryConnect);
+        },
+        [&bestEffortTransport](const auto& request, bool tryConnect) {
+            return bestEffortTransport.transact(request, tryConnect);
+        });
+    HazkeyClientSession session(context());
+    expect(client.open(session), "best-effort session must open");
+
+    hazkey::commands::HandleImeAction delayed;
+    delayed.mutable_apply_live_conversion()->set_scheduled_revision(0);
+    const auto delayedResult =
+        client.transactV2BestEffort(session, std::move(delayed));
+
+    expect(!delayedResult.has_value(),
+           "a lost best-effort response must remain unconfirmed");
+    expect(session.pendingActionCount() == 0,
+           "a failed best-effort action must never enter the recovery journal");
+    expect(bestEffortTransport.requests.size() == 1,
+           "best-effort work must not use the normal idempotent retry");
+    expect(!bestEffortTransport.tryConnectValues.front(),
+           "best-effort work must not reconnect");
+
+    const auto normalResult = client.transactV2(session, inputAction());
+    expect(normalResult.has_value() &&
+               normalResult->status() == hazkey::SUCCESS,
+           "the next normal action must still succeed");
+    expect(normalTransport.requests.size() == 2,
+           "normal transport must contain only open and the next action");
+    expect(normalTransport.requests[1].handle_ime_action().has_insert_text(),
+           "the first normal request after best-effort failure must be the edit");
+}
+
 void abandoningAFallthroughKeyClearsItsRecoveryJournal() {
     FakeTransport transport;
     transport.responses = {
@@ -531,6 +579,7 @@ int main() {
     replacesSessionWhenClientContextChanges();
     tracksV2CapabilitiesRevisionAndEffectDeduplication();
     retriesLostV2ResponsesWithTheSameRequestID();
+    failedBestEffortActionIsNotReplayedBeforeTheNextAction();
     abandoningAFallthroughKeyClearsItsRecoveryJournal();
     replaysAnUnacknowledgedJournalEntryBeforeTheNextAction();
     restoresCheckpointBeforeReplayingAfterServerRestart();

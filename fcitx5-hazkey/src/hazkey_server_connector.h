@@ -12,6 +12,11 @@
 
 class HazkeyServerConnector;
 
+enum class HazkeyTransportPolicy {
+    normal,
+    bestEffort,
+};
+
 /// One Protocol-v2 conversion session owned by an Fcitx InputContext.
 class HazkeyServerSession {
    public:
@@ -32,6 +37,8 @@ class HazkeyServerSession {
     }
     std::optional<hazkey::ResponseEnvelope> transactV2(
         hazkey::commands::HandleImeAction action, bool tryConnect = true);
+    std::optional<hazkey::ResponseEnvelope> transactV2BestEffort(
+        hazkey::commands::HandleImeAction action);
 
    private:
     HazkeyServerConnector& connector_;
@@ -50,7 +57,8 @@ class HazkeyServerConnector {
     void connectServer();
     void startHazkeyServer(bool forceRestart);
     std::optional<hazkey::ResponseEnvelope> transact(
-        const hazkey::RequestEnvelope& request, bool tryConnect = true);
+        const hazkey::RequestEnvelope& request, bool tryConnect = true,
+        HazkeyTransportPolicy policy = HazkeyTransportPolicy::normal);
 
    private:
     friend class HazkeyServerSession;
@@ -59,6 +67,9 @@ class HazkeyServerConnector {
         HazkeyClientSession& session,
         hazkey::commands::HandleImeAction action,
         bool tryConnect = true);
+    std::optional<hazkey::ResponseEnvelope> transactV2BestEffort(
+        HazkeyClientSession& session,
+        hazkey::commands::HandleImeAction action);
 
     HazkeySessionClient sessionClient_;
     int sock_ = -1;

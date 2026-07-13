@@ -11,6 +11,7 @@ on:
       - "protocol/**"
       - "LICENSE"
       - "NOTICE.md"
+      - "THIRDPARTYLICENSE"
       - "debian/**"
       - "packaging/**"
       - ".github/workflows/build.yml"

@@ -62,6 +62,7 @@ package() {
   test -L "${pkgdir}/usr/bin/fcitx5-grimodex-settings"
   test -f "${pkgdir}/usr/share/licenses/fcitx5-grimodex/LICENSE"
   test -f "${pkgdir}/usr/share/licenses/fcitx5-grimodex/NOTICE.md"
+  test -f "${pkgdir}/usr/share/licenses/fcitx5-grimodex/THIRDPARTYLICENSE"
 
   if find "${pkgdir}/usr" -print | grep -Eqi '(^|/)hazkey([^/]*)(/|$)'; then
     printf 'Release archive contains a public Hazkey path\n' >&2

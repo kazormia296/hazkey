@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <ctime>
 #include <limits>
 #include <optional>
 #include <string>
@@ -85,6 +86,7 @@ void HazkeyState::capabilityAboutToChange(CapabilityFlags newFlags) {
     if (!transition.contextChanged) {
         return;
     }
+    cancelLiveConversionTimer();
 
     if (transition.clearPreedit) {
         // Crossing a secure-input boundary intentionally drops any text from
@@ -98,6 +100,7 @@ void HazkeyState::capabilityAboutToChange(CapabilityFlags newFlags) {
 }
 
 void HazkeyState::discardLocalComposition() {
+    cancelLiveConversionTimer();
     snapshot_.Clear();
     snapshot_.set_phase(hazkey::IDLE);
     ic_->inputPanel().reset();
@@ -122,6 +125,7 @@ bool HazkeyState::isAltDigitKeyEvent(const KeyEvent& event) const {
 }
 
 void HazkeyState::commitPreedit() {
+    cancelLiveConversionTimer();
     if (protocolAvailable_ && snapshot_.phase() != hazkey::IDLE) {
         dispatchV2(HazkeySemanticAction{HazkeySemanticActionKind::commitAll});
     }
@@ -174,6 +178,9 @@ void HazkeyState::keyEventV2(KeyEvent& event) {
         event.filter();
         return;
     }
+    // Every semantic key supersedes a pending debounce. A successful text edit
+    // response will install the replacement timer through its ClientEffect.
+    cancelLiveConversionTimer();
     if (action->kind == HazkeySemanticActionKind::consume) {
         event.filterAndAccept();
         return;
@@ -438,6 +445,10 @@ bool HazkeyState::applyV2Response(
             case hazkey::ClientEffect::NOTIFY:
                 notification = effect.message();
                 break;
+            case hazkey::ClientEffect::SCHEDULE_LIVE_CONVERSION:
+                scheduleLiveConversion(effect.effect_id(), effect.delay_msec(),
+                                       effect.scheduled_revision());
+                break;
             case hazkey::ClientEffect::TYPE_UNSPECIFIED:
             default:
                 break;
@@ -463,6 +474,7 @@ void HazkeyState::renderV2Snapshot() {
         snapshot_.candidate_window().items(),
         snapshot_.candidate_window().generation(),
         [this](const std::string& id, uint64_t generation) {
+            cancelLiveConversionTimer();
             hazkey::commands::HandleImeAction request;
             auto* select = request.mutable_select_candidate();
             select->set_candidate_id(id);
@@ -483,7 +495,49 @@ void HazkeyState::renderV2Snapshot() {
     ic_->inputPanel().setCandidateList(std::move(candidateList));
 }
 
+void HazkeyState::scheduleLiveConversion(uint64_t effectID, uint32_t delayMs,
+                                         uint64_t scheduledRevision) {
+    cancelLiveConversionTimer();
+    pendingLiveConversionEffectID_ = effectID;
+    const auto boundedDelay = std::min<uint32_t>(delayMs, 1000);
+    const uint64_t deadline =
+        now(CLOCK_MONOTONIC) + static_cast<uint64_t>(boundedDelay) * 1000ULL;
+    liveConversionTimer_ = engine_->instance()->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC, deadline, 1000,
+        [this, effectID, scheduledRevision](EventSourceTime*, uint64_t) {
+            if (effectID != pendingLiveConversionEffectID_) {
+                return true;
+            }
+            pendingLiveConversionEffectID_ = 0;
+            applyDelayedLiveConversion(effectID, scheduledRevision);
+            return true;
+        });
+    liveConversionTimer_->setOneShot();
+}
+
+void HazkeyState::cancelLiveConversionTimer() {
+    pendingLiveConversionEffectID_ = 0;
+    liveConversionTimer_.reset();
+}
+
+void HazkeyState::applyDelayedLiveConversion(uint64_t effectID,
+                                             uint64_t scheduledRevision) {
+    // The effect ID participates in the local stale-callback guard above. The
+    // scheduled revision travels over the wire because the normal client
+    // request revision is refreshed during recovery and retry.
+    (void)effectID;
+    hazkey::commands::HandleImeAction request;
+    request.mutable_apply_live_conversion()->set_scheduled_revision(
+        scheduledRevision);
+    (void)applyV2Response(server_.transactV2BestEffort(std::move(request)));
+    // Timer callbacks do not return through HazkeyEngine::keyEvent(). Flush the
+    // new snapshot explicitly.
+    ic_->updatePreedit();
+    ic_->updateUserInterface(UserInterfaceComponent::InputPanel);
+}
+
 void HazkeyState::reset() {
+    cancelLiveConversionTimer();
     if (protocolAvailable_) {
         for (int attempt = 0;
              attempt < 3 && snapshot_.phase() != hazkey::IDLE; ++attempt) {

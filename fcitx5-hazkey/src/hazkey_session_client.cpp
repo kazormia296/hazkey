@@ -6,6 +6,7 @@
 
 namespace {
 std::atomic<uint64_t> nextRequestID{1};
+constexpr uint64_t scheduleLiveConversionClientFeature = 1ULL << 0;
 }
 
 HazkeyClientContextTransition evaluateHazkeyClientContextTransition(
@@ -27,7 +28,9 @@ HazkeyClientContextTransition evaluateHazkeyClientContextTransition(
 
 bool HazkeySessionClient::open(HazkeyClientSession& session, bool tryConnect) {
     hazkey::RequestEnvelope request;
-    auto* client = request.mutable_open_session()->mutable_client();
+    auto* openSession = request.mutable_open_session();
+    openSession->set_client_feature_bits(scheduleLiveConversionClientFeature);
+    auto* client = openSession->mutable_client();
     client->set_program(session.context_.program);
     client->set_frontend(session.context_.frontend);
     client->set_secure_input(session.context_.secureInput);
@@ -137,7 +140,7 @@ bool HazkeySessionClient::updateContext(HazkeyClientSession& session,
 
 std::optional<hazkey::ResponseEnvelope> HazkeySessionClient::executeV2(
     HazkeyClientSession& session, hazkey::commands::HandleImeAction action,
-    bool tryConnect) {
+    bool tryConnect, bool allowSessionRecovery, bool bestEffort) {
     if (session.id_.empty() && !open(session, tryConnect)) {
         return std::nullopt;
     }
@@ -146,7 +149,8 @@ std::optional<hazkey::ResponseEnvelope> HazkeySessionClient::executeV2(
         hazkey::RequestEnvelope request;
         request.set_session_id(session.id_);
         *request.mutable_handle_ime_action() = value;
-        return transport_(request, tryConnect);
+        return (bestEffort ? bestEffortTransport_ : transport_)(request,
+                                                                tryConnect);
     };
     const auto updateSnapshot = [&](const hazkey::ResponseEnvelope& response) {
         const hazkey::SessionSnapshot* snapshot = nullptr;
@@ -180,11 +184,15 @@ std::optional<hazkey::ResponseEnvelope> HazkeySessionClient::executeV2(
     };
 
     auto response = send(action);
-    if (!response.has_value() && session.capabilities_.idempotentRequestSupport) {
+    if (!response.has_value() && !bestEffort &&
+        session.capabilities_.idempotentRequestSupport) {
         response = send(action);
     }
 
     if (response.has_value() && response->status() == hazkey::SESSION_NOT_FOUND) {
+        if (!allowSessionRecovery) {
+            return std::nullopt;
+        }
         session.id_.clear();
         if (!open(session, tryConnect) || !session.capabilities_.supportsV2()) {
             if (session.recoveryHandler_) {
@@ -267,6 +275,9 @@ std::optional<hazkey::ResponseEnvelope> HazkeySessionClient::executeV2(
     if (response->has_handle_ime_action_result() &&
         response->handle_ime_action_result().status() ==
             hazkey::STALE_REVISION) {
+        if (bestEffort) {
+            return response;
+        }
         action.set_request_id(
             "fcitx-" + std::to_string(nextRequestID.fetch_add(1)));
         action.set_expected_revision(session.revision());
@@ -338,4 +349,23 @@ std::optional<hazkey::ResponseEnvelope> HazkeySessionClient::transactV2(
         session.journal_.acknowledge(requestID);
     }
     return response;
+}
+
+std::optional<hazkey::ResponseEnvelope>
+HazkeySessionClient::transactV2BestEffort(
+    HazkeyClientSession& session,
+    hazkey::commands::HandleImeAction action) {
+    // A timer must never jump ahead of an unconfirmed semantic key. It also
+    // must not become replayable itself: a cancelled live conversion cannot be
+    // allowed to run before a later Enter, Space, or edit during recovery.
+    if (session.id_.empty() || !session.journal_.pending().empty()) {
+        return std::nullopt;
+    }
+    if (action.request_id().empty()) {
+        action.set_request_id(
+            "fcitx-best-effort-" +
+            std::to_string(nextRequestID.fetch_add(1)));
+    }
+    action.set_expected_revision(session.revision());
+    return executeV2(session, std::move(action), false, false, true);
 }

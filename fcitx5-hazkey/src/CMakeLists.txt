@@ -4,7 +4,7 @@ set(PROTO_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/../../protocol/config.proto
 )
 
-add_library(fcitx5-hazkey SHARED hazkey_state.cpp hazkey_engine.cpp hazkey_candidate.cpp hazkey_server_connector.cpp hazkey_session_client.cpp hazkey_text_offset.cpp hazkey_action_mapper.cpp hazkey_effect_ledger.cpp hazkey_recovery_journal.cpp hazkey_snapshot_renderer.cpp)
+add_library(fcitx5-hazkey SHARED hazkey_state.cpp hazkey_engine.cpp hazkey_candidate.cpp hazkey_server_connector.cpp hazkey_session_client.cpp hazkey_socket_io.cpp hazkey_text_offset.cpp hazkey_action_mapper.cpp hazkey_effect_ledger.cpp hazkey_recovery_journal.cpp hazkey_snapshot_renderer.cpp)
 
 if(Protobuf_VERSION VERSION_GREATER_EQUAL "3.15")
     # 3.15 ~：stable proto3 optional support

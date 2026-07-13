@@ -105,6 +105,7 @@ REQUIRED_PACKAGED_PATHS = (
     "/usr/share/icons/hicolor/scalable/apps/fcitx5-grimodex.svg",
     "/usr/share/licenses/fcitx5-grimodex/LICENSE",
     "/usr/share/licenses/fcitx5-grimodex/NOTICE.md",
+    "/usr/share/licenses/fcitx5-grimodex/THIRDPARTYLICENSE",
     "/usr/share/licenses/fcitx5-grimodex/third-party/azookey-dictionary/**",
     "/usr/share/licenses/fcitx5-grimodex/third-party/azookey-emoji/**",
     "/usr/share/licenses/fcitx5-grimodex/third-party/llama.cpp/**",
@@ -364,6 +365,7 @@ class PackageMetadataContractTests(unittest.TestCase):
             "protocol/**",
             "LICENSE",
             "NOTICE.md",
+            "THIRDPARTYLICENSE",
         ):
             with self.subTest(path_filter=path_filter):
                 self.assertIn(f'- "{path_filter}"', package_workflow)
@@ -727,6 +729,7 @@ class PackageMetadataContractTests(unittest.TestCase):
         self.assertIn("usr/share/licenses/fcitx5-grimodex", debian_install)
         self.assertIn("LICENSE", pkgbuild)
         self.assertIn("NOTICE.md", pkgbuild)
+        self.assertIn("THIRDPARTYLICENSE", pkgbuild)
 
     def test_release_workflow_uses_grimodex_artifact_identity(self) -> None:
         workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")

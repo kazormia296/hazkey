@@ -42,7 +42,8 @@ class ProtocolHandler {
             )
             let openResult = sessionRegistry.attemptOpen(
                 clientContext: context,
-                ownerFd: clientFd
+                ownerFd: clientFd,
+                clientFeatureBits: request.clientFeatureBits
             )
             switch openResult {
             case .success(let sessionID):

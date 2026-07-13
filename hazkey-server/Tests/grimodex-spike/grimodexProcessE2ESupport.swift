@@ -317,6 +317,7 @@ final class GrimodexProcessClient {
     let response = try transact(
       Hazkey_RequestEnvelope.with {
         $0.openSession = Hazkey_OpenSession.with {
+          $0.clientFeatureBits = ImeV2ClientFeatures.current
           $0.client = Hazkey_ClientContext.with {
             $0.program = program
             $0.frontend = "wayland"

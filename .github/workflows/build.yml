@@ -11,6 +11,7 @@ on:
       - "protocol/**"
       - "LICENSE"
       - "NOTICE.md"
+      - "THIRDPARTYLICENSE"
       - "packaging/**"
       - ".github/workflows/build.yml"
   push:

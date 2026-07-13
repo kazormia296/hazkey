@@ -17,6 +17,7 @@ optional:/usr/share/fcitx5-grimodex/**
 required:/usr/share/icons/hicolor/scalable/apps/fcitx5-grimodex.svg
 required:/usr/share/licenses/fcitx5-grimodex/LICENSE
 required:/usr/share/licenses/fcitx5-grimodex/NOTICE.md
+required:/usr/share/licenses/fcitx5-grimodex/THIRDPARTYLICENSE
 optional:/usr/share/licenses/fcitx5-grimodex/third-party/azookey-dictionary/**
 optional:/usr/share/licenses/fcitx5-grimodex/third-party/azookey-emoji/**
 optional:/usr/share/licenses/fcitx5-grimodex/third-party/llama.cpp/**

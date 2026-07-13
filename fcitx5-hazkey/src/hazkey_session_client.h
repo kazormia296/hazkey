@@ -86,8 +86,13 @@ class HazkeySessionClient {
     using Transport = std::function<std::optional<hazkey::ResponseEnvelope>(
         const hazkey::RequestEnvelope&, bool)>;
 
-    explicit HazkeySessionClient(Transport transport)
-        : transport_(std::move(transport)) {}
+    explicit HazkeySessionClient(
+        Transport transport,
+        Transport bestEffortTransport = {})
+        : transport_(std::move(transport)),
+          bestEffortTransport_(bestEffortTransport
+                                   ? std::move(bestEffortTransport)
+                                   : transport_) {}
 
     bool open(HazkeyClientSession& session, bool tryConnect = true);
     bool close(HazkeyClientSession& session, bool tryConnect = false);
@@ -102,14 +107,24 @@ class HazkeySessionClient {
         hazkey::commands::HandleImeAction action,
         bool tryConnect = true);
 
+    // Sends an opportunistic action without replaying or joining the recovery
+    // journal. It uses only the currently open transport/session; a later
+    // semantic key remains responsible for recovery.
+    std::optional<hazkey::ResponseEnvelope> transactV2BestEffort(
+        HazkeyClientSession& session,
+        hazkey::commands::HandleImeAction action);
+
    private:
     std::optional<hazkey::ResponseEnvelope> executeV2(
         HazkeyClientSession& session,
         hazkey::commands::HandleImeAction action,
-        bool tryConnect);
+        bool tryConnect,
+        bool allowSessionRecovery = true,
+        bool bestEffort = false);
     bool replayPendingV2(HazkeyClientSession& session, bool tryConnect);
 
     Transport transport_;
+    Transport bestEffortTransport_;
 };
 
 #endif  // HAZKEY_SESSION_CLIENT_H

@@ -4,7 +4,10 @@
 #include <fcitx/inputcontext.h>
 #include <fcitx/inputpanel.h>
 #include <fcitx/surroundingtext.h>
+#include <fcitx-utils/event.h>
 
+#include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -46,12 +49,19 @@ class HazkeyState : public InputContextProperty {
     void forgetV2Candidate(int index);
     bool reconvertV2Selection();
     void updateSurroundingTextV2();
+    void scheduleLiveConversion(uint64_t effectID, uint32_t delayMs,
+                                uint64_t scheduledRevision);
+    void cancelLiveConversionTimer();
+    void applyDelayedLiveConversion(uint64_t effectID,
+                                    uint64_t scheduledRevision);
 
     HazkeyEngine* engine_;
     InputContext* ic_;
     HazkeyServerSession server_;
     bool protocolAvailable_ = false;
     hazkey::SessionSnapshot snapshot_;
+    std::unique_ptr<EventSourceTime> liveConversionTimer_;
+    uint64_t pendingLiveConversionEffectID_ = 0;
 };
 
 }  // namespace fcitx

@@ -1,5 +1,8 @@
 #include "controllers/user_interface_tab_controller.h"
 
+#include <algorithm>
+#include <cstdint>
+
 #include "config_definitions.h"
 #include "config_macros.h"
 #include "ui_mainwindow.h"
@@ -24,6 +27,13 @@ void UserInterfaceTabController::loadFromConfig() {
     SET_COMBO_FROM_CONFIG(ConfigDefs::SuggestionListMode, ui_->suggestionList,
                           context_.currentProfile->suggestion_list_mode());
 
+    SET_SPINBOX(
+        ui_->liveConversionDelay,
+        context_.currentProfile->has_live_conversion_delay_msec()
+            ? static_cast<int>(std::min<uint32_t>(
+                  context_.currentProfile->live_conversion_delay_msec(), 1000))
+            : ConfigDefs::SpinboxDefaults::LIVE_CONVERSION_DELAY_MSEC,
+        ConfigDefs::SpinboxDefaults::LIVE_CONVERSION_DELAY_MSEC);
     SET_SPINBOX(ui_->numSuggestion, context_.currentProfile->num_suggestions(),
                 ConfigDefs::SpinboxDefaults::NUM_SUGGESTIONS);
     SET_SPINBOX(ui_->numCandidatesPerPage,
@@ -41,6 +51,8 @@ void UserInterfaceTabController::saveToConfig() {
     context_.currentProfile->set_suggestion_list_mode(GET_COMBO_TO_CONFIG(
         ConfigDefs::SuggestionListMode, ui_->suggestionList));
 
+    context_.currentProfile->set_live_conversion_delay_msec(
+        static_cast<uint32_t>(GET_SPINBOX_INT(ui_->liveConversionDelay)));
     context_.currentProfile->set_num_suggestions(
         GET_SPINBOX_INT(ui_->numSuggestion));
     context_.currentProfile->set_num_candidates_per_page(

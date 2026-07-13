@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import re
@@ -75,6 +76,7 @@ def main() -> int:
         addon_dir = root / "share/fcitx5/addon"
         input_method_dir = root / "share/fcitx5/inputmethod"
         config_dir = root / "config/fcitx5"
+        server_config_dir = root / "config/fcitx5-grimodex"
         runtime_dir = root / "runtime"
         home_dir = root / "home"
         bin_dir = root / "bin"
@@ -82,6 +84,7 @@ def main() -> int:
             addon_dir,
             input_method_dir,
             config_dir,
+            server_config_dir,
             runtime_dir,
             home_dir,
             bin_dir,
@@ -123,12 +126,44 @@ Layout=
 """,
             encoding="utf-8",
         )
+        # Keep conversion deterministic and display-free. A developer's local
+        # Zenzai model must not turn this timer test into GPU/model-loading I/O
+        # or make one InputContext miss the client's short socket deadline.
+        (server_config_dir / "config.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "profileName": "Fcitx full-stack test",
+                        "autoConvertMode": 3,
+                        "liveConversionDelayMsec": 228,
+                        "suggestionListMode": 3,
+                        "numSuggestions": 3,
+                        "numCandidatesPerPage": 9,
+                        "useInputHistory": False,
+                        "zenzaiEnable": False,
+                        "enabledTables": [
+                            {
+                                "name": "Romaji",
+                                "isBuiltIn": True,
+                                "filename": "Romaji",
+                            }
+                        ],
+                    }
+                ],
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         (bin_dir / "fcitx5-grimodex-server").symlink_to(args.server)
 
         environment = os.environ.copy()
         environment.update({
             "HOME": str(home_dir),
             "XDG_CONFIG_HOME": str(root / "config"),
+            "XDG_DATA_HOME": str(root / "data"),
+            "XDG_STATE_HOME": str(root / "state"),
+            "XDG_CACHE_HOME": str(root / "cache"),
             "XDG_DATA_DIRS": f"{root / 'share'}:/usr/local/share:/usr/share",
             "XDG_RUNTIME_DIR": str(runtime_dir),
             "PATH": f"{bin_dir}:{environment.get('PATH', '/usr/bin')}",

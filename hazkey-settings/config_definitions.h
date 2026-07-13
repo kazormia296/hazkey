@@ -163,6 +163,7 @@ struct CheckboxDefaults {
 };
 
 struct SpinboxDefaults {
+    static constexpr int LIVE_CONVERSION_DELAY_MSEC = 228;
     static constexpr int NUM_SUGGESTIONS = 5;
     static constexpr int NUM_CANDIDATES_PER_PAGE = 10;
     static constexpr int ZENZAI_INFERENCE_LIMIT = 100;

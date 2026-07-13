@@ -32,6 +32,11 @@ struct ImeV2Negotiation: Equatable, Codable, Sendable {
     )
 }
 
+enum ImeV2ClientFeatures {
+    static let scheduleLiveConversionEffect: UInt64 = 1 << 0
+    static let current = scheduleLiveConversionEffect
+}
+
 final class ImeV2SessionController {
     let negotiation: ImeV2Negotiation
     private let reducer: ImeReducer
@@ -155,6 +160,8 @@ final class ImeV2SessionController {
         case .resizeSegment(let value): return .resizeSegment(Int(value.delta))
         case .moveActiveSegment(let value):
             return .moveActiveSegment(Int(value.offset))
+        case .applyLiveConversion(let value):
+            return .applyLiveConversion(scheduledRevision: value.scheduledRevision)
         case .commitSelected: return .commitSelected
         case .commitAll: return .commitAll
         case .cancel: return .cancel
@@ -299,6 +306,15 @@ private func protobufSnapshot(_ snapshot: SessionSnapshot) -> Hazkey_SessionSnap
                     $0.effectID = effectID
                     $0.type = .notify
                     $0.message = message
+                case .scheduleLiveConversion(
+                    let effectID,
+                    let delayMilliseconds,
+                    let scheduledRevision
+                ):
+                    $0.effectID = effectID
+                    $0.type = .scheduleLiveConversion
+                    $0.delayMsec = delayMilliseconds
+                    $0.scheduledRevision = scheduledRevision
                 }
             }
         }
