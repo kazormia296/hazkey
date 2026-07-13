@@ -5,7 +5,10 @@ import XCTest
 
 @testable import hazkey_server
 
-private final class MutableGrimodexRevisionProvider: GrimodexRevisionProviding, @unchecked Sendable {
+private final class MutableEnvironmentRevisionProvider:
+  GrimodexRevisionProviding,
+  @unchecked Sendable
+{
   private let lock = NSLock()
   private var revision: GrimodexIntegrationRevision
 
@@ -26,338 +29,63 @@ private final class MutableGrimodexRevisionProvider: GrimodexRevisionProviding, 
   }
 }
 
-private final class RecordingHazkeyCandidateLearning: HazkeyCandidateLearning {
-  private(set) var setCompletedDataCount = 0
-  private(set) var updateLearningDataCount = 0
-  private(set) var commitCount = 0
-  private(set) var synchronizeCount = 0
-
-  func setCompletedData(_ candidate: Candidate) {
-    setCompletedDataCount += 1
-  }
-
-  func updateLearningData(_ candidate: Candidate) {
-    updateLearningDataCount += 1
-  }
-
-  func commitUpdateLearningData() {
-    commitCount += 1
-  }
-
-  func synchronizePersistedLearningData() {
-    synchronizeCount += 1
-  }
-}
-
 final class GrimodexStateIntegrationTests: XCTestCase {
-  func testCompositionBoundaryPublishesPendingLearningBeforeExternalCacheSync() {
-    let enabled = GrimodexIntegrationRevision(generation: 1, payload: nil)
-    let disabled = GrimodexIntegrationRevision(
-      generation: 2,
-      payload: nil,
-      allowsLearning: false,
-      secureInput: false
-    )
-    let store = HazkeyLearningRevisionStore()
-    let providerA = MutableGrimodexRevisionProvider(enabled)
-    let learningA = RecordingHazkeyCandidateLearning()
-    let learningB = RecordingHazkeyCandidateLearning()
-    let learningC = RecordingHazkeyCandidateLearning()
-    let stateA = HazkeyServerState(
-      revisionProvider: providerA,
-      candidateLearning: learningA,
-      learningRevisionStore: store
-    )
-    let stateB = HazkeyServerState(
-      revisionProvider: MutableGrimodexRevisionProvider(enabled),
-      candidateLearning: learningB,
-      learningRevisionStore: store
-    )
-    let stateC = HazkeyServerState(
-      revisionProvider: MutableGrimodexRevisionProvider(enabled),
-      candidateLearning: learningC,
-      learningRevisionStore: store
-    )
-
-    _ = stateA.inputChar(inputString: "a")
-    _ = stateB.inputChar(inputString: "i")
-    stateA.learningDataNeedsCommit = true
-    stateB.learningDataNeedsCommit = true
-
-    XCTAssertEqual(stateB.saveLearningData().status, .success)
-    XCTAssertEqual(store.current(), 1)
-
-    providerA.update(disabled)
-    XCTAssertEqual(stateA.createComposingTextInstanse().status, .success)
-
-    XCTAssertEqual(
-      learningA.commitCount,
-      1,
-      "pending learning must use the policy pinned for the composition that produced it"
-    )
-    XCTAssertEqual(learningA.synchronizeCount, 0)
-    XCTAssertEqual(store.current(), 2, "both sessions must publish distinct commits")
-    XCTAssertFalse(stateA.learningDataNeedsCommit)
-    XCTAssertFalse(stateA.grimodexAllowsLearning)
-
-    XCTAssertEqual(stateC.createComposingTextInstanse().status, .success)
-    XCTAssertEqual(
-      learningC.synchronizeCount,
-      1,
-      "a third long-lived session must observe the revision containing both commits"
-    )
-    XCTAssertEqual(stateC.createComposingTextInstanse().status, .success)
-    XCTAssertEqual(learningC.synchronizeCount, 1, "an observed revision must not reload twice")
-  }
-
-  func testSetContextUsesFcitxUnicodeScalarPrefix() {
-    let state = HazkeyServerState()
-    state.serverConfig.zenzaiAvailable = true
-    state.serverConfig.zenzaiModelPath = URL(fileURLWithPath: "/tmp/grimodex-test-model.gguf")
-    state.serverConfig.currentProfile.zenzaiEnable = true
-    let prefix = "e\u{301}👨‍👩‍👧‍👦"
-    let context = prefix + "後"
-
-    XCTAssertEqual(
-      state.setContext(
-        surroundingText: context,
-        anchorIndex: prefix.unicodeScalars.count
-      ).status,
-      .success
-    )
-    XCTAssertEqual(
-      state.baseConvertRequestOptions.zenzaiMode,
-      state.serverConfig.genZenzaiMode(leftContext: prefix)
-    )
-  }
-
-  func testStatePinsOnFirstInputAndAppliesLatestAtReset() {
-    let conditionsA = GrimodexProjectConditions(
-      topic: "project-a-topic",
-      style: "project-a-style",
-      preference: "project-a-preference"
-    )
-    let conditionsB = GrimodexProjectConditions(
-      topic: "project-b-topic",
-      style: "project-b-style",
-      preference: "project-b-preference"
-    )
-    let revisionA = makeRevision(
-      1,
-      projectID: "project-a",
-      surface: "刹那",
-      conditions: conditionsA
-    )
-    let revisionB = makeRevision(
-      2,
-      projectID: "project-b",
-      surface: "星海",
-      conditions: conditionsB
-    )
-    let provider = MutableGrimodexRevisionProvider(revisionA)
-    let state = HazkeyServerState(revisionProvider: provider)
-    state.serverConfig.currentProfile.zenzaiProfile = "user-profile"
-    state.serverConfig.currentProfile.zenzaiTopic = "user-topic"
-    state.serverConfig.currentProfile.zenzaiStyle = "user-style"
-    state.serverConfig.currentProfile.zenzaiPreference = "user-preference"
-
-    XCTAssertEqual(
-      state.setContext(surroundingText: "left", anchorIndex: 4).status,
-      .success
-    )
-    XCTAssertEqual(
-      state.grimodexResolvedZenzaiConditions,
-      GrimodexResolvedZenzaiConditions(
-        profile: "user-profile",
-        topic: "user-topic",
-        style: "user-style",
-        preference: "user-preference"
-      )
-    )
-
-    XCTAssertEqual(state.inputChar(inputString: "a").status, .success)
-    XCTAssertEqual(state.grimodexPinnedRevision, revisionA)
-    XCTAssertEqual(state.grimodexActiveConditions, conditionsA)
-    XCTAssertEqual(state.grimodexResolvedZenzaiConditions?.topic, "project-a-topic")
-
-    provider.update(revisionB)
-    XCTAssertEqual(state.inputChar(inputString: "i").status, .success)
-    XCTAssertEqual(state.grimodexPinnedRevision, revisionA)
-    XCTAssertEqual(state.grimodexActiveConditions, conditionsA)
-
-    XCTAssertEqual(state.createComposingTextInstanse().status, .success)
-    XCTAssertNil(state.grimodexPinnedRevision)
-    XCTAssertEqual(state.grimodexAppliedRevision, revisionB)
-    XCTAssertEqual(state.grimodexActiveConditions, conditionsB)
-    XCTAssertEqual(state.grimodexResolvedZenzaiConditions?.topic, "project-b-topic")
-
-    XCTAssertEqual(state.inputChar(inputString: "u").status, .success)
-    XCTAssertEqual(state.grimodexPinnedRevision, revisionB)
-  }
-
-  func testSecureRefreshAbortsPreeditCandidatesAndPendingLearning() {
-    let conditions = GrimodexProjectConditions(
-      topic: "星海年代記",
-      style: "簡潔",
-      preference: "固有名詞を優先"
-    )
-    let active = makeRevision(
-      4,
-      projectID: "project-a",
-      surface: "刹那",
-      conditions: conditions
-    )
-    let provider = MutableGrimodexRevisionProvider(active)
-    let learning = RecordingHazkeyCandidateLearning()
-    let state = HazkeyServerState(
-      revisionProvider: provider,
-      candidateLearning: learning
-    )
-    state.serverConfig.zenzaiAvailable = true
-    state.serverConfig.zenzaiModelPath = URL(fileURLWithPath: "/tmp/grimodex-test-model.gguf")
-    state.serverConfig.currentProfile.zenzaiEnable = true
-    _ = state.setContext(surroundingText: "left", anchorIndex: 4)
-    _ = state.inputChar(inputString: "a")
-    XCTAssertNotEqual(state.baseConvertRequestOptions.zenzaiMode, .off)
-    state.currentCandidateList = []
-    state.learningDataNeedsCommit = true
-    XCTAssertFalse(state.composingText.value.toHiragana().isEmpty)
-
-    provider.update(
-      GrimodexIntegrationRevision(
-        generation: 3,
-        payload: nil,
-        allowsLearning: false,
-        secureInput: true
-      )
-    )
-    state.refreshGrimodexIntegration()
-
-    XCTAssertTrue(state.composingText.value.toHiragana().isEmpty)
-    XCTAssertNil(state.currentCandidateList)
-    XCTAssertFalse(state.learningDataNeedsCommit)
-    XCTAssertFalse(state.grimodexAllowsLearning)
-    XCTAssertTrue(state.grimodexSecureInput)
-    XCTAssertEqual(state.grimodexActiveConditions, .empty)
-    XCTAssertEqual(state.baseConvertRequestOptions.zenzaiMode, .off)
-    _ = state.saveLearningData()
-    XCTAssertEqual(learning.commitCount, 0)
-  }
-
-  func testSecureInputNeverRetainsOrReusesSurroundingText() {
-    let active = makeRevision(
-      9,
-      projectID: "project-a",
-      surface: "切那"
-    )
-    let provider = MutableGrimodexRevisionProvider(active)
-    let state = HazkeyServerState(revisionProvider: provider)
-    state.serverConfig.zenzaiAvailable = true
-    state.serverConfig.zenzaiModelPath = URL(fileURLWithPath: "/tmp/grimodex-test-model.gguf")
-    state.serverConfig.currentProfile.zenzaiEnable = true
-    state.serverConfig.currentProfile.zenzaiContextualMode = true
-
-    _ = state.setContext(surroundingText: "safe-before", anchorIndex: 11)
-    XCTAssertEqual(
-      state.baseConvertRequestOptions.zenzaiMode,
-      state.serverConfig.genZenzaiMode(leftContext: "safe-before")
-    )
-
-    provider.update(
-      GrimodexIntegrationRevision(
-        generation: 8,
-        payload: nil,
-        allowsLearning: false,
-        secureInput: true
-      )
-    )
-    state.refreshGrimodexIntegration()
-    XCTAssertEqual(state.baseConvertRequestOptions.zenzaiMode, .off)
-
-    _ = state.setContext(surroundingText: "password-secret", anchorIndex: 15)
-    XCTAssertEqual(state.baseConvertRequestOptions.zenzaiMode, .off)
-
-    provider.update(makeRevision(10, projectID: "project-a", surface: "切那"))
-    state.refreshGrimodexIntegration()
-    XCTAssertEqual(
-      state.baseConvertRequestOptions.zenzaiMode,
-      state.serverConfig.genZenzaiMode(leftContext: "")
-    )
-    XCTAssertNotEqual(
-      state.baseConvertRequestOptions.zenzaiMode,
-      state.serverConfig.genZenzaiMode(leftContext: "password-secret")
-    )
-
-    _ = state.setContext(surroundingText: "safe-after", anchorIndex: 10)
-    XCTAssertEqual(
-      state.baseConvertRequestOptions.zenzaiMode,
-      state.serverConfig.genZenzaiMode(leftContext: "safe-after")
-    )
-  }
-
-  func testCompletePrefixDoesNotQueueLearningWhenRevisionDisallowsIt() {
-    let disabled = GrimodexIntegrationRevision(
-      generation: 1,
-      payload: nil,
-      allowsLearning: false,
-      secureInput: false
-    )
-    let learning = RecordingHazkeyCandidateLearning()
-    let state = HazkeyServerState(
-      revisionProvider: MutableGrimodexRevisionProvider(disabled),
-      candidateLearning: learning
-    )
-    _ = state.inputChar(inputString: "a")
-    state.currentCandidateList = [makeCandidate()]
-
-    XCTAssertEqual(state.completePrefix(candidateIndex: 0).status, .success)
-    XCTAssertFalse(state.learningDataNeedsCommit)
-    XCTAssertEqual(learning.setCompletedDataCount, 1)
-    XCTAssertEqual(learning.updateLearningDataCount, 0)
-  }
-
-  func testCompletePrefixKeepsNormalHazkeyLearningOutsideSecureInput() {
-    let enabled = GrimodexIntegrationRevision(generation: 1, payload: nil)
-    let learning = RecordingHazkeyCandidateLearning()
-    let state = HazkeyServerState(
-      revisionProvider: MutableGrimodexRevisionProvider(enabled),
-      candidateLearning: learning
-    )
-    _ = state.inputChar(inputString: "a")
-    state.currentCandidateList = [makeCandidate()]
-
-    XCTAssertEqual(state.completePrefix(candidateIndex: 0).status, .success)
-    XCTAssertTrue(state.learningDataNeedsCommit)
-    XCTAssertEqual(learning.setCompletedDataCount, 1)
-    XCTAssertEqual(learning.updateLearningDataCount, 1)
-  }
-
-  func testStateImportsRevisionDictionaryIntoTheRealConverter() {
+  func testEnvironmentImportsRevisionDictionaryIntoItsConverter() {
     let revision = makeRevision(
       1,
       projectID: "project-wiring",
       surface: "Grimodex配線確認"
     )
-    let state = HazkeyServerState(
-      revisionProvider: MutableGrimodexRevisionProvider(revision),
+    let environment = HazkeySessionEnvironment(
+      revisionProvider: MutableEnvironmentRevisionProvider(revision),
       converter: .withDefaultDictionary()
     )
+    environment.refreshGrimodexIntegration()
 
-    state.isSubInputMode = true
-    for character in "せつな" {
-      _ = state.inputChar(inputString: String(character))
-    }
-    let response = state.getCandidates(is_suggest: false)
+    var text = ComposingText()
+    text.insertAtCursorPosition("せつな", inputStyle: .direct)
+    var options = environment.baseConvertRequestOptions
+    options.N_best = 9
+    options.zenzaiMode = .off
+    let candidates = environment.converter.requestCandidates(
+      text,
+      options: options
+    ).mainResults
 
-    XCTAssertEqual(response.status, .success)
     XCTAssertEqual(
-      response.candidates.candidates.first?.text,
+      candidates.first?.text,
       "Grimodex配線確認",
-      "the active Grimodex project term must be the highest-ranked conversion candidate"
+      "the active project term must be the highest-ranked candidate"
     )
   }
 
-  func testZenzaiResolverKeepsUserProfileAndOnlyOverlaysProjectValues() {
+  func testSecureRevisionRevokesProjectDictionaryAndPolicyImmediately() {
+    let provider = MutableEnvironmentRevisionProvider(
+      makeRevision(1, projectID: "project-a", surface: "刹那")
+    )
+    let environment = HazkeySessionEnvironment(
+      revisionProvider: provider,
+      converter: .withDefaultDictionary()
+    )
+    environment.refreshGrimodexIntegration()
+    XCTAssertTrue(environment.grimodexAllowsLearning)
+    XCTAssertFalse(environment.grimodexSecureInput)
+
+    provider.update(GrimodexIntegrationRevision(
+      generation: 2,
+      payload: nil,
+      allowsLearning: false,
+      secureInput: true
+    ))
+    environment.refreshGrimodexIntegration()
+
+    XCTAssertFalse(environment.grimodexAllowsLearning)
+    XCTAssertTrue(environment.grimodexSecureInput)
+    XCTAssertNil(environment.grimodexAppliedRevision?.payload)
+    XCTAssertEqual(environment.grimodexActiveConditions, .empty)
+  }
+
+  func testZenzaiResolverKeepsProfileAndOverlaysProjectValues() {
     let resolved = GrimodexZenzaiConditionResolver.resolve(
       profile: "user-profile",
       topic: "user-topic",
@@ -381,17 +109,15 @@ final class GrimodexStateIntegrationTests: XCTestCase {
     )
   }
 
-  func testZenzaiResolverReturnsPersistentValuesAfterPayloadRemoval() {
-    let resolved = GrimodexZenzaiConditionResolver.resolve(
-      profile: "user-profile",
-      topic: "user-topic",
-      style: "user-style",
-      preference: "user-preference",
-      project: .empty
-    )
-
+  func testZenzaiResolverReturnsProfileValuesWithoutProjectPayload() {
     XCTAssertEqual(
-      resolved,
+      GrimodexZenzaiConditionResolver.resolve(
+        profile: "user-profile",
+        topic: "user-topic",
+        style: "user-style",
+        preference: "user-preference",
+        project: .empty
+      ),
       GrimodexResolvedZenzaiConditions(
         profile: "user-profile",
         topic: "user-topic",
@@ -401,29 +127,10 @@ final class GrimodexStateIntegrationTests: XCTestCase {
     )
   }
 
-  private func makeCandidate() -> Candidate {
-    Candidate(
-      text: "あ",
-      value: PValue(-5),
-      composingCount: .inputCount(1),
-      lastMid: 501,
-      data: [
-        DicdataElement(
-          word: "あ",
-          ruby: "ア",
-          cid: 1288,
-          mid: 501,
-          value: PValue(-5)
-        )
-      ]
-    )
-  }
-
   private func makeRevision(
     _ generation: UInt64,
     projectID: String,
-    surface: String,
-    conditions: GrimodexProjectConditions = .empty
+    surface: String
   ) -> GrimodexIntegrationRevision {
     GrimodexIntegrationRevision(
       generation: generation,
@@ -440,7 +147,7 @@ final class GrimodexStateIntegrationTests: XCTestCase {
             entryID: "entry-\(projectID)"
           )
         ],
-        conditions: conditions
+        conditions: .empty
       )
     )
   }

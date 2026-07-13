@@ -1,0 +1,12 @@
+{
+  "contract_version": "composition-behavior-v1",
+  "scenario_id": "server-failure",
+  "initial": { "phase": "composing", "composition": "入力", "revision": 0 },
+  "converter_fault": "converter_throws",
+  "actions": [{ "type": "start_conversion" }],
+  "statuses": ["converter_unavailable"],
+  "snapshots": [
+    { "revision": 1, "phase": "composing", "preedit": [{ "text": "入力", "style": "underline" }], "caret_utf8_byte_offset": 6, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [] }
+  ],
+  "expected_learning": { "completed": 0, "updated": 0, "committed": 0, "forgotten": 0 }
+}

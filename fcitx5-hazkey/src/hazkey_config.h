@@ -17,9 +17,9 @@ namespace fcitx {
 FCITX_CONFIGURATION(HazkeyEngineConfig,
                     HiddenOption<std::string> lastVersion{
                         this, "LastVersion", "", ""};
-                    Option<bool> showTabToSelect{
-                        this, "showTabToSelect",
-                        _("Show [Press Tab to Select] indicator"), true};
+                    Option<bool> normalSpaceFullwidth{
+                        this, "normalSpaceFullwidth",
+                        _("Use full-width space without Shift"), true};
                     ExternalOption openGrimodexSettings{
                         this, "openGrimodexSettings", _("Open Grimodex IME Settings"),
                         std::string(grimodex::ime::kSettingsExecutable)};);

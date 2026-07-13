@@ -1,41 +1,109 @@
 #include "hazkey_server_connector.h"
 
 #include <arpa/inet.h>
-#include <dirent.h>
-#include <fcitx-utils/log.h>
-#include <fcitx-utils/textformatflags.h>
-#include <fcitx/text.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <fstream>
+#include <cstring>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
+
+#include <fcitx-utils/log.h>
+#include <fcitx-utils/misc.h>
 
 #include "base.pb.h"
 #include "commands.pb.h"
 #include "grimodex_product_identity.h"
 
-static std::mutex transact_mutex;
+namespace {
+
+std::mutex transactMutex;
+
+bool writeAll(int fd, const void* data, std::size_t length) {
+    std::size_t sent = 0;
+    while (sent < length) {
+        const auto count =
+            write(fd, static_cast<const char*>(data) + sent, length - sent);
+        if (count < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                fd_set writable;
+                FD_ZERO(&writable);
+                FD_SET(fd, &writable);
+                timeval timeout = {2, 0};
+                const int result =
+                    select(fd + 1, nullptr, &writable, nullptr, &timeout);
+                if (result <= 0) {
+                    FCITX_ERROR() << "Grimodex socket write timeout";
+                    return false;
+                }
+                continue;
+            }
+            return false;
+        }
+        if (count == 0) {
+            return false;
+        }
+        sent += static_cast<std::size_t>(count);
+    }
+    return true;
+}
+
+bool readAll(int fd, void* data, std::size_t length) {
+    std::size_t received = 0;
+    while (received < length) {
+        const auto count =
+            read(fd, static_cast<char*>(data) + received, length - received);
+        if (count < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                fd_set readable;
+                FD_ZERO(&readable);
+                FD_SET(fd, &readable);
+                timeval timeout = {10, 0};
+                const int result =
+                    select(fd + 1, &readable, nullptr, nullptr, &timeout);
+                if (result <= 0) {
+                    FCITX_ERROR() << "Grimodex socket read timeout";
+                    return false;
+                }
+                continue;
+            }
+            return false;
+        }
+        if (count == 0) {
+            return false;
+        }
+        received += static_cast<std::size_t>(count);
+    }
+    return true;
+}
+
+}  // namespace
 
 HazkeyServerConnector::HazkeyServerConnector()
     : sessionClient_([this](const hazkey::RequestEnvelope& request,
                             bool tryConnect) {
           return transact(request, tryConnect);
-      }) {
-    connectServer();
-    FCITX_DEBUG() << "Connector initialized";
-}
+      }) {}
 
 HazkeyServerConnector::~HazkeyServerConnector() {
     if (sock_ >= 0) {
@@ -44,9 +112,9 @@ HazkeyServerConnector::~HazkeyServerConnector() {
     }
 }
 
-HazkeyServerSession::HazkeyServerSession(HazkeyServerConnector& connector,
-                                         HazkeyClientContext context,
-                                         HazkeyClientSession::RecoveryHandler recoveryHandler)
+HazkeyServerSession::HazkeyServerSession(
+    HazkeyServerConnector& connector, HazkeyClientContext context,
+    HazkeyClientSession::RecoveryHandler recoveryHandler)
     : connector_(connector),
       session_(std::move(context), std::move(recoveryHandler)) {
     (void)connector_.sessionClient_.open(session_);
@@ -60,558 +128,174 @@ bool HazkeyServerSession::updateClientContext(HazkeyClientContext context) {
     return connector_.sessionClient_.updateContext(session_, std::move(context));
 }
 
-std::string HazkeyServerSession::getComposingText(
-    hazkey::commands::GetComposingString::CharType type,
-    std::string currentPreedit) {
-    return connector_.getComposingText(session_, type, std::move(currentPreedit));
+void HazkeyServerSession::abandonUnconfirmedInput() {
+    connector_.sessionClient_.abandonUnconfirmedInput(session_);
 }
 
-fcitx::Text HazkeyServerSession::getComposingHiraganaWithCursor() {
-    return connector_.getComposingHiraganaWithCursor(session_);
-}
-
-void HazkeyServerSession::inputChar(std::string text) {
-    connector_.inputChar(session_, std::move(text));
-}
-
-void HazkeyServerSession::shiftKeyEvent(bool isRelease) {
-    connector_.shiftKeyEvent(session_, isRelease);
-}
-
-bool HazkeyServerSession::currentInputModeIsDirect() {
-    return connector_.currentInputModeIsDirect(session_);
-}
-
-void HazkeyServerSession::deleteLeft() { connector_.deleteLeft(session_); }
-
-void HazkeyServerSession::deleteRight() { connector_.deleteRight(session_); }
-
-void HazkeyServerSession::moveCursor(int offset) {
-    connector_.moveCursor(session_, offset);
-}
-
-void HazkeyServerSession::setContext(std::string context, int anchor) {
-    connector_.setContext(session_, std::move(context), anchor);
-}
-
-void HazkeyServerSession::newComposingText() {
-    connector_.newComposingText(session_);
-}
-
-void HazkeyServerSession::completePrefix(int index) {
-    connector_.completePrefix(session_, index);
-}
-
-void HazkeyServerSession::saveLearningData(bool tryConnect) {
-    connector_.saveLearningData(session_, tryConnect);
-}
-
-hazkey::commands::CandidatesResult HazkeyServerSession::getCandidates(
-    bool isSuggest) {
-    return connector_.getCandidates(session_, isSuggest);
+std::optional<hazkey::ResponseEnvelope> HazkeyServerSession::transactV2(
+    hazkey::commands::HandleImeAction action, bool tryConnect) {
+    return connector_.transactV2(session_, std::move(action), tryConnect);
 }
 
 std::string HazkeyServerConnector::getSocketPath() {
-    return grimodex::ime::resolveRuntimePaths(std::getenv("XDG_RUNTIME_DIR"), getuid())
+    return grimodex::ime::resolveRuntimePaths(
+               std::getenv("XDG_RUNTIME_DIR"), getuid())
         .socket;
 }
 
-void HazkeyServerConnector::startHazkeyServer(bool force_restart) {
-    std::vector<std::string> args;
-    args.reserve(2);
-    args.push_back(std::string(grimodex::ime::kServerExecutable));
-    if (force_restart) {
-        args.push_back("-r");
+void HazkeyServerConnector::startHazkeyServer(bool forceRestart) {
+    std::vector<std::string> arguments{
+        std::string(grimodex::ime::kServerExecutable)};
+    if (forceRestart) {
+        arguments.emplace_back("-r");
     }
-    fcitx::startProcess(args, "/");
-}
-
-bool writeAll(int fd, const void* data, size_t len) {
-    size_t sent = 0;
-    while (sent < len) {
-        ssize_t n = write(fd, (const char*)data + sent, len - sent);
-        if (n < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                fd_set wfds;
-                FD_ZERO(&wfds);
-                FD_SET(fd, &wfds);
-                timeval tv = {2, 0};  // 2sec timeout
-                int r = select(fd + 1, NULL, &wfds, NULL, &tv);
-                if (r <= 0) {
-                    FCITX_ERROR() << "write timeout";
-                    return false;
-                }
-                continue;
-            }
-            return false;
-        }
-        sent += n;
-    }
-    return true;
-}
-
-bool readAll(int fd, void* data, size_t len) {
-    size_t recved = 0;
-    while (recved < len) {
-        ssize_t n = read(fd, (char*)data + recved, len - recved);
-        if (n < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                fd_set rfds;
-                FD_ZERO(&rfds);
-                FD_SET(fd, &rfds);
-                timeval tv = {10, 0};  // 2sec timeout
-                int r = select(fd + 1, &rfds, NULL, NULL, &tv);
-                if (r <= 0) {
-                    FCITX_ERROR() << "read timeout";
-                    return false;
-                }
-                continue;
-            }
-            return false;
-        }
-        if (n == 0) return false;  // closed
-        recved += n;
-    }
-    return true;
+    fcitx::startProcess(arguments, "/");
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    lastServerStartNanoseconds_.store(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now).count(),
+        std::memory_order_release);
 }
 
 void HazkeyServerConnector::connectServer() {
-    std::string socket_path = getSocketPath();
+    const std::string socketPath = getSocketPath();
+    const auto now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                         std::chrono::steady_clock::now().time_since_epoch())
+                         .count();
+    const auto lastServerStart =
+        lastServerStartNanoseconds_.load(std::memory_order_acquire);
+    const bool serverWasJustStarted =
+        lastServerStart != 0 && now >= lastServerStart &&
+        now - lastServerStart <
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::seconds(2))
+                .count();
+    // reloadConfig may have just launched a replacement process. Give that
+    // process time to publish its socket instead of racing it with a second
+    // server process from this connection path.
+    const int startAttempt = serverWasJustStarted ? 3 : 0;
+    constexpr int forceRestartAttempt = 6;
+    constexpr int maximumRetries = 10;
+    constexpr int retryIntervalMilliseconds = 250;
 
-    // try restarting server only 1 time
-    // on 1st attempt (minus 1)
-    constexpr int ATTEMPT_TRY_START = 0;
-    // on 4th attempt (minus 1)
-    constexpr int ATTEMPT_TRY_START_FORCE = 3;
-
-    constexpr int MAX_RETRIES = 8;
-    constexpr int RETRY_INTERVAL_MS = 250;
-
-    int attempt;
-    for (attempt = 0; attempt < MAX_RETRIES; ++attempt) {
+    for (int attempt = 0; attempt < maximumRetries; ++attempt) {
         sock_ = socket(AF_UNIX, SOCK_STREAM, 0);
         if (sock_ < 0) {
-            FCITX_ERROR() << "Failed to create socket";
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(RETRY_INTERVAL_MS));
-            continue;
-        }
-        int fcntlRes =
-            fcntl(sock_, F_SETFL, fcntl(sock_, F_GETFL, 0) | O_NONBLOCK);
-        if (fcntlRes != 0) {
-            FCITX_ERROR() << "fcntl() failed";
-            close(sock_);
-            sock_ = -1;
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(RETRY_INTERVAL_MS));
-            continue;
-        }
-
-        sockaddr_un addr{};
-        addr.sun_family = AF_UNIX;
-        strncpy(addr.sun_path, socket_path.c_str(), sizeof(addr.sun_path) - 1);
-
-        int ret = connect(sock_, (sockaddr*)&addr, sizeof(addr));
-        if (ret == 0) {
-            // Connected
-            return;
-        }
-        if (errno == EINPROGRESS) {
-            fd_set wfds;
-            FD_ZERO(&wfds);
-            FD_SET(sock_, &wfds);
-            timeval tv = {2, 0};
-            int sel = select(sock_ + 1, NULL, &wfds, NULL, &tv);
-            if (sel > 0 && FD_ISSET(sock_, &wfds)) {
-                int so_error = 0;
-                socklen_t len = sizeof(so_error);
-                getsockopt(sock_, SOL_SOCKET, SO_ERROR, &so_error, &len);
-                if (so_error == 0) {
-                    // Connected
+            FCITX_ERROR() << "Failed to create Grimodex socket";
+        } else {
+            const int flags = fcntl(sock_, F_GETFL, 0);
+            if (flags >= 0 && fcntl(sock_, F_SETFL, flags | O_NONBLOCK) == 0) {
+                sockaddr_un address{};
+                address.sun_family = AF_UNIX;
+                std::strncpy(address.sun_path, socketPath.c_str(),
+                             sizeof(address.sun_path) - 1);
+                const int result = connect(
+                    sock_, reinterpret_cast<sockaddr*>(&address),
+                    sizeof(address));
+                if (result == 0) {
                     return;
                 }
+                if (errno == EINPROGRESS) {
+                    fd_set writable;
+                    FD_ZERO(&writable);
+                    FD_SET(sock_, &writable);
+                    timeval timeout = {2, 0};
+                    const int selected = select(
+                        sock_ + 1, nullptr, &writable, nullptr, &timeout);
+                    if (selected > 0 && FD_ISSET(sock_, &writable)) {
+                        int socketError = 0;
+                        socklen_t length = sizeof(socketError);
+                        if (getsockopt(sock_, SOL_SOCKET, SO_ERROR,
+                                       &socketError, &length) == 0 &&
+                            socketError == 0) {
+                            return;
+                        }
+                    }
+                }
             }
+            close(sock_);
+            sock_ = -1;
         }
+
         FCITX_INFO() << "Failed to connect Grimodex IME server, retry "
                      << (attempt + 1);
-        close(sock_);
-        sock_ = -1;
-        if (attempt == ATTEMPT_TRY_START) {
+        if (attempt == startAttempt) {
             startHazkeyServer(false);
-        } else if (attempt == ATTEMPT_TRY_START_FORCE) {
+        } else if (attempt == forceRestartAttempt) {
             startHazkeyServer(true);
         }
         std::this_thread::sleep_for(
-            std::chrono::milliseconds(RETRY_INTERVAL_MS));
+            std::chrono::milliseconds(retryIntervalMilliseconds));
     }
-    FCITX_INFO() << "Failed to connect Grimodex IME server after " << MAX_RETRIES
-                 << " attempts";
+    FCITX_ERROR() << "Failed to connect Grimodex IME server after "
+                  << maximumRetries << " attempts";
 }
 
 std::optional<hazkey::ResponseEnvelope> HazkeyServerConnector::transact(
-    const hazkey::RequestEnvelope& send_data, bool tryConnect) {
-    std::lock_guard<std::mutex> lock(transact_mutex);
+    const hazkey::RequestEnvelope& request, bool tryConnect) {
+    std::lock_guard<std::mutex> lock(transactMutex);
 
-    if (sock_ == -1) {
+    if (sock_ < 0) {
         if (!tryConnect) {
-            FCITX_INFO() << "Socket not connected. Aborting transact.";
             return std::nullopt;
         }
-        FCITX_INFO() << "Socket not connected, attempting to connect...";
         connectServer();
-        if (sock_ == -1) {
-            FCITX_ERROR() << "Failed to establish connection to hazkey-server";
+        if (sock_ < 0) {
             return std::nullopt;
         }
     }
 
-    std::string msg;
-    if (!send_data.SerializeToString(&msg)) {
-        FCITX_ERROR() << "Failed to serialize protobuf message.";
+    std::string message;
+    if (!request.SerializeToString(&message) ||
+        message.size() > std::numeric_limits<uint32_t>::max()) {
+        FCITX_ERROR() << "Failed to serialize Grimodex protobuf request";
         return std::nullopt;
     }
 
-    FCITX_DEBUG() << "Sending message of size: " << msg.size();
-
-    // write length
-    uint32_t writeLen = htonl(msg.size());
-    if (!writeAll(sock_, &writeLen, 4)) {
+    uint32_t networkLength = htonl(static_cast<uint32_t>(message.size()));
+    if (!writeAll(sock_, &networkLength, sizeof(networkLength)) ||
+        !writeAll(sock_, message.data(), message.size())) {
         close(sock_);
         sock_ = -1;
         if (tryConnect) {
-            FCITX_INFO()
-                << "Failed to communicate with server while writing data length. "
-                   "reconnecting to Grimodex IME server...";
-            
             connectServer();
         }
         return std::nullopt;
     }
 
-    // write data
-    if (!writeAll(sock_, msg.c_str(), msg.size())) {
+    uint32_t responseLengthBuffer = 0;
+    if (!readAll(sock_, &responseLengthBuffer, sizeof(responseLengthBuffer))) {
         close(sock_);
         sock_ = -1;
-        if (tryConnect) {
-            FCITX_INFO() << "Failed to communicate with server while writing data. "
-                            "reconnecting to Grimodex IME server...";
-            connectServer();
-        }
         return std::nullopt;
     }
-
-    FCITX_DEBUG() << "Successfully wrote data to server";
-
-    // read response length
-    uint32_t readLenBuf;
-    if (!readAll(sock_, &readLenBuf, 4)) {
-        FCITX_ERROR() << "Failed to read buffer length.";
+    const uint32_t responseLength = ntohl(responseLengthBuffer);
+    constexpr uint32_t maximumResponseBytes = 2 * 1024 * 1024;
+    if (responseLength > maximumResponseBytes) {
+        FCITX_ERROR() << "Grimodex response exceeds frame limit";
         close(sock_);
         sock_ = -1;
         return std::nullopt;
     }
 
-    uint32_t readLen = ntohl(readLenBuf);
-    FCITX_DEBUG() << "Server response size: " << readLen;
-
-    if (readLen > 2 * 1024 * 1024) {  // 2MB limit
-        FCITX_ERROR() << "Response size too large: " << readLen;
+    std::vector<char> buffer(responseLength);
+    if (!readAll(sock_, buffer.data(), buffer.size())) {
         close(sock_);
         sock_ = -1;
         return std::nullopt;
     }
 
-    std::vector<char> buf(readLen);
-    if (!readAll(sock_, buf.data(), readLen)) {
-        FCITX_ERROR() << "Failed to read response body.";
-        close(sock_);
-        sock_ = -1;
+    hazkey::ResponseEnvelope response;
+    if (!response.ParseFromArray(buffer.data(),
+                                 static_cast<int>(buffer.size()))) {
+        FCITX_ERROR() << "Failed to parse Grimodex protobuf response";
         return std::nullopt;
     }
-
-    hazkey::ResponseEnvelope resp;
-    if (!resp.ParseFromArray(buf.data(), readLen)) {
-        FCITX_ERROR() << "Failed to parse received data\n";
-        return std::nullopt;
-    }
-
-    FCITX_DEBUG() << "Successfully received and parsed response";
-    return resp;
+    return response;
 }
 
-std::string HazkeyServerConnector::getComposingText(
+std::optional<hazkey::ResponseEnvelope> HazkeyServerConnector::transactV2(
     HazkeyClientSession& session,
-    hazkey::commands::GetComposingString::CharType type,
-    std::string currentPreedit) {
-    hazkey::RequestEnvelope request;
-    auto props = request.mutable_get_composing_string();
-    props->set_char_type(type);
-    props->set_current_preedit(currentPreedit);
-    auto response = sessionClient_.transact(session, std::move(request));
-    if (response == std::nullopt) {
-        FCITX_ERROR() << "Error while transacting getComposingText().";
-        return "";
-    }
-    auto responseVal = response.value();
-    if (responseVal.status() != hazkey::SUCCESS) {
-        FCITX_ERROR() << "getComposingText: " << "Server returned an error: "
-                      << responseVal.error_message();
-        return "";
-    }
-    // old protobuf doesn't have has_text() method.
-    // if (!responseVal.has_text()) {
-    //     FCITX_ERROR() << "getComposingText: "
-    //                   << "Server returned unexpected response";
-    //     return "";
-    // }
-    return responseVal.text();
-}
-
-fcitx::Text HazkeyServerConnector::getComposingHiraganaWithCursor(
-    HazkeyClientSession& session) {
-    hazkey::RequestEnvelope request;
-    request.mutable_get_hiragana_with_cursor();
-    auto response = sessionClient_.transact(session, std::move(request));
-    if (response == std::nullopt) {
-        FCITX_ERROR()
-            << "Error while transacting getComposingHiraganaWithCursor().";
-        return fcitx::Text();
-    }
-    auto responseVal = response.value();
-    if (responseVal.status() != hazkey::SUCCESS) {
-        FCITX_ERROR() << "getHiraganaWithCursor: "
-                      << "Server returned an error: "
-                      << responseVal.error_message();
-        return fcitx::Text();
-    }
-    if (!responseVal.has_text_with_cursor()) {
-        FCITX_ERROR() << "getHiraganaWithCursor: "
-                      << "Server returned unexpected response";
-        return fcitx::Text();
-    }
-    fcitx::Text text =
-        fcitx::Text(responseVal.text_with_cursor().beforecursosr());
-    text.append(responseVal.text_with_cursor().oncursor(),
-                fcitx::TextFormatFlag::Underline);
-    text.append(responseVal.text_with_cursor().aftercursor());
-    return text;
-}
-
-void HazkeyServerConnector::inputChar(HazkeyClientSession& session,
-                                      std::string text) {
-    hazkey::RequestEnvelope request;
-    auto props = request.mutable_input_char();
-    props->set_text(text);
-    auto response = sessionClient_.transact(session, std::move(request));
-    if (response == std::nullopt) {
-        FCITX_ERROR() << "Error while transacting inputChar().";
-        return;
-    }
-    auto responseVal = response.value();
-    if (responseVal.status() != hazkey::SUCCESS) {
-        FCITX_ERROR() << "inputChar: " << "Server returned an error: "
-                      << responseVal.error_message();
-        return;
-    }
-    return;
-}
-
-void HazkeyServerConnector::shiftKeyEvent(HazkeyClientSession& session,
-                                          bool isRelease) {
-    hazkey::RequestEnvelope request;
-    auto props = request.mutable_modifier_event();
-    props->set_event_type(
-        isRelease ? hazkey::commands::ModifierEvent_EventType_RELEASE
-                  : hazkey::commands::ModifierEvent_EventType_PRESS);
-    props->set_mod_type(hazkey::commands::ModifierEvent_ModifierType_SHIFT);
-    auto response = sessionClient_.transact(session, std::move(request));
-    if (response == std::nullopt) {
-        FCITX_ERROR() << "Error while transacting shiftKeyEvent().";
-        return;
-    }
-    auto responseVal = response.value();
-    if (responseVal.status() != hazkey::SUCCESS) {
-        FCITX_ERROR() << "shiftKeyEvent: " << "Server returned an error: "
-                      << responseVal.error_message();
-        return;
-    }
-    return;
-}
-
-bool HazkeyServerConnector::currentInputModeIsDirect(
-    HazkeyClientSession& session) {
-    hazkey::RequestEnvelope request;
-    auto _ = request.mutable_get_current_input_mode();
-    auto response = sessionClient_.transact(session, std::move(request));
-    if (response == std::nullopt) {
-        FCITX_ERROR() << "Error while transacting currentInputModeIsDirect().";
-        return false;
-    }
-    auto responseVal = response.value();
-    if (responseVal.status() != hazkey::SUCCESS) {
-        FCITX_ERROR() << "currentInputModeIsDirect: "
-                      << "Server returned an error: "
-                      << responseVal.error_message();
-        return false;
-    }
-    return responseVal.current_input_mode_info().input_mode() ==
-           hazkey::commands::CurrentInputModeInfo::InputMode::
-               CurrentInputModeInfo_InputMode_DIRECT;
-}
-
-void HazkeyServerConnector::deleteLeft(HazkeyClientSession& session) {
-    hazkey::RequestEnvelope request;
-    request.mutable_delete_left();
-    auto response = sessionClient_.transact(session, std::move(request));
-    if (response == std::nullopt) {
-        FCITX_ERROR() << "Error while transacting deleteLeft().";
-        return;
-    }
-    auto responseVal = response.value();
-    if (responseVal.status() != hazkey::SUCCESS) {
-        FCITX_ERROR() << "deleteLeft: " << "Server returned an error: "
-                      << responseVal.error_message();
-        return;
-    }
-    return;
-}
-
-void HazkeyServerConnector::deleteRight(HazkeyClientSession& session) {
-    hazkey::RequestEnvelope request;
-    request.mutable_delete_right();
-    auto response = sessionClient_.transact(session, std::move(request));
-    if (response == std::nullopt) {
-        FCITX_ERROR() << "Error while transacting deleteRight().";
-        return;
-    }
-    auto responseVal = response.value();
-    if (responseVal.status() != hazkey::SUCCESS) {
-        FCITX_ERROR() << "deleteRight: " << "Server returned an error: "
-                      << responseVal.error_message();
-        return;
-    }
-    return;
-}
-
-void HazkeyServerConnector::moveCursor(HazkeyClientSession& session,
-                                       int offset) {
-    hazkey::RequestEnvelope request;
-    auto props = request.mutable_move_cursor();
-    props->set_offset(offset);
-    auto response = sessionClient_.transact(session, std::move(request));
-    if (response == std::nullopt) {
-        FCITX_ERROR() << "Error while transacting moveCursor().";
-        return;
-    }
-    auto responseVal = response.value();
-    if (responseVal.status() != hazkey::SUCCESS) {
-        FCITX_ERROR() << "moveCursor:" << "Server returned an error: "
-                      << responseVal.error_message();
-        return;
-    }
-    return;
-}
-
-void HazkeyServerConnector::setContext(HazkeyClientSession& session,
-                                       std::string context, int anchor) {
-    hazkey::RequestEnvelope request;
-    auto props = request.mutable_set_context();
-    props->set_context(context);
-    props->set_anchor(anchor);
-    auto response = sessionClient_.transact(session, std::move(request));
-    if (response == std::nullopt) {
-        FCITX_ERROR() << "Error while transacting setContext().";
-        return;
-    }
-    auto responseVal = response.value();
-    if (responseVal.status() != hazkey::SUCCESS) {
-        FCITX_ERROR() << "setContext:" << "Server returned an error: "
-                      << responseVal.error_message();
-        return;
-    }
-    return;
-}
-
-void HazkeyServerConnector::newComposingText(HazkeyClientSession& session) {
-    hazkey::RequestEnvelope request;
-    request.mutable_new_composing_text();
-    auto response = sessionClient_.transact(session, std::move(request));
-    if (response == std::nullopt) {
-        FCITX_ERROR()
-            << "Error while transacting createComposingTextInstance().";
-        return;
-    }
-    auto responseVal = response.value();
-    if (responseVal.status() != hazkey::SUCCESS) {
-        FCITX_ERROR() << "createComposingTextInstance:"
-                      << "Server returned an error: "
-                      << responseVal.error_message();
-        return;
-    }
-    return;
-}
-
-void HazkeyServerConnector::completePrefix(HazkeyClientSession& session,
-                                           int index) {
-    hazkey::RequestEnvelope request;
-    auto props = request.mutable_prefix_complete();
-    props->set_index(index);
-    auto response = sessionClient_.transact(session, std::move(request));
-    if (response == std::nullopt) {
-        FCITX_ERROR() << "Error while transacting completePrefix().";
-        return;
-    }
-    auto responseVal = response.value();
-    if (responseVal.status() != hazkey::SUCCESS) {
-        FCITX_ERROR() << "completePrefix: " << "Server returned an error: "
-                      << responseVal.error_message();
-        return;
-    }
-    return;
-}
-
-void HazkeyServerConnector::saveLearningData(HazkeyClientSession& session,
-                                             bool tryConnect) {
-    hazkey::RequestEnvelope request;
-    request.mutable_save_learning_data();
-    auto response =
-        sessionClient_.transact(session, std::move(request), tryConnect);
-    if (response == std::nullopt) {
-        FCITX_ERROR() << "Error while transacting saveLearningData().";
-        return;
-    }
-    auto responseVal = response.value();
-    if (responseVal.status() != hazkey::SUCCESS) {
-        FCITX_ERROR() << "saveLearningData:"
-                      << "Server returned an error: "
-                      << responseVal.error_message();
-        return;
-    }
-    return;
-}
-
-hazkey::commands::CandidatesResult HazkeyServerConnector::getCandidates(
-    HazkeyClientSession& session, bool isSuggestMode) {
-    hazkey::RequestEnvelope request;
-    auto props = request.mutable_get_candidates();
-    props->set_is_suggest(isSuggestMode);
-    auto response = sessionClient_.transact(session, std::move(request));
-    if (response == std::nullopt) {
-        FCITX_ERROR() << "Error while transacting setServerConfig().";
-        return hazkey::commands::CandidatesResult();
-    }
-    auto responseVal = response.value();
-    if (responseVal.status() != hazkey::SUCCESS) {
-        FCITX_ERROR() << "getCandidates: " << "Server returned an error: "
-                      << responseVal.error_message();
-        return hazkey::commands::CandidatesResult();
-    }
-    // TODO: Error handling when response has no candidate
-    // if (responseVal..has_candidates()) {
-    //     FCITX_ERROR() << "getCandidates: "
-    //                   << "Server returned unexpected response";
-    //     std::vector<CandidateData> empty_vec;
-    //     return hazkey::commands::CandidatesResult();
-    // }
-    return responseVal.candidates();
+    hazkey::commands::HandleImeAction action,
+    bool tryConnect) {
+    return sessionClient_.transactV2(session, std::move(action), tryConnect);
 }

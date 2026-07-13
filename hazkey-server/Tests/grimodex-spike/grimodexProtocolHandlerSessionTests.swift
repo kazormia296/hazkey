@@ -43,29 +43,25 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
     let sessionA = try openSession(handler: handler, clientFd: 10, program: "grimodex")
     let sessionB = try openSession(handler: handler, clientFd: 10, program: "firefox")
 
-    XCTAssertEqual(
-      try process(
-        sessionRequest(sessionA) {
-          $0.inputChar = Hazkey_Commands_InputChar.with { $0.text = "a" }
-        },
-        handler: handler,
-        clientFd: 10
-      ).status,
-      .success
+    let responseA = try process(
+      actionRequest(sessionA, requestID: "insert-a") {
+        $0.insertText = Hazkey_Commands_InsertText.with { $0.text = "あ" }
+      },
+      handler: handler,
+      clientFd: 10
     )
-    XCTAssertEqual(
-      try process(
-        sessionRequest(sessionB) {
-          $0.inputChar = Hazkey_Commands_InputChar.with { $0.text = "i" }
-        },
-        handler: handler,
-        clientFd: 10
-      ).status,
-      .success
+    let responseB = try process(
+      actionRequest(sessionB, requestID: "insert-b") {
+        $0.insertText = Hazkey_Commands_InsertText.with { $0.text = "い" }
+      },
+      handler: handler,
+      clientFd: 10
     )
 
-    XCTAssertEqual(try composingText(sessionA, handler: handler, clientFd: 10), "あ")
-    XCTAssertEqual(try composingText(sessionB, handler: handler, clientFd: 10), "い")
+    XCTAssertEqual(responseA.status, .success)
+    XCTAssertEqual(responseB.status, .success)
+    XCTAssertEqual(snapshotText(responseA), "あ")
+    XCTAssertEqual(snapshotText(responseB), "い")
   }
 
   func testMissingAndForeignOwnerSessionsReturnDedicatedStatus() throws {
@@ -75,7 +71,9 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
 
     for (sessionID, clientFd) in [("missing", Int32(10)), (session, Int32(11))] {
       let response = try process(
-        sessionRequest(sessionID) { $0.getCurrentInputMode = .init() },
+        actionRequest(sessionID, requestID: "owned-\(clientFd)") {
+          $0.insertText = Hazkey_Commands_InsertText.with { $0.text = "あ" }
+        },
         handler: handler,
         clientFd: clientFd
       )
@@ -102,7 +100,9 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
     )
     XCTAssertEqual(
       try process(
-        sessionRequest(session) { $0.getCurrentInputMode = .init() },
+        actionRequest(session, requestID: "after-close") {
+          $0.insertText = Hazkey_Commands_InsertText.with { $0.text = "あ" }
+        },
         handler: handler,
         clientFd: 10
       ).status,
@@ -123,6 +123,87 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
     guard case .currentConfig = response.payload else {
       return XCTFail("configuration response payload was missing")
     }
+  }
+
+  func testUserDictionaryCrudImportAndExportRemainSessionless() throws {
+    let store = UserDictionaryStore()
+    let registry = HazkeySessionRegistry(userDictionaryStore: store)
+    let handler = ProtocolHandler(sessionRegistry: registry)
+
+    let added = try process(
+      Hazkey_RequestEnvelope.with {
+        $0.addUserDictionaryEntry = Hazkey_Config_AddUserDictionaryEntry.with {
+          $0.entry = Hazkey_Config_UserDictionaryEntry.with {
+            $0.id = "entry-a"
+            $0.reading = "せつな"
+            $0.surface = "刹那"
+            $0.partOfSpeech = "person"
+            $0.layer = .personal
+          }
+        }
+      },
+      handler: handler,
+      clientFd: 20
+    )
+    XCTAssertEqual(added.status, .success)
+    XCTAssertEqual(added.userDictionaryResult.entries.map(\.id), ["entry-a"])
+
+    let exported = try process(
+      Hazkey_RequestEnvelope.with { $0.exportUserDictionary = .init() },
+      handler: handler,
+      clientFd: 21
+    )
+    XCTAssertEqual(exported.status, .success)
+    XCTAssertFalse(exported.userDictionaryResult.exportedJson.isEmpty)
+
+    let removed = try process(
+      Hazkey_RequestEnvelope.with {
+        $0.removeUserDictionaryEntry = Hazkey_Config_RemoveUserDictionaryEntry.with {
+          $0.id = "entry-a"
+        }
+      },
+      handler: handler,
+      clientFd: 22
+    )
+    XCTAssertEqual(removed.status, .success)
+    XCTAssertTrue(removed.userDictionaryResult.entries.isEmpty)
+
+    let imported = try process(
+      Hazkey_RequestEnvelope.with {
+        $0.importUserDictionary = Hazkey_Config_ImportUserDictionary.with {
+          $0.json = exported.userDictionaryResult.exportedJson
+          $0.merge = true
+        }
+      },
+      handler: handler,
+      clientFd: 23
+    )
+    XCTAssertEqual(imported.status, .success)
+    XCTAssertEqual(imported.userDictionaryResult.entries.map(\.id), ["entry-a"])
+  }
+
+  func testUserDictionaryRejectsProjectLayerMutation() throws {
+    let handler = ProtocolHandler(
+      sessionRegistry: HazkeySessionRegistry(userDictionaryStore: UserDictionaryStore())
+    )
+    let response = try process(
+      Hazkey_RequestEnvelope.with {
+        $0.addUserDictionaryEntry = Hazkey_Config_AddUserDictionaryEntry.with {
+          $0.entry = Hazkey_Config_UserDictionaryEntry.with {
+            $0.id = "project-entry"
+            $0.reading = "せつな"
+            $0.surface = "刹那"
+            $0.partOfSpeech = "person"
+            $0.layer = .project
+          }
+        }
+      },
+      handler: handler,
+      clientFd: 20
+    )
+
+    XCTAssertEqual(response.status, .failed)
+    XCTAssertFalse(response.errorMessage.isEmpty)
   }
 
   func testConfigurationResponseIncludesLiveGrimodexDiagnostics() throws {
@@ -164,35 +245,32 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
     )
   }
 
-  func testNegativeSetContextAnchorReturnsFailed() throws {
+  func testHandleImeActionWithoutAnActionReturnsMalformedRequest() throws {
     let registry = HazkeySessionRegistry()
     let handler = ProtocolHandler(sessionRegistry: registry)
     let session = try openSession(handler: handler, clientFd: 10, program: "grimodex")
 
     let response = try process(
-      sessionRequest(session) {
-        $0.setContext = Hazkey_Commands_SetContext.with {
-          $0.context = "abc"
-          $0.anchor = -1
-        }
+      actionRequest(session, requestID: "missing-action") { action in
+        action.expectedRevision = 0
       },
       handler: handler,
       clientFd: 10
     )
 
-    XCTAssertEqual(response.status, .failed)
+    XCTAssertEqual(response.status, .malformedRequest)
     XCTAssertFalse(response.errorMessage.isEmpty)
   }
 
-  func testOutOfRangeSetContextAnchorReturnsFailed() throws {
+  func testOutOfRangeSurroundingContextAnchorReturnsMalformedRequest() throws {
     let registry = HazkeySessionRegistry()
     let handler = ProtocolHandler(sessionRegistry: registry)
     let session = try openSession(handler: handler, clientFd: 10, program: "grimodex")
 
     let response = try process(
-      sessionRequest(session) {
-        $0.setContext = Hazkey_Commands_SetContext.with {
-          $0.context = "abc"
+      actionRequest(session, requestID: "bad-context") {
+        $0.updateSurroundingContext = Hazkey_Commands_UpdateSurroundingContext.with {
+          $0.text = "abc"
           $0.anchor = 4
         }
       },
@@ -200,21 +278,21 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
       clientFd: 10
     )
 
-    XCTAssertEqual(response.status, .failed)
+    XCTAssertEqual(response.status, .malformedRequest)
     XCTAssertFalse(response.errorMessage.isEmpty)
   }
 
-  func testSetContextAcceptsFcitxUnicodeScalarAnchor() throws {
+  func testSurroundingContextAcceptsFcitxUnicodeScalarAnchor() throws {
     let registry = HazkeySessionRegistry()
     let handler = ProtocolHandler(sessionRegistry: registry)
     let session = try openSession(handler: handler, clientFd: 10, program: "grimodex")
     let context = "e\u{301}👨‍👩‍👧‍👦後"
 
     let response = try process(
-      sessionRequest(session) {
-        $0.setContext = Hazkey_Commands_SetContext.with {
-          $0.context = context
-          $0.anchor = Int32(context.unicodeScalars.count - 1)
+      actionRequest(session, requestID: "unicode-context") {
+        $0.updateSurroundingContext = Hazkey_Commands_UpdateSurroundingContext.with {
+          $0.text = context
+          $0.anchor = UInt32(context.unicodeScalars.count - 1)
         }
       },
       handler: handler,
@@ -224,42 +302,6 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
     XCTAssertEqual(context.count, 3)
     XCTAssertEqual(context.unicodeScalars.count, 10)
     XCTAssertEqual(response.status, .success)
-  }
-
-  func testNegativePrefixCompleteIndexReturnsFailed() throws {
-    let registry = HazkeySessionRegistry()
-    let handler = ProtocolHandler(sessionRegistry: registry)
-    let session = try openSession(handler: handler, clientFd: 10, program: "grimodex")
-    registry.state(for: session, ownerFd: 10)?.currentCandidateList = []
-
-    let response = try process(
-      sessionRequest(session) {
-        $0.prefixComplete = Hazkey_Commands_PrefixComplete.with { $0.index = -1 }
-      },
-      handler: handler,
-      clientFd: 10
-    )
-
-    XCTAssertEqual(response.status, .failed)
-    XCTAssertFalse(response.errorMessage.isEmpty)
-  }
-
-  func testOutOfRangePrefixCompleteIndexReturnsFailed() throws {
-    let registry = HazkeySessionRegistry()
-    let handler = ProtocolHandler(sessionRegistry: registry)
-    let session = try openSession(handler: handler, clientFd: 10, program: "grimodex")
-    registry.state(for: session, ownerFd: 10)?.currentCandidateList = []
-
-    let response = try process(
-      sessionRequest(session) {
-        $0.prefixComplete = Hazkey_Commands_PrefixComplete.with { $0.index = 0 }
-      },
-      handler: handler,
-      clientFd: 10
-    )
-
-    XCTAssertEqual(response.status, .failed)
-    XCTAssertFalse(response.errorMessage.isEmpty)
   }
 
   func testEmptyProfilesAreRejectedWithoutChangingExistingConfiguration() throws {
@@ -354,6 +396,52 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
     }
   }
 
+  func testV2ActionRoundTripIsIdempotentAndRejectsStaleCandidates() throws {
+    let registry = HazkeySessionRegistry()
+    let handler = ProtocolHandler(sessionRegistry: registry)
+    let session = try openSession(handler: handler, clientFd: 10, program: "grimodex")
+
+    let insert = sessionRequest(session) {
+      $0.handleImeAction = Hazkey_Commands_HandleImeAction.with {
+        $0.requestID = "insert-1"
+        $0.expectedRevision = 0
+        $0.insertText = Hazkey_Commands_InsertText.with { $0.text = "かな" }
+      }
+    }
+    let insertResponse = try process(insert, handler: handler, clientFd: 10)
+    XCTAssertEqual(insertResponse.status, .success)
+    XCTAssertEqual(insertResponse.handleImeActionResult.snapshot.phase, .composing)
+
+    let duplicate = try process(insert, handler: handler, clientFd: 10)
+    XCTAssertEqual(duplicate, insertResponse)
+
+    let convert = sessionRequest(session) {
+      $0.handleImeAction = Hazkey_Commands_HandleImeAction.with {
+        $0.requestID = "convert-1"
+        $0.expectedRevision = insertResponse.handleImeActionResult.snapshot.revision
+        $0.startConversion = .init()
+      }
+    }
+    let convertResponse = try process(convert, handler: handler, clientFd: 10)
+    XCTAssertEqual(convertResponse.status, .success)
+    let generation = convertResponse.handleImeActionResult.snapshot.candidateWindow.generation
+    XCTAssertGreaterThan(generation, 0)
+
+    let stale = sessionRequest(session) {
+      $0.handleImeAction = Hazkey_Commands_HandleImeAction.with {
+        $0.requestID = "stale-candidate"
+        $0.expectedRevision = convertResponse.handleImeActionResult.snapshot.revision
+        $0.selectCandidate = Hazkey_Commands_SelectCandidate.with {
+          $0.candidateID = "old"
+          $0.generation = generation - 1
+        }
+      }
+    }
+    let staleResponse = try process(stale, handler: handler, clientFd: 10)
+    XCTAssertEqual(staleResponse.status, .staleCandidate)
+    XCTAssertTrue(staleResponse.handleImeActionResult.snapshot.effects.isEmpty)
+  }
+
   private func openSession(
     handler: ProtocolHandler,
     clientFd: Int32,
@@ -385,22 +473,23 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
     return request
   }
 
-  private func composingText(
+  private func actionRequest(
     _ sessionID: String,
-    handler: ProtocolHandler,
-    clientFd: Int32
-  ) throws -> String {
-    let response = try process(
-      sessionRequest(sessionID) {
-        $0.getComposingString = Hazkey_Commands_GetComposingString.with {
-          $0.charType = .hiragana
-        }
-      },
-      handler: handler,
-      clientFd: clientFd
-    )
-    XCTAssertEqual(response.status, .success)
-    return response.text
+    requestID: String,
+    expectedRevision: UInt64 = 0,
+    configure: (inout Hazkey_Commands_HandleImeAction) -> Void
+  ) -> Hazkey_RequestEnvelope {
+    sessionRequest(sessionID) {
+      $0.handleImeAction = Hazkey_Commands_HandleImeAction.with {
+        $0.requestID = requestID
+        $0.expectedRevision = expectedRevision
+        configure(&$0)
+      }
+    }
+  }
+
+  private func snapshotText(_ response: Hazkey_ResponseEnvelope) -> String {
+    response.handleImeActionResult.snapshot.preedit.map(\.text).joined()
   }
 
   private func process(

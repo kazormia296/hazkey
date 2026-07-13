@@ -1,8 +1,8 @@
 #ifndef HAZKEY_SERVER_CONNECTOR_H
 #define HAZKEY_SERVER_CONNECTOR_H
 
-#include <fcitx/text.h>
-
+#include <atomic>
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -12,6 +12,7 @@
 
 class HazkeyServerConnector;
 
+/// One Protocol-v2 conversion session owned by an Fcitx InputContext.
 class HazkeyServerSession {
    public:
     HazkeyServerSession(HazkeyServerConnector& connector,
@@ -24,22 +25,13 @@ class HazkeyServerSession {
 
     const HazkeyClientContext& context() const { return session_.context(); }
     bool updateClientContext(HazkeyClientContext context);
-
-    std::string getComposingText(
-        hazkey::commands::GetComposingString::CharType type,
-        std::string currentPreedit);
-    fcitx::Text getComposingHiraganaWithCursor();
-    void inputChar(std::string text);
-    void shiftKeyEvent(bool isRelease);
-    bool currentInputModeIsDirect();
-    void deleteLeft();
-    void deleteRight();
-    void moveCursor(int offset);
-    void setContext(std::string context, int anchor);
-    void newComposingText();
-    void completePrefix(int index);
-    void saveLearningData(bool tryConnect = true);
-    hazkey::commands::CandidatesResult getCandidates(bool isSuggest);
+    void abandonUnconfirmedInput();
+    bool supportsV2() const { return session_.capabilities().supportsV2(); }
+    bool shouldApplyEffect(uint64_t effectID) {
+        return session_.shouldApplyEffect(effectID);
+    }
+    std::optional<hazkey::ResponseEnvelope> transactV2(
+        hazkey::commands::HandleImeAction action, bool tryConnect = true);
 
    private:
     HazkeyServerConnector& connector_;
@@ -57,33 +49,20 @@ class HazkeyServerConnector {
     std::string getSocketPath();
     void connectServer();
     void startHazkeyServer(bool forceRestart);
-
     std::optional<hazkey::ResponseEnvelope> transact(
-        const hazkey::RequestEnvelope& sendData, bool tryConnect = true);
+        const hazkey::RequestEnvelope& request, bool tryConnect = true);
 
    private:
     friend class HazkeyServerSession;
 
-    std::string getComposingText(
+    std::optional<hazkey::ResponseEnvelope> transactV2(
         HazkeyClientSession& session,
-        hazkey::commands::GetComposingString::CharType type,
-        std::string currentPreedit);
-    fcitx::Text getComposingHiraganaWithCursor(HazkeyClientSession& session);
-    void inputChar(HazkeyClientSession& session, std::string text);
-    void shiftKeyEvent(HazkeyClientSession& session, bool isRelease);
-    bool currentInputModeIsDirect(HazkeyClientSession& session);
-    void deleteLeft(HazkeyClientSession& session);
-    void deleteRight(HazkeyClientSession& session);
-    void moveCursor(HazkeyClientSession& session, int offset);
-    void setContext(HazkeyClientSession& session, std::string context, int anchor);
-    void newComposingText(HazkeyClientSession& session);
-    void completePrefix(HazkeyClientSession& session, int index);
-    void saveLearningData(HazkeyClientSession& session, bool tryConnect = true);
-    hazkey::commands::CandidatesResult getCandidates(
-        HazkeyClientSession& session, bool isSuggest);
+        hazkey::commands::HandleImeAction action,
+        bool tryConnect = true);
 
     HazkeySessionClient sessionClient_;
     int sock_ = -1;
+    std::atomic<int64_t> lastServerStartNanoseconds_{0};
 };
 
 #endif  // HAZKEY_SERVER_CONNECTOR_H

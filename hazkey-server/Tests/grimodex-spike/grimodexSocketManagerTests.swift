@@ -56,6 +56,14 @@ private final class AsyncSocketResult: @unchecked Sendable {
 }
 
 final class GrimodexSocketManagerTests: XCTestCase {
+  func testRejectsUnixSocketPathsThatCannotFitSockaddr() {
+    let manager = SocketManager(
+      socketPath: "/tmp/" + String(repeating: "x", count: 256)
+    )
+
+    XCTAssertThrowsError(try manager.setupSocket())
+  }
+
   func testConnectionsBeyondClientLimitAreClosedImmediately() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(
       "grimodex-client-limit-tests-\(UUID().uuidString)",

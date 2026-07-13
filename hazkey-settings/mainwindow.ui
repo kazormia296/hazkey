@@ -1424,14 +1424,14 @@
            <item>
             <widget class="QLabel" name="userDictNotImplementedLabel">
              <property name="text">
-              <string>This feature is not yet implemented</string>
+              <string>Manage words used by Grimodex IME.</string>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QCheckBox" name="useUserDict">
              <property name="enabled">
-              <bool>false</bool>
+              <bool>true</bool>
              </property>
              <property name="text">
               <string>Use user dictionary</string>
@@ -1441,7 +1441,7 @@
            <item>
             <widget class="QLabel" name="userDictNote">
              <property name="enabled">
-              <bool>false</bool>
+              <bool>true</bool>
              </property>
              <property name="font">
               <font>
@@ -1456,9 +1456,9 @@
            <item>
             <layout class="QHBoxLayout" name="userDictManageGrid">
              <item>
-              <widget class="QColumnView" name="userDictViewer">
+              <widget class="QTableView" name="userDictViewer">
                <property name="enabled">
-                <bool>false</bool>
+                <bool>true</bool>
                </property>
               </widget>
              </item>
@@ -1480,7 +1480,7 @@
                <item>
                 <widget class="QPushButton" name="userDictImport">
                  <property name="enabled">
-                  <bool>false</bool>
+                  <bool>true</bool>
                  </property>
                  <property name="text">
                   <string>Import...</string>
@@ -1490,7 +1490,7 @@
                <item>
                 <widget class="QPushButton" name="userDictExport">
                  <property name="enabled">
-                  <bool>false</bool>
+                  <bool>true</bool>
                  </property>
                  <property name="text">
                   <string>Export...</string>
@@ -1500,7 +1500,7 @@
                <item>
                 <widget class="QPushButton" name="userDictNewEntry">
                  <property name="enabled">
-                  <bool>false</bool>
+                  <bool>true</bool>
                  </property>
                  <property name="text">
                   <string>New</string>
@@ -1513,7 +1513,7 @@
                <item>
                 <widget class="QPushButton" name="userDictDeleteEntry">
                  <property name="enabled">
-                  <bool>false</bool>
+                  <bool>true</bool>
                  </property>
                  <property name="text">
                   <string>Delete</string>

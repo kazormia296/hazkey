@@ -1,0 +1,16 @@
+{
+  "contract_version": "composition-behavior-v1",
+  "source_repository": "kazormia296/Grimodex",
+  "source_path": "ime-contract/composition-behavior-v1/scenarios",
+  "files": {
+    "composing-basic.json": "d4e19a633e9e7924c8e48ae01c7bb15d9aa08b87054d4bb9e049572bc6234a83",
+    "cursor-editing.json": "22ba29b1ddb08bd85c597f478dcaa98236ca7f7a904ba4385532c21a5d27460c",
+    "escape-backspace.json": "3810d7e12928450354ef3aba45af4e9c95dd8ec6c289adc4d37f69adfbe2fb40",
+    "partial-commit.json": "4345a96cc6508d873a6e7532d37323f74515c5b161d26626f4c62787fe2ee597",
+    "secure-input.json": "c1e2462f1dfbd4948e60b4b6067422439792348d9a4fc34d1aafdbd4c4b810ec",
+    "segment-editing.json": "ac6c4f0b376389286d526140831aba7ef53e5178e209de62ae81e1477ebe17a3",
+    "server-failure.json": "bdeb644fd19802db6135f54cfda86f9fc7eecdaf18e6e631b124fdab76126ae9",
+    "stale-candidate.json": "407b1fafcfd3bbfa1fedb609d8ee33fa04f06f1fa634977ffe2bcedce7ce7e1e",
+    "unicode-caret.json": "4e8d720254d7702f138e93c615c894493ceee2b8d9deea44c651b28a020b8c64"
+  }
+}

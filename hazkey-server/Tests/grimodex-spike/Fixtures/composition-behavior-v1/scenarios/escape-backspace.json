@@ -1,0 +1,19 @@
+{
+  "contract_version": "composition-behavior-v1",
+  "scenario_id": "escape-backspace",
+  "initial": { "phase": "composing", "composition": "かな", "revision": 0 },
+  "actions": [
+    { "type": "start_conversion" },
+    { "type": "cancel" },
+    { "type": "delete_backward" },
+    { "type": "cancel" }
+  ],
+  "statuses": ["success", "success", "success", "success"],
+  "snapshots": [
+    { "revision": 1, "phase": "previewing", "preedit": [{ "text": "変換", "style": "active" }], "caret_utf8_byte_offset": 6, "candidate_window": { "generation": 1, "items": [{ "id": "1-0", "text": "変換", "annotation": null, "consuming_count": 2 }, { "id": "1-1", "text": "かな", "annotation": "reading", "consuming_count": 2 }], "selected_index": 0, "page_size": 2 }, "effects": [] },
+    { "revision": 2, "phase": "composing", "preedit": [{ "text": "かな", "style": "underline" }], "caret_utf8_byte_offset": 6, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [] },
+    { "revision": 3, "phase": "composing", "preedit": [{ "text": "か", "style": "underline" }], "caret_utf8_byte_offset": 3, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [] },
+    { "revision": 4, "phase": "idle", "preedit": [], "caret_utf8_byte_offset": null, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [] }
+  ],
+  "expected_learning": { "completed": 0, "updated": 0, "committed": 0, "forgotten": 0 }
+}

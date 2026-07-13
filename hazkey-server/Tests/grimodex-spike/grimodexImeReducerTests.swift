@@ -1,0 +1,901 @@
+import Foundation
+import XCTest
+
+@testable import hazkey_server
+
+private final class ReducerFixtureConverter: KanaKanjiConverting {
+  var shouldFail = false
+  var learningUpdates = 0
+  var completed = 0
+  var forgotten = 0
+  var stopCount = 0
+  var displayOverride: String?
+  var predictionCandidates: [ConverterCandidate] = []
+  var lastOptions: ConversionOptions?
+  var lastComposition: CompositionInput?
+
+  func display(for composition: CompositionInput) -> CompositionDisplay {
+    let raw = composition.elements.map(\.text).joined()
+    let text = displayOverride ?? raw
+    return CompositionDisplay(
+      text: text,
+      caretUtf8ByteOffset: UInt32(text.utf8.count)
+    )
+  }
+
+  func candidates(
+    for composition: CompositionInput,
+    options: ConversionOptions
+  ) throws -> ConversionOutput {
+    lastComposition = composition
+    lastOptions = options
+    if shouldFail { throw FixtureError.failed }
+    let input = composition.elements.map(\.text).joined()
+    guard !input.isEmpty else {
+      return ConversionOutput(candidates: [], pageSize: 0)
+    }
+    let target = min(
+      max(composition.targetCount ?? composition.elements.count, 1),
+      composition.elements.count
+    )
+    let count = min(2, target)
+    return ConversionOutput(
+      candidates: [
+        ConverterCandidate(text: "変換", consumingCount: count),
+        ConverterCandidate(text: input, annotation: "読み", consumingCount: count),
+      ],
+      pageSize: 2
+    )
+  }
+
+  func predictions(
+    for composition: CompositionInput,
+    options: ConversionOptions
+  ) throws -> ConversionOutput {
+    lastComposition = composition
+    lastOptions = options
+    if shouldFail { throw FixtureError.failed }
+    return ConversionOutput(
+      candidates: predictionCandidates,
+      pageSize: predictionCandidates.count
+    )
+  }
+
+  func setCompletedData(_ candidate: ConverterCandidate) { completed += 1 }
+  func updateLearningData(_ candidate: ConverterCandidate) { learningUpdates += 1 }
+  func commitLearning() {}
+  func forget(_ candidate: ConverterCandidate) { forgotten += 1 }
+  func stopComposition() { stopCount += 1 }
+
+  private enum FixtureError: Error { case failed }
+}
+
+private final class PagingFixtureConverter: KanaKanjiConverting {
+  func candidates(
+    for composition: CompositionInput,
+    options: ConversionOptions
+  ) throws -> ConversionOutput {
+    ConversionOutput(
+      candidates: (0..<11).map {
+        ConverterCandidate(text: "候補\($0)", consumingCount: composition.elements.count)
+      },
+      pageSize: 3
+    )
+  }
+
+  func setCompletedData(_ candidate: ConverterCandidate) {}
+  func updateLearningData(_ candidate: ConverterCandidate) {}
+  func commitLearning() {}
+  func forget(_ candidate: ConverterCandidate) {}
+  func stopComposition() {}
+}
+
+private final class DuplicateSurfaceFixtureConverter: KanaKanjiConverting {
+  var completedSourceIDs: [String?] = []
+  var learnedSourceIDs: [String?] = []
+
+  func candidates(
+    for composition: CompositionInput,
+    options: ConversionOptions
+  ) throws -> ConversionOutput {
+    ConversionOutput(
+      candidates: [
+        ConverterCandidate(
+          text: "同じ",
+          consumingCount: composition.elements.count,
+          sourceID: "first"
+        ),
+        ConverterCandidate(
+          text: "同じ",
+          consumingCount: composition.elements.count,
+          sourceID: "second"
+        ),
+      ],
+      pageSize: 2
+    )
+  }
+
+  func setCompletedData(_ candidate: ConverterCandidate) {
+    completedSourceIDs.append(candidate.sourceID)
+  }
+  func updateLearningData(_ candidate: ConverterCandidate) {
+    learnedSourceIDs.append(candidate.sourceID)
+  }
+  func commitLearning() {}
+  func forget(_ candidate: ConverterCandidate) {}
+  func stopComposition() {}
+}
+
+private struct ReducerDeterministicGenerator {
+  private var state: UInt64 = 0x4752_494d_4f44_4558
+
+  mutating func next(_ upperBound: Int) -> Int {
+    precondition(upperBound > 0)
+    state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+    return Int(state % UInt64(upperBound))
+  }
+}
+
+final class GrimodexImeReducerTests: XCTestCase {
+  func testEditorUsesInputElementsAndUtf8Caret() {
+    let reducer = ImeReducer()
+
+    _ = reducer.reduce(.insertText("𠮷"), requestID: "insert")
+    XCTAssertEqual(reducer.session.composingText.elements.count, 1)
+    XCTAssertEqual(
+      reducer.reduce(.insertText("👨‍👩‍👧‍👦"), requestID: "emoji").snapshot.caretUtf8ByteOffset,
+      UInt32("𠮷👨‍👩‍👧‍👦".utf8.count)
+    )
+
+    _ = reducer.reduce(.moveCursor(-1), requestID: "left")
+    XCTAssertEqual(
+      reducer.reduce(.deleteBackward, requestID: "backspace").snapshot.preedit.first?.text,
+      "👨‍👩‍👧‍👦"
+    )
+  }
+
+  func testDuplicateRequestReturnsIdenticalSnapshotAndEffect() {
+    let converter = ReducerFixtureConverter()
+    let reducer = ImeReducer(converter: converter)
+    _ = reducer.reduce(.insertText("かな"), requestID: "insert")
+    _ = reducer.reduce(.startConversion, requestID: "convert")
+
+    let first = reducer.reduce(.commitSelected, requestID: "commit")
+    let duplicate = reducer.reduce(.commitSelected, requestID: "commit")
+    XCTAssertEqual(first, duplicate)
+    XCTAssertEqual(first.snapshot.effects.count, 1)
+    XCTAssertEqual(reducer.session.revision, first.snapshot.revision)
+  }
+
+  func testRequestIDCollisionWithDifferentActionFailsClosed() {
+    let reducer = ImeReducer()
+    let inserted = reducer.reduce(.insertText("a"), requestID: "same-id")
+    let collision = reducer.reduce(.insertText("b"), requestID: "same-id")
+
+    XCTAssertEqual(collision.status, .invalidAction)
+    XCTAssertEqual(collision.snapshot.revision, inserted.snapshot.revision)
+    XCTAssertEqual(reducer.session.composingText.text, "a")
+  }
+
+  func testProtocolControllerRejectsEmptyAndOversizedRequestIDsWithoutMutation() {
+    let controller = ImeV2SessionController()
+
+    for requestID in ["", String(repeating: "x", count: 129)] {
+      let result = controller.handle(ImeV2Request(
+        requestID: requestID,
+        expectedRevision: 0,
+        action: .insertText("secret")
+      ))
+      XCTAssertEqual(result.status, .invalidAction)
+      XCTAssertEqual(result.snapshot.revision, 0)
+      XCTAssertTrue(result.snapshot.preedit.isEmpty)
+    }
+  }
+
+  func testStaleCandidateDoesNotCommit() {
+    let reducer = ImeReducer(converter: ReducerFixtureConverter())
+    _ = reducer.reduce(.insertText("かな"), requestID: "insert")
+    let converted = reducer.reduce(.startConversion, requestID: "convert")
+    let generation = converted.snapshot.candidateWindow.generation
+
+    let stale = reducer.reduce(
+      .selectCandidate(id: "old", generation: generation - 1),
+      requestID: "stale"
+    )
+    XCTAssertEqual(stale.status, .staleCandidate)
+    XCTAssertTrue(stale.snapshot.effects.isEmpty)
+    XCTAssertEqual(reducer.session.composingText.text, "かな")
+  }
+
+  func testDuplicateSurfaceCandidatesKeepTheSelectedConverterIdentity() {
+    let converter = DuplicateSurfaceFixtureConverter()
+    let reducer = ImeReducer(converter: converter)
+    _ = reducer.reduce(.insertText("かな"), requestID: "insert")
+    let converted = reducer.reduce(.startConversion, requestID: "convert")
+    let window = converted.snapshot.candidateWindow
+
+    let committed = reducer.reduce(
+      .selectCandidate(id: window.items[1].id, generation: window.generation),
+      requestID: "select-second"
+    )
+
+    XCTAssertEqual(committed.status, .success)
+    XCTAssertEqual(converter.completedSourceIDs, ["second"])
+    XCTAssertEqual(converter.learnedSourceIDs, ["second"])
+  }
+
+  func testPartialCommitKeepsRemainingCompositionAndLearnsOnce() {
+    let converter = ReducerFixtureConverter()
+    let reducer = ImeReducer(converter: converter)
+    _ = reducer.reduce(.insertText("きょうはいしゃ"), requestID: "insert")
+    _ = reducer.reduce(.startConversion, requestID: "convert")
+
+    let result = reducer.reduce(.commitSelected, requestID: "partial")
+    XCTAssertEqual(result.snapshot.effects.count, 1)
+    XCTAssertEqual(result.snapshot.effects.first, .commitText(effectID: 1, text: "変換"))
+    XCTAssertFalse(reducer.session.composingText.isEmpty)
+    XCTAssertEqual(reducer.session.phase, .previewing)
+    XCTAssertEqual(converter.completed, 1)
+    XCTAssertEqual(converter.learningUpdates, 1)
+  }
+
+  func testConverterFailureAndEmptyCandidatesPreserveInput() {
+    let converter = ReducerFixtureConverter()
+    let reducer = ImeReducer(converter: converter)
+    _ = reducer.reduce(.insertText("入力"), requestID: "insert")
+    converter.shouldFail = true
+
+    let failed = reducer.reduce(.startConversion, requestID: "failed")
+    XCTAssertEqual(failed.status, .converterUnavailable)
+    XCTAssertEqual(reducer.session.composingText.text, "入力")
+    XCTAssertEqual(reducer.session.phase, .composing)
+  }
+
+  func testSecureInputDisablesLearningAndCheckpoint() throws {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.policy = PinnedCompositionPolicy(
+      allowsLearning: true,
+      secureInput: true,
+      zenzaiEnabled: true,
+      projectRevision: 42
+    )
+    let reducer = ImeReducer(session: session, converter: converter)
+    _ = reducer.reduce(.insertText("秘密"), requestID: "insert")
+    _ = reducer.reduce(.startConversion, requestID: "convert")
+    let result = reducer.reduce(.commitSelected, requestID: "commit")
+
+    XCTAssertEqual(converter.completed, 1)
+    XCTAssertEqual(converter.learningUpdates, 0)
+    XCTAssertNil(result.snapshot.recovery)
+  }
+
+  func testSecureInputCanReturnToThePinnedLearningPolicy() {
+    let converter = ReducerFixtureConverter()
+    let reducer = ImeReducer(converter: converter)
+    _ = reducer.reduce(.lifecycle(.secureInputChanged(true)), requestID: "secure-on")
+    _ = reducer.reduce(.lifecycle(.secureInputChanged(false)), requestID: "secure-off")
+    _ = reducer.reduce(.insertText("学習"), requestID: "insert")
+    _ = reducer.reduce(.startConversion, requestID: "convert")
+    _ = reducer.reduce(.commitSelected, requestID: "commit")
+
+    XCTAssertEqual(converter.learningUpdates, 1)
+  }
+
+  func testSecureBoundaryDropsCompositionContextAndCheckpointState() {
+    let reducer = ImeReducer()
+    _ = reducer.reduce(
+      .updateContext(leftContext: "private-left", rightContext: "private-right"),
+      requestID: "context"
+    )
+    _ = reducer.reduce(.insertText("draft"), requestID: "draft")
+
+    let entered = reducer.reduce(
+      .lifecycle(.secureInputChanged(true)),
+      requestID: "secure-on"
+    )
+    XCTAssertEqual(entered.snapshot.phase, .idle)
+    XCTAssertTrue(entered.snapshot.preedit.isEmpty)
+    XCTAssertNil(entered.snapshot.recovery)
+    XCTAssertTrue(reducer.session.composingText.isEmpty)
+    XCTAssertEqual(reducer.session.context.leftContext, "")
+    XCTAssertEqual(reducer.session.context.rightContext, "")
+    XCTAssertNil(reducer.session.recoveryCheckpoint)
+
+    let secureText = reducer.reduce(.insertText("password"), requestID: "secure-text")
+    XCTAssertNil(secureText.snapshot.recovery)
+    XCTAssertNil(reducer.session.recoveryCheckpoint)
+
+    let exited = reducer.reduce(
+      .lifecycle(.secureInputChanged(false)),
+      requestID: "secure-off"
+    )
+    XCTAssertEqual(exited.snapshot.phase, .idle)
+    XCTAssertTrue(exited.snapshot.preedit.isEmpty)
+    XCTAssertTrue(reducer.session.composingText.isEmpty)
+  }
+
+  func testStaleRevisionDoesNotMutateTheSession() {
+    let reducer = ImeReducer()
+    let first = reducer.reduce(.insertText("a"), requestID: "insert")
+    let stale = reducer.reduce(
+      .insertText("b"),
+      requestID: "stale-revision",
+      expectedRevision: first.snapshot.revision - 1
+    )
+
+    XCTAssertEqual(stale.status, .staleRevision)
+    XCTAssertEqual(reducer.session.composingText.text, "a")
+    XCTAssertEqual(reducer.session.revision, first.snapshot.revision)
+  }
+
+  func testCommitAllUsesTheSameConvertedDisplayAsTheSnapshot() {
+    let converter = ReducerFixtureConverter()
+    converter.displayOverride = "かな"
+    let reducer = ImeReducer(converter: converter)
+
+    let composing = reducer.reduce(.insertText("kana"), requestID: "insert")
+    XCTAssertEqual(composing.snapshot.preedit.first?.text, "かな")
+    let committed = reducer.reduce(.commitAll, requestID: "commit")
+
+    XCTAssertEqual(
+      committed.snapshot.effects,
+      [.commitText(effectID: 1, text: "かな")]
+    )
+    XCTAssertEqual(converter.stopCount, 1)
+  }
+
+  func testKanaAndWidthTransformsCoverVoicedKatakana() {
+    let reducer = ImeReducer()
+    _ = reducer.reduce(.insertText("がく"), requestID: "insert")
+
+    let halfwidth = reducer.reduce(
+      .transformActiveSegment(.katakanaHalfwidth),
+      requestID: "halfwidth"
+    )
+    XCTAssertEqual(halfwidth.snapshot.preedit.first?.text, "ｶﾞｸ")
+
+    let hiragana = reducer.reduce(
+      .transformActiveSegment(.hiragana),
+      requestID: "hiragana"
+    )
+    XCTAssertEqual(hiragana.snapshot.preedit.first?.text, "がく")
+  }
+
+  func testCheckpointRestorePreservesCompositionAndNextEffectID() throws {
+    let original = ImeReducer()
+    _ = original.reduce(.insertText("a"), requestID: "a")
+    _ = original.reduce(.commitAll, requestID: "commit-a")
+    let pending = original.reduce(.insertText("b"), requestID: "b")
+    let checkpoint = try XCTUnwrap(pending.snapshot.recovery)
+    let data = try XCTUnwrap(checkpoint.persistedData(isSecureInput: false))
+
+    let restored = ImeReducer()
+    let restoreResult = restored.reduce(
+      .restoreCheckpoint(data),
+      requestID: "restore",
+      expectedRevision: 0
+    )
+    XCTAssertEqual(restoreResult.status, .success)
+    XCTAssertEqual(restoreResult.snapshot.preedit.first?.text, "b")
+
+    let committed = restored.reduce(.commitAll, requestID: "commit-b")
+    XCTAssertEqual(
+      committed.snapshot.effects,
+      [.commitText(effectID: 2, text: "b")]
+    )
+  }
+
+  func testCheckpointRestoreRebindsProcessLocalInputTable() throws {
+    var originalSession = CompositionSession()
+    originalSession.policy = PinnedCompositionPolicy(
+      allowsLearning: false,
+      secureInput: false,
+      zenzaiEnabled: false,
+      projectRevision: 42,
+      inputTableName: "old-process-table",
+      keymap: ["k": PinnedKeymapRule(intention: "k", inputOverride: nil)]
+    )
+    let original = ImeReducer(session: originalSession)
+    let pending = original.reduce(.insertText("k"), requestID: "insert")
+    let data = try XCTUnwrap(
+      try XCTUnwrap(pending.snapshot.recovery).persistedData(isSecureInput: false)
+    )
+
+    var replacementSession = CompositionSession()
+    replacementSession.policy.inputTableName = "new-process-table"
+    let replacement = ImeReducer(session: replacementSession)
+    let result = replacement.reduce(
+      .restoreCheckpoint(data),
+      requestID: "restore",
+      expectedRevision: 0
+    )
+
+    XCTAssertEqual(result.status, .success)
+    XCTAssertEqual(replacement.session.policy.inputTableName, "new-process-table")
+    XCTAssertEqual(replacement.session.policy.projectRevision, 42)
+    XCTAssertFalse(replacement.session.policy.allowsLearning)
+    XCTAssertEqual(replacement.session.policy.keymap, originalSession.policy.keymap)
+  }
+
+  func testCheckpointCannotElevateCurrentLearningOrZenzaiPolicy() throws {
+    var checkpointPolicy = PinnedCompositionPolicy.default
+    checkpointPolicy.allowsLearning = true
+    checkpointPolicy.zenzaiEnabled = true
+    let checkpoint = RecoveryCheckpoint(
+      revision: 1,
+      phase: .composing,
+      composition: CompositionBuffer(
+        elements: [CompositionElement(text: "a")]
+      ),
+      nextCandidateGeneration: 0,
+      nextEffectID: 1,
+      leftContext: "",
+      rightContext: "",
+      policy: checkpointPolicy
+    )
+    let data = try XCTUnwrap(checkpoint.persistedData(isSecureInput: false))
+
+    var restrictedSession = CompositionSession()
+    restrictedSession.policy.allowsLearning = false
+    restrictedSession.policy.zenzaiEnabled = false
+    let reducer = ImeReducer(session: restrictedSession)
+    let result = reducer.reduce(
+      .restoreCheckpoint(data),
+      requestID: "restore",
+      expectedRevision: 0
+    )
+
+    XCTAssertEqual(result.status, .success)
+    XCTAssertFalse(reducer.session.policy.allowsLearning)
+    XCTAssertFalse(reducer.session.policy.zenzaiEnabled)
+  }
+
+  func testCheckpointRejectsWrappingCountersAndInvalidReplacementRanges() throws {
+    let wrapping = RecoveryCheckpoint(
+      revision: UInt64.max,
+      phase: .composing,
+      composition: CompositionBuffer(
+        elements: [CompositionElement(text: "a")]
+      ),
+      nextCandidateGeneration: UInt64.max,
+      nextEffectID: UInt64.max,
+      leftContext: "",
+      rightContext: "",
+      policy: .default
+    )
+    let wrappingData = try XCTUnwrap(wrapping.persistedData(isSecureInput: false))
+    XCTAssertEqual(
+      ImeReducer().reduce(
+        .restoreCheckpoint(wrappingData),
+        requestID: "wrapping",
+        expectedRevision: 0
+      ).status,
+      .invalidAction
+    )
+
+    let invalidRange = RecoveryCheckpoint(
+      revision: 1,
+      phase: .reconverting,
+      composition: CompositionBuffer(
+        elements: [CompositionElement(text: "a")]
+      ),
+      nextCandidateGeneration: 0,
+      nextEffectID: 1,
+      leftContext: "",
+      rightContext: "",
+      policy: .default,
+      reconversionReplacement: ReconversionReplacement(
+        before: Int(Int32.max) + 1,
+        after: 0
+      )
+    )
+    let invalidRangeData = try XCTUnwrap(
+      invalidRange.persistedData(isSecureInput: false)
+    )
+    XCTAssertEqual(
+      ImeReducer().reduce(
+        .restoreCheckpoint(invalidRangeData),
+        requestID: "invalid-range",
+        expectedRevision: 0
+      ).status,
+      .invalidAction
+    )
+  }
+
+  func testSecureContextNeverStoresSurroundingTextOrRestoresCheckpoint() throws {
+    var session = CompositionSession()
+    session.policy.secureInput = true
+    let reducer = ImeReducer(session: session)
+
+    let context = reducer.reduce(
+      .updateContext(leftContext: "secret-left", rightContext: "secret-right"),
+      requestID: "context"
+    )
+    XCTAssertEqual(context.status, .success)
+    XCTAssertEqual(reducer.session.context.leftContext, "")
+    XCTAssertEqual(reducer.session.context.rightContext, "")
+
+    let normal = ImeReducer()
+    let pending = normal.reduce(.insertText("safe"), requestID: "insert")
+    let checkpoint = try XCTUnwrap(pending.snapshot.recovery)
+    let data = try XCTUnwrap(checkpoint.persistedData(isSecureInput: false))
+    let rejected = reducer.reduce(
+      .restoreCheckpoint(data),
+      requestID: "restore",
+      expectedRevision: context.snapshot.revision
+    )
+    XCTAssertEqual(rejected.status, .secureInputViolation)
+  }
+
+  func testUnicodeInputPreservesCompositionAndInsertsOneScalar() {
+    let reducer = ImeReducer()
+    _ = reducer.reduce(.insertText("a"), requestID: "a")
+    let began = reducer.reduce(.beginUnicodeInput, requestID: "unicode-begin")
+    XCTAssertEqual(began.snapshot.phase, .unicodeInput)
+
+    for (index, digit) in ["1", "f", "6", "0", "0"].enumerated() {
+      _ = reducer.reduce(
+        .appendUnicodeDigit(digit),
+        requestID: "unicode-digit-\(index)"
+      )
+    }
+    XCTAssertEqual(reducer.currentSnapshot().aux, "Unicode U+1F600")
+    let inserted = reducer.reduce(.commitUnicodeInput, requestID: "unicode-commit")
+
+    XCTAssertEqual(inserted.status, .success)
+    XCTAssertEqual(inserted.snapshot.phase, .composing)
+    XCTAssertEqual(inserted.snapshot.preedit.first?.text, "a😀")
+    XCTAssertEqual(
+      inserted.snapshot.caretUtf8ByteOffset,
+      UInt32("a😀".utf8.count)
+    )
+  }
+
+  func testUnicodeInputRejectsInvalidScalarWithoutLosingDigits() {
+    let reducer = ImeReducer()
+    _ = reducer.reduce(.beginUnicodeInput, requestID: "begin")
+    for (index, digit) in ["d", "8", "0", "0"].enumerated() {
+      _ = reducer.reduce(.appendUnicodeDigit(digit), requestID: "digit-\(index)")
+    }
+
+    let invalid = reducer.reduce(.commitUnicodeInput, requestID: "commit")
+    XCTAssertEqual(invalid.status, .invalidAction)
+    XCTAssertEqual(invalid.snapshot.phase, .unicodeInput)
+    XCTAssertEqual(invalid.snapshot.aux, "Unicode U+D800")
+
+    let cancelled = reducer.reduce(.cancel, requestID: "cancel")
+    XCTAssertEqual(cancelled.snapshot.phase, .idle)
+    XCTAssertTrue(cancelled.snapshot.effects.isEmpty)
+  }
+
+  func testReconversionDeletesSelectionExactlyOnceBeforeCommit() {
+    let converter = ReducerFixtureConverter()
+    let reducer = ImeReducer(converter: converter)
+    _ = reducer.reduce(
+      .reconvert(
+        text: "かな",
+        leftContext: "左",
+        rightContext: "右",
+        deleteBefore: 2,
+        deleteAfter: 0
+      ),
+      requestID: "reconvert"
+    )
+
+    let committed = reducer.reduce(.commitSelected, requestID: "commit")
+    XCTAssertEqual(
+      committed.snapshot.effects,
+      [
+        .deleteSurroundingText(effectID: 1, before: 2, after: 0),
+        .commitText(effectID: 2, text: "変換"),
+      ]
+    )
+    XCTAssertEqual(
+      reducer.reduce(.commitSelected, requestID: "commit"),
+      committed
+    )
+  }
+
+  func testForgetCandidateUsesGenerationAndDoesNotCommit() {
+    let converter = ReducerFixtureConverter()
+    let reducer = ImeReducer(converter: converter)
+    _ = reducer.reduce(.insertText("かな"), requestID: "insert")
+    let converted = reducer.reduce(.startConversion, requestID: "convert")
+    let candidate = converted.snapshot.candidateWindow.items[0]
+    let forgotten = reducer.reduce(
+      .forgetCandidate(
+        id: candidate.id,
+        generation: converted.snapshot.candidateWindow.generation
+      ),
+      requestID: "forget"
+    )
+
+    XCTAssertEqual(forgotten.status, .success)
+    XCTAssertTrue(forgotten.snapshot.effects.isEmpty)
+    XCTAssertEqual(converter.forgotten, 1)
+    XCTAssertFalse(reducer.session.composingText.isEmpty)
+  }
+
+  func testPredictionsStayInComposingUntilExplicitlySelected() {
+    let converter = ReducerFixtureConverter()
+    converter.predictionCandidates = [
+      ConverterCandidate(text: "かな予測", annotation: "予測", consumingCount: 2)
+    ]
+    let reducer = ImeReducer(converter: converter)
+
+    let composing = reducer.reduce(.insertText("かな"), requestID: "insert")
+    XCTAssertEqual(composing.snapshot.phase, .composing)
+    XCTAssertNil(composing.snapshot.candidateWindow.selectedIndex)
+    XCTAssertEqual(composing.snapshot.candidateWindow.items.first?.text, "かな予測")
+    XCTAssertEqual(composing.snapshot.preedit.first?.text, "かな")
+
+    let selected = reducer.reduce(.navigateCandidate(0), requestID: "select")
+    XCTAssertEqual(selected.snapshot.phase, .selecting)
+    XCTAssertEqual(selected.snapshot.candidateWindow.selectedIndex, 0)
+    XCTAssertEqual(selected.snapshot.preedit.first?.text, "かな予測")
+
+    let accepted = reducer.reduce(.commitSelected, requestID: "accept")
+    XCTAssertEqual(
+      accepted.snapshot.effects,
+      [.commitText(effectID: 1, text: "かな予測")]
+    )
+  }
+
+  func testComposingSelectionAndSegmentResizeAreSemanticActions() {
+    let converter = ReducerFixtureConverter()
+    let reducer = ImeReducer(converter: converter)
+    _ = reducer.reduce(.insertText("きょう"), requestID: "insert")
+
+    let selected = reducer.reduce(.navigateCandidate(0), requestID: "down")
+    XCTAssertEqual(selected.status, .success)
+    XCTAssertEqual(selected.snapshot.phase, .selecting)
+    XCTAssertEqual(selected.snapshot.candidateWindow.selectedIndex, 0)
+
+    _ = reducer.reduce(.cancel, requestID: "back-to-preview")
+    _ = reducer.reduce(.cancel, requestID: "back-to-composing")
+    let resized = reducer.reduce(.resizeSegment(1), requestID: "shift-right")
+    XCTAssertEqual(resized.status, .success)
+    XCTAssertEqual(resized.snapshot.phase, .selecting)
+    XCTAssertEqual(resized.snapshot.candidateWindow.items.first?.consumingCount, 1)
+    XCTAssertEqual(reducer.session.activeBoundary, 1)
+  }
+
+  func testCandidatePagingUsesGlobalIndicesAndClampsAtEdges() {
+    let reducer = ImeReducer(converter: PagingFixtureConverter())
+    _ = reducer.reduce(.insertText("かな"), requestID: "insert")
+    let converted = reducer.reduce(.startConversion, requestID: "convert")
+    let generation = converted.snapshot.candidateWindow.generation
+
+    let nextPage = reducer.reduce(.navigateCandidatePage(1), requestID: "page-1")
+    XCTAssertEqual(nextPage.snapshot.candidateWindow.selectedIndex, 3)
+    let lastPage = reducer.reduce(.navigateCandidatePage(100), requestID: "page-last")
+    XCTAssertEqual(lastPage.snapshot.candidateWindow.selectedIndex, 10)
+    let clamped = reducer.reduce(.navigateCandidate(1), requestID: "edge")
+    XCTAssertEqual(clamped.snapshot.candidateWindow.selectedIndex, 10)
+    XCTAssertEqual(clamped.snapshot.candidateWindow.generation, generation)
+  }
+
+  func testReconversionKeepsItsPhaseAndPassesBothContexts() {
+    let converter = ReducerFixtureConverter()
+    let reducer = ImeReducer(converter: converter)
+    let converted = reducer.reduce(
+      .reconvert(
+        text: "かな",
+        leftContext: "左",
+        rightContext: "右",
+        deleteBefore: 2,
+        deleteAfter: 0
+      ),
+      requestID: "reconvert"
+    )
+
+    XCTAssertEqual(converted.snapshot.phase, .reconverting)
+    XCTAssertEqual(converter.lastOptions?.leftContext, "左")
+    XCTAssertEqual(converter.lastOptions?.rightContext, "右")
+    XCTAssertEqual(
+      reducer.reduce(.cancel, requestID: "cancel").snapshot.phase,
+      .idle
+    )
+  }
+
+  func testPolicyProviderIsPinnedOncePerComposition() {
+    let converter = ReducerFixtureConverter()
+    var providerCalls = 0
+    let controller = ImeV2SessionController(
+      reducer: ImeReducer(converter: converter),
+      policyProvider: {
+        providerCalls += 1
+        return PinnedCompositionPolicy(
+          allowsLearning: true,
+          secureInput: false,
+          zenzaiEnabled: true,
+          projectRevision: UInt64(providerCalls),
+          inputTableName: "table-\(providerCalls)"
+        )
+      }
+    )
+
+    let first = controller.handle(ImeV2Request(
+      requestID: "a",
+      expectedRevision: 0,
+      action: .insertText("a")
+    ))
+    let second = controller.handle(ImeV2Request(
+      requestID: "b",
+      expectedRevision: first.snapshot.revision,
+      action: .insertText("b")
+    ))
+    XCTAssertEqual(second.status, .success)
+    XCTAssertEqual(providerCalls, 1)
+
+    let committed = controller.handle(ImeV2Request(
+      requestID: "commit",
+      expectedRevision: second.snapshot.revision,
+      action: .commitAll
+    ))
+    _ = controller.handle(ImeV2Request(
+      requestID: "c",
+      expectedRevision: committed.snapshot.revision,
+      action: .insertText("c")
+    ))
+    XCTAssertEqual(providerCalls, 2)
+  }
+
+  func testPinnedKeymapIsAttachedToMappedElements() {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.policy.keymap = [
+      "q": PinnedKeymapRule(intention: "た", inputOverride: nil),
+      "x": PinnedKeymapRule(intention: "ん", inputOverride: "n"),
+    ]
+    let reducer = ImeReducer(session: session, converter: converter)
+
+    _ = reducer.reduce(.insertText("qx"), requestID: "mapped")
+
+    XCTAssertEqual(converter.lastComposition?.elements[0].text, "q")
+    XCTAssertEqual(converter.lastComposition?.elements[0].mappedIntention, "た")
+    XCTAssertNil(converter.lastComposition?.elements[0].mappedInputOverride)
+    XCTAssertEqual(converter.lastComposition?.elements[1].mappedIntention, "ん")
+    XCTAssertEqual(converter.lastComposition?.elements[1].mappedInputOverride, "n")
+  }
+
+  func testDeterministicRandomActionsPreserveCoreInvariants() {
+    let converter = ReducerFixtureConverter()
+    let reducer = ImeReducer(converter: converter)
+    let corpus = [
+      "あいう",
+      "𠮷野家",
+      "は\u{3099}",
+      "👨‍👩‍👧‍👦",
+      "✈️",
+      "A日本語",
+      "ｶﾅ",
+      "😀",
+    ]
+    let transforms: [ImeTextTransform] = [
+      .hiragana,
+      .katakanaFullwidth,
+      .katakanaHalfwidth,
+      .alphabetFullwidth,
+      .alphabetHalfwidth,
+    ]
+    var generator = ReducerDeterministicGenerator()
+    var seenEffectIDs = Set<UInt64>()
+
+    func effectID(_ effect: ClientEffect) -> UInt64 {
+      switch effect {
+      case .commitText(let id, _),
+           .deleteSurroundingText(let id, _, _),
+           .switchInputMode(let id, _),
+           .notify(let id, _):
+        return id
+      }
+    }
+
+    for step in 0..<1_000 {
+      let before = reducer.currentSnapshot()
+      let action: ImeAction
+      switch generator.next(20) {
+      case 0:
+        action = .insertText(corpus[generator.next(corpus.count)])
+      case 1:
+        action = .deleteBackward
+      case 2:
+        action = .deleteForward
+      case 3:
+        action = .moveCursor(generator.next(2) == 0 ? -1 : 1)
+      case 4:
+        action = generator.next(2) == 0 ? .moveCursorToStart : .moveCursorToEnd
+      case 5:
+        action = .startConversion
+      case 6:
+        action = .navigateCandidate(generator.next(3) - 1)
+      case 7:
+        action = .navigateCandidatePage(generator.next(2) == 0 ? -1 : 1)
+      case 8:
+        action = .resizeSegment(generator.next(2) == 0 ? -1 : 1)
+      case 9:
+        action = .commitSelected
+      case 10:
+        action = .commitAll
+      case 11:
+        action = .cancel
+      case 12:
+        action = .transformActiveSegment(transforms[generator.next(transforms.count)])
+      case 13:
+        if let candidates = reducer.session.candidates,
+           let candidate = candidates.items.first {
+          action = .selectCandidate(
+            id: candidate.id,
+            generation: generator.next(3) == 0
+              ? candidates.generation &+ 1
+              : candidates.generation
+          )
+        } else {
+          action = .selectCandidate(id: "missing", generation: 0)
+        }
+      case 14:
+        if let candidates = reducer.session.candidates,
+           let candidate = candidates.items.first {
+          action = .forgetCandidate(
+            id: candidate.id,
+            generation: generator.next(3) == 0
+              ? candidates.generation &+ 1
+              : candidates.generation
+          )
+        } else {
+          action = .forgetCandidate(id: "missing", generation: 0)
+        }
+      case 15:
+        action = .beginUnicodeInput
+      case 16:
+        action = .appendUnicodeDigit(["0", "a", "F"][generator.next(3)])
+      case 17:
+        action = .commitUnicodeInput
+      case 18:
+        action = .lifecycle(.capabilityChanged(clientPreedit: generator.next(2) == 0))
+      default:
+        action = .updateContext(leftContext: "左", rightContext: "右")
+      }
+
+      let result = reducer.reduce(
+        action,
+        requestID: "random-\(step)",
+        expectedRevision: before.revision
+      )
+      let after = reducer.currentSnapshot()
+
+      if result.status != .success {
+        XCTAssertEqual(after, before, "failed action mutated state at step \(step): \(action)")
+      }
+      if let caret = after.caretUtf8ByteOffset {
+        XCTAssertLessThanOrEqual(
+          Int(caret),
+          after.preedit.map(\.text).joined().utf8.count,
+          "caret escaped preedit at step \(step)"
+        )
+      }
+      if after.phase == .idle {
+        XCTAssertTrue(reducer.session.composingText.isEmpty)
+        XCTAssertTrue(after.candidateWindow.items.isEmpty)
+      }
+      if after.phase == .selecting {
+        XCTAssertFalse(after.candidateWindow.items.isEmpty)
+      }
+      if let selected = after.candidateWindow.selectedIndex {
+        XCTAssertTrue(after.candidateWindow.items.indices.contains(selected))
+        XCTAssertGreaterThan(after.candidateWindow.generation, 0)
+      }
+      if reducer.session.policy.secureInput {
+        XCTAssertNil(after.recovery)
+      }
+      for effect in result.snapshot.effects {
+        XCTAssertTrue(
+          seenEffectIDs.insert(effectID(effect)).inserted,
+          "effect ID was reused at step \(step)"
+        )
+      }
+    }
+  }
+}

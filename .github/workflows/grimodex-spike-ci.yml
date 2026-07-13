@@ -38,6 +38,7 @@ jobs:
           sudo apt-get install --yes --no-install-recommends \
             build-essential cmake gettext ninja-build \
             libfcitx5config-dev libfcitx5core-dev libfcitx5utils-dev \
+            fcitx5-modules fcitx5-modules-dev \
             libprotobuf-dev protobuf-compiler \
             qt6-base-dev qt6-l10n-tools qt6-tools-dev qt6-tools-dev-tools
 
@@ -89,6 +90,64 @@ jobs:
           path: ${{ runner.temp }}/grimodex-staged-client.tar.gz
           if-no-files-found: error
           retention-days: 7
+
+  linux-full-stack-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Cache Swift toolchain
+        id: cache-full-stack-swift
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/swift
+          key: ubuntu-24.04-swift-6.2-release
+
+      - name: Install Swift 6.2
+        if: steps.cache-full-stack-swift.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "${{ github.workspace }}/swift"
+          wget --quiet https://download.swift.org/swift-6.2-release/ubuntu2404/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu24.04.tar.gz
+          tar xf swift-6.2-RELEASE-ubuntu24.04.tar.gz \
+            --strip-components=1 \
+            -C "${{ github.workspace }}/swift"
+
+      - name: Add Swift to PATH
+        run: echo "${{ github.workspace }}/swift/usr/bin" >> "$GITHUB_PATH"
+
+      - name: Install full-stack build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential cmake gettext ninja-build \
+            libfcitx5config-dev libfcitx5core-dev libfcitx5utils-dev \
+            fcitx5-modules fcitx5-modules-dev \
+            libprotobuf-dev protobuf-compiler \
+            qt6-base-dev qt6-l10n-tools qt6-tools-dev qt6-tools-dev-tools
+
+      - name: Configure no-Zenzai product build
+        run: |
+          cmake -S . -B build-full-stack \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DGGML_VULKAN=OFF \
+            -DHAZKEY_SERVER_ENABLE_ZENZAI=OFF \
+            -DHAZKEY_SERVER_ZENZAI_TRAIT=OFF \
+            -DHAZKEY_SERVER_STATIC_SWIFT_STDLIB=OFF \
+            -DHAZKEY_SERVER_INSTALL_DICTIONARY=OFF
+
+      - name: Build complete product and test harness
+        run: cmake --build build-full-stack --parallel 2
+
+      - name: Require and run real Fcitx full-stack test
+        run: |
+          ctest --test-dir build-full-stack -N \
+            | grep -F "hazkey-fcitx-full-stack-test"
+          ctest --test-dir build-full-stack --output-on-failure
 
   swift-tests:
     runs-on: ubuntu-24.04

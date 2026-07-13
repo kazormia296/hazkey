@@ -212,8 +212,7 @@ class HazkeyServerConfig {
 
     func setCurrentConfig(
         _ hashes: [Hazkey_Config_FileHash],
-        _ profiles: [Hazkey_Config_Profile],
-        state: HazkeyServerState? = nil
+        _ profiles: [Hazkey_Config_Profile]
     ) -> Hazkey_ResponseEnvelope {
         guard !profiles.isEmpty else {
             return Hazkey_ResponseEnvelope.with {
@@ -222,7 +221,7 @@ class HazkeyServerConfig {
             }
         }
         do {
-            try saveConfig(profiles, state: state)
+            try saveConfig(profiles)
         } catch {
             return Hazkey_ResponseEnvelope.with {
                 $0.status = .failed
@@ -299,10 +298,7 @@ class HazkeyServerConfig {
         return newConf
     }
 
-    func saveConfig(
-        _ newProfiles: [Hazkey_Config_Profile],
-        state: HazkeyServerState? = nil
-    ) throws {
+    func saveConfig(_ newProfiles: [Hazkey_Config_Profile]) throws {
         guard !newProfiles.isEmpty else {
             throw HazkeyServerConfigError.emptyProfiles
         }
@@ -332,9 +328,6 @@ class HazkeyServerConfig {
         profiles = newProfiles
         currentProfile = profiles[0]
 
-        if let state = state {
-            state.reinitializeConfiguration()
-        }
     }
 
     static func loadConfig() throws -> [Hazkey_Config_Profile] {
@@ -393,6 +386,7 @@ class HazkeyServerConfig {
 
     func genZenzaiMode(
         leftContext: String,
+        rightContext: String = "",
         projectConditions: GrimodexProjectConditions = .empty,
         zenzaiAllowed: Bool = true
     )
@@ -426,13 +420,25 @@ class HazkeyServerConfig {
                         style: resolved.style,
                         preference: resolved.preference,
                         leftSideContext: currentProfile.zenzaiContextualMode
-                            ? leftContext : nil
+                            ? Self.contextForZenzai(
+                                left: leftContext,
+                                right: rightContext
+                            ) : nil
                     )),
                 deviceConfig: createDeviceConfig(deviceName: deviceName)
             )
         } else {
             return ConvertRequestOptions.ZenzaiMode.off
         }
+    }
+
+    private static func contextForZenzai(left: String, right: String) -> String {
+        guard !right.isEmpty else { return left }
+        // The pinned converter revision exposes only a left-context field.
+        // Preserve right-side reconversion context as an explicit natural-
+        // language suffix until the upstream Zenzai API grows a dedicated
+        // rightSideContext parameter.
+        return left + "\n[変換対象の右文脈: " + right + "]"
     }
 
     func genBaseConvertRequestOptions() -> ConvertRequestOptions {

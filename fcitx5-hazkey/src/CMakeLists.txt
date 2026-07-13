@@ -4,7 +4,7 @@ set(PROTO_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/../../protocol/config.proto
 )
 
-add_library(fcitx5-hazkey SHARED hazkey_state.cpp hazkey_engine.cpp hazkey_candidate.cpp hazkey_preedit.cpp hazkey_server_connector.cpp hazkey_session_client.cpp hazkey_text_offset.cpp)
+add_library(fcitx5-hazkey SHARED hazkey_state.cpp hazkey_engine.cpp hazkey_candidate.cpp hazkey_server_connector.cpp hazkey_session_client.cpp hazkey_text_offset.cpp hazkey_action_mapper.cpp hazkey_effect_ledger.cpp hazkey_recovery_journal.cpp hazkey_snapshot_renderer.cpp)
 
 if(Protobuf_VERSION VERSION_GREATER_EQUAL "3.15")
     # 3.15 ~：stable proto3 optional support
@@ -61,7 +61,12 @@ target_include_directories(
         ${CMAKE_CURRENT_SOURCE_DIR}/../../linux-shared
         ${Protobuf_INCLUDE_DIRS}
 )
-target_link_libraries(fcitx5-hazkey PRIVATE Fcitx5::Core Fcitx5::Config Fcitx5::Utils ${Protobuf_LITE_LIBRARIES})
+if(TARGET PkgConfig::PROTOBUF_PKG)
+    set(HAZKEY_PROTOBUF_LINK_TARGET PkgConfig::PROTOBUF_PKG)
+else()
+    set(HAZKEY_PROTOBUF_LINK_TARGET ${Protobuf_LIBRARIES})
+endif()
+target_link_libraries(fcitx5-hazkey PRIVATE Fcitx5::Core Fcitx5::Config Fcitx5::Utils ${HAZKEY_PROTOBUF_LINK_TARGET})
 
 
 set_target_properties(fcitx5-hazkey PROPERTIES PREFIX "" OUTPUT_NAME "fcitx5-grimodex")
@@ -71,5 +76,9 @@ configure_file(hazkey-addon.conf.in.in hazkey-addon.conf.in @ONLY)
 fcitx5_translate_desktop_file("${CMAKE_CURRENT_BINARY_DIR}/hazkey-addon.conf.in" "hazkey-addon.conf")
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/hazkey-addon.conf" RENAME grimodex.conf DESTINATION "${FCITX_INSTALL_PKGDATADIR}/addon")
 
-fcitx5_translate_desktop_file(hazkey-im.conf.in hazkey-im.conf)
+configure_file(hazkey-im.conf.in hazkey-im.conf.in @ONLY)
+fcitx5_translate_desktop_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/hazkey-im.conf.in"
+    hazkey-im.conf
+)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/hazkey-im.conf" RENAME grimodex.conf DESTINATION "${FCITX_INSTALL_PKGDATADIR}/inputmethod")

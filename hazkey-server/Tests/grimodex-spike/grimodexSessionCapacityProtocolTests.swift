@@ -37,8 +37,8 @@ final class GrimodexSessionCapacityProtocolTests: XCTestCase {
     XCTAssertEqual(response.status, .failed)
     XCTAssertEqual(response.errorMessage, "Session capacity exhausted")
     XCTAssertNil(response.payload)
-    XCTAssertNotNil(registry.state(for: firstSession, ownerFd: 10))
-    XCTAssertNotNil(registry.state(for: secondSession, ownerFd: 11))
+    XCTAssertNotNil(registry.semanticController(for: firstSession, ownerFd: 10))
+    XCTAssertNotNil(registry.semanticController(for: secondSession, ownerFd: 11))
     XCTAssertEqual(registry.count, 2)
   }
 

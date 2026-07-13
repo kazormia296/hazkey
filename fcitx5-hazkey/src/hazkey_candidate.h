@@ -5,16 +5,16 @@
 #include <fcitx/inputcontext.h>
 #include <fcitx/text.h>
 
+#include <cstdint>
+#include <functional>
 #include <string>
-#include <vector>
+#include <utility>
 
-#include "commands.pb.h"
+#include "base.pb.h"
 
 namespace fcitx {
 
-class HazkeyState;
-
-const KeyList defaultSelectionKeys = {
+inline const KeyList defaultSelectionKeys = {
     Key{FcitxKey_1}, Key{FcitxKey_2}, Key{FcitxKey_3}, Key{FcitxKey_4},
     Key{FcitxKey_5}, Key{FcitxKey_6}, Key{FcitxKey_7}, Key{FcitxKey_8},
     Key{FcitxKey_9}, Key{FcitxKey_0},
@@ -22,58 +22,35 @@ const KeyList defaultSelectionKeys = {
 
 class HazkeyCandidateWord : public CandidateWord {
    public:
-    HazkeyCandidateWord(const int index,
-                        const hazkey::commands::CandidatesResult_Candidate data)
+    using SelectHandler = std::function<void(const std::string&, uint64_t)>;
+
+    HazkeyCandidateWord(
+        const hazkey::CandidateSnapshot& data,
+        uint64_t generation, SelectHandler selectHandler)
         : CandidateWord(Text(data.text())),
-          index_(index),
-          candidate_(std::move(data.text())),
-          hiragana_(std::move(data.sub_hiragana())) {
-        setText(Text(data.text()));
-    }
+          id_(data.id()),
+          generation_(generation),
+          selectHandler_(std::move(selectHandler)) {}
 
-    // called when the candidate is selected (by pointing device?)
-    // calculate the index of the candidate on current page
-    // and send key to select the candidate
-    void select(InputContext* ic) const override;
-
-    std::vector<std::string> getPreedit() const;
-
-    // int correspondingCount() const { return corresponding_count_; }
+    void select(InputContext* inputContext) const override;
 
    private:
-    const int index_;
-    const std::string candidate_;
-    const std::string hiragana_;
-    // const int corresponding_count_;
-    // const std::vector<std::string> parts_;
-    // const std::vector<int> part_lens_;
+    std::string id_;
+    uint64_t generation_;
+    SelectHandler selectHandler_;
 };
 
 class HazkeyCandidateList : public CommonCandidateList {
    public:
-    HazkeyCandidateList(google::protobuf::RepeatedPtrField<
-                        hazkey::commands::CandidatesResult_Candidate>
-                            candidates);
+    using SelectHandler = HazkeyCandidateWord::SelectHandler;
 
-    // return the direction of the candidate list
-    // currently always vertical
+    HazkeyCandidateList(
+        const google::protobuf::RepeatedPtrField<
+            hazkey::CandidateSnapshot>& candidates,
+        uint64_t generation,
+        SelectHandler selectHandler);
+
     CandidateLayoutHint layoutHint() const override;
-
-    const HazkeyCandidateWord& getCandidate(int localIndex) const;
-
-    // defined to support fcitx < 5.1.9
-    // recent versions of fcitx provide this function as a default
-    void setCursorIndex(int localIndex);
-
-    // set the cursor top of the next/prev page
-    void nextPage();
-    void prevPage();
-
-    // show cursor on the candidate list
-    void focus();
-
-    // whether the candidate list is focused
-    bool focused() const;
 };
 
 }  // namespace fcitx

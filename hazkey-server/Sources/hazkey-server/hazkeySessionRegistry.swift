@@ -17,6 +17,18 @@ private struct GrimodexFixedScopeModeProvider: GrimodexScopeModeProviding, Senda
     func current() -> GrimodexScopeMode { value }
 }
 
+private func pinnedKeymap(_ keymap: Keymap) -> [String: PinnedKeymapRule] {
+    Dictionary(uniqueKeysWithValues: keymap.map { key, value in
+        (
+            String(key),
+            PinnedKeymapRule(
+                intention: String(value.0),
+                inputOverride: value.1.map(String.init)
+            )
+        )
+    })
+}
+
 final class GrimodexScopeModeStore: GrimodexScopeModeProviding, @unchecked Sendable {
     private let lock = NSLock()
     private var value: GrimodexScopeMode
@@ -86,13 +98,15 @@ final class HazkeySessionRegistry {
     private struct Session {
         let ownerFd: Int32
         let clientContext: GrimodexClientContext
-        let state: HazkeyServerState
+        let environment: HazkeySessionEnvironment
+        let semanticController: ImeV2SessionController
         var lastAccess: Date
     }
 
     let serverConfig: HazkeyServerConfig
     private let revisionProviderFactory: RevisionProviderFactory
     private let converterFactory: ConverterFactory
+    private let userDictionaryStore: UserDictionaryStore
     private let learningRevisionStore = HazkeyLearningRevisionStore()
     private let maximumSessions: Int
     private let maximumSessionsPerOwner: Int
@@ -112,6 +126,7 @@ final class HazkeySessionRegistry {
             _ in GrimodexDisabledRevisionProvider()
         },
         converterFactory: ConverterFactory? = nil,
+        userDictionaryStore: UserDictionaryStore? = nil,
         maximumSessions: Int = 128,
         maximumSessionsPerOwner: Int = 16,
         idleTimeout: TimeInterval = 30 * 60,
@@ -123,6 +138,10 @@ final class HazkeySessionRegistry {
         self.converterFactory = converterFactory ?? {
             KanaKanjiConverter(dictionaryURL: serverConfig.dictionaryPath)
         }
+        self.userDictionaryStore = userDictionaryStore ?? UserDictionaryStore(
+            persistenceURL: HazkeyServerConfig.getDataDirectory()
+                .appendingPathComponent("user-dictionary-v1.json")
+        )
         self.maximumSessions = max(1, maximumSessions)
         self.maximumSessionsPerOwner = max(
             1,
@@ -131,8 +150,8 @@ final class HazkeySessionRegistry {
         self.idleTimeout = max(1, idleTimeout)
         self.now = now
         self.idleLearningDataClearer = idleLearningDataClearer ?? {
-            let state = HazkeyServerState(serverConfig: serverConfig)
-            _ = state.clearProfileLearningData()
+            let environment = HazkeySessionEnvironment(serverConfig: serverConfig)
+            environment.clearProfileLearningData()
         }
     }
 
@@ -173,23 +192,90 @@ final class HazkeySessionRegistry {
             removeSession(sessionID: leastRecentlyUsed)
         }
         let sessionID = UUID().uuidString.lowercased()
-        let state = HazkeyServerState(
+        let converter = converterFactory()
+        let environment = HazkeySessionEnvironment(
             serverConfig: serverConfig,
             revisionProvider: revisionProviderFactory(clientContext),
-            converter: converterFactory(),
-            learningRevisionStore: learningRevisionStore
+            converter: converter
         )
-        state.refreshGrimodexIntegration()
+        environment.refreshGrimodexIntegration()
+        environment.replaceUserDictionary(userDictionaryStore.entries)
+        let appliedRevision = environment.grimodexAppliedRevision
+        let semanticSession = CompositionSession(
+            sessionID: sessionID,
+            context: SessionContext(
+                sessionID: sessionID,
+                leftContext: "",
+                projectRevision: appliedRevision?.generation ?? 0
+            ),
+            policy: PinnedCompositionPolicy(
+                allowsLearning: environment.grimodexAllowsLearning,
+                secureInput: environment.grimodexSecureInput,
+                zenzaiEnabled: !environment.grimodexSecureInput,
+                projectRevision: appliedRevision?.generation ?? 0,
+                inputTableName: environment.currentTableName,
+                keymap: pinnedKeymap(environment.keymap)
+            )
+        )
+        let productionConverter = HazkeyKanaKanjiConverterAdapter(
+            converter: converter,
+            optionsProvider: { [environment] options in
+                var requestOptions = environment.baseConvertRequestOptions
+                requestOptions.zenzaiMode = environment.serverConfig.genZenzaiMode(
+                    leftContext: options.leftContext,
+                    rightContext: options.rightContext,
+                    projectConditions: environment.grimodexActiveConditions,
+                    zenzaiAllowed: options.zenzaiEnabled
+                )
+                return requestOptions
+            },
+            mappedInputStyleProvider: { [environment] in
+                .mapped(id: .tableName(environment.currentTableName))
+            },
+            predictionConfigurationProvider: { [environment] in
+                let profile = environment.serverConfig.currentProfile
+                return (
+                    profile.suggestionListMode
+                        == .suggestionListShowPredictiveResults,
+                    Int(profile.numSuggestions)
+                )
+            }
+        )
+        let semanticController = ImeV2SessionController(
+            reducer: ImeReducer(
+                session: semanticSession,
+                converter: LearningSynchronizedKanaKanjiConverter(
+                    base: productionConverter,
+                    revisionStore: learningRevisionStore
+                )
+            ),
+            policyProvider: { [environment] in
+                environment.refreshGrimodexIntegration()
+                let revision = environment.grimodexAppliedRevision
+                return PinnedCompositionPolicy(
+                    allowsLearning: environment.grimodexAllowsLearning,
+                    secureInput: environment.grimodexSecureInput,
+                    zenzaiEnabled: !environment.grimodexSecureInput,
+                    projectRevision: revision?.generation ?? 0,
+                    inputTableName: environment.currentTableName,
+                    keymap: pinnedKeymap(environment.keymap)
+                )
+            }
+        )
         sessions[sessionID] = Session(
             ownerFd: ownerFd,
             clientContext: clientContext,
-            state: state,
+            environment: environment,
+            semanticController: semanticController,
             lastAccess: now()
         )
         return .success(sessionID)
     }
 
-    func state(for sessionID: String, ownerFd: Int32) -> HazkeyServerState? {
+    func environment(
+        for sessionID: String,
+        ownerFd: Int32
+    ) -> HazkeySessionEnvironment? {
         pruneExpiredSessions()
         guard !sessionID.isEmpty, var session = sessions[sessionID] else {
             return nil
@@ -197,7 +283,7 @@ final class HazkeySessionRegistry {
         guard session.ownerFd == ownerFd else { return nil }
         session.lastAccess = now()
         sessions[sessionID] = session
-        return session.state
+        return session.environment
     }
 
     func clientContext(
@@ -211,6 +297,19 @@ final class HazkeySessionRegistry {
         session.lastAccess = now()
         sessions[sessionID] = session
         return session.clientContext
+    }
+
+    func semanticController(
+        for sessionID: String,
+        ownerFd: Int32
+    ) -> ImeV2SessionController? {
+        pruneExpiredSessions()
+        guard var session = sessions[sessionID], session.ownerFd == ownerFd else {
+            return nil
+        }
+        session.lastAccess = now()
+        sessions[sessionID] = session
+        return session.semanticController
     }
 
     @discardableResult
@@ -233,23 +332,57 @@ final class HazkeySessionRegistry {
 
     func reinitializeAll() {
         for session in sessions.values {
-            session.state.reinitializeConfiguration()
+            session.environment.reinitializeConfiguration()
         }
     }
 
     func clearAllLearningData() {
         if sessions.isEmpty {
             idleLearningDataClearer()
+            _ = learningRevisionStore.recordCommit()
             return
         }
         for session in sessions.values {
-            _ = session.state.clearProfileLearningData()
+            session.environment.clearProfileLearningData()
         }
+        _ = learningRevisionStore.recordCommit()
+    }
+
+    func userDictionaryEntries() -> [UserDictionaryEntry] {
+        userDictionaryStore.entries
+    }
+
+    @discardableResult
+    func addUserDictionaryEntry(
+        _ entry: UserDictionaryEntry
+    ) throws -> UserDictionaryEntry {
+        let result = try userDictionaryStore.add(entry)
+        applyUserDictionaryToSessions()
+        return result
+    }
+
+    func updateUserDictionaryEntry(_ entry: UserDictionaryEntry) throws {
+        try userDictionaryStore.update(entry)
+        applyUserDictionaryToSessions()
+    }
+
+    func removeUserDictionaryEntry(id: String) throws {
+        try userDictionaryStore.remove(id: id)
+        applyUserDictionaryToSessions()
+    }
+
+    func importUserDictionary(_ data: Data, merge: Bool) throws {
+        try userDictionaryStore.importJSON(data, merge: merge)
+        applyUserDictionaryToSessions()
+    }
+
+    func exportUserDictionary() throws -> Data {
+        try userDictionaryStore.exportJSON()
     }
 
     func saveAll() {
         for session in sessions.values {
-            _ = session.state.saveLearningData()
+            session.environment.close()
         }
     }
 
@@ -283,7 +416,15 @@ final class HazkeySessionRegistry {
 
     private func removeSession(sessionID: String) {
         guard let session = sessions.removeValue(forKey: sessionID) else { return }
-        _ = session.state.saveLearningData()
+        session.environment.close()
+    }
+
+    private func applyUserDictionaryToSessions() {
+        let entries = userDictionaryStore.entries
+        for session in sessions.values {
+            session.semanticController.invalidateForDictionaryChange()
+            session.environment.replaceUserDictionary(entries)
+        }
     }
 
     private func leastRecentlyUsedSession(ownerFd: Int32?) -> String? {

@@ -18,7 +18,15 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets LinguistTools)
-find_package(Protobuf REQUIRED)
+# Prefer protobuf's config package.  Recent protobuf releases generate C++
+# sources that reference Abseil directly, and the config target carries those
+# transitive libraries.  CMake's legacy FindProtobuf module exposes only the
+# libprotobuf path on some distributions (notably Arch), which leaves the
+# generated objects with unresolved absl symbols at the final link step.
+find_package(Protobuf CONFIG QUIET)
+if(NOT Protobuf_FOUND)
+    find_package(Protobuf REQUIRED)
+endif()
 
 set(TS_FILES hazkey-settings_ja_JP.ts)
 
@@ -128,8 +136,17 @@ target_include_directories(grimodex-settings-protocol PUBLIC
     ${Protobuf_INCLUDE_DIRS}
 )
 
+if(TARGET protobuf::libprotobuf)
+    # Modern protobuf releases expose Abseil as transitive dependencies only
+    # through the imported target. Linking the legacy raw library variable
+    # leaves protobuf 22+ with unresolved absl symbols.
+    set(GRIMODEX_SETTINGS_PROTOBUF_TARGET protobuf::libprotobuf)
+else()
+    set(GRIMODEX_SETTINGS_PROTOBUF_TARGET ${Protobuf_LIBRARIES})
+endif()
+
 target_link_libraries(grimodex-settings-protocol PUBLIC
-    ${Protobuf_LITE_LIBRARIES}
+    ${GRIMODEX_SETTINGS_PROTOBUF_TARGET}
 )
 
 target_include_directories(fcitx5-grimodex-settings PRIVATE

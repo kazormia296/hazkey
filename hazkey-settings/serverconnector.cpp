@@ -13,9 +13,13 @@
 #include <QDir>
 #include <QMessageBox>
 #include <QProcess>
+#include <cerrno>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
+#include <limits>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
@@ -41,6 +45,9 @@ bool writeAll(int fd, const void* data, size_t len) {
     while (sent < len) {
         ssize_t n = write(fd, (const char*)data + sent, len - sent);
         if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 fd_set wfds;
                 FD_ZERO(&wfds);
@@ -54,7 +61,10 @@ bool writeAll(int fd, const void* data, size_t len) {
             }
             return false;
         }
-        sent += n;
+        if (n == 0) {
+            return false;
+        }
+        sent += static_cast<size_t>(n);
     }
     return true;
 }
@@ -64,6 +74,9 @@ bool readAll(int fd, void* data, size_t len) {
     while (recved < len) {
         ssize_t n = read(fd, (char*)data + recved, len - recved);
         if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 fd_set rfds;
                 FD_ZERO(&rfds);
@@ -78,7 +91,7 @@ bool readAll(int fd, void* data, size_t len) {
             return false;
         }
         if (n == 0) return false;  // closed
-        recved += n;
+        recved += static_cast<size_t>(n);
     }
     return true;
 }
@@ -114,7 +127,11 @@ int ServerConnector::createConnection() {
 
         sockaddr_un addr{};
         addr.sun_family = AF_UNIX;
-        strncpy(addr.sun_path, socket_path.c_str(), sizeof(addr.sun_path) - 1);
+        if (socket_path.size() >= sizeof(addr.sun_path)) {
+            close(sock);
+            return -1;
+        }
+        std::memcpy(addr.sun_path, socket_path.c_str(), socket_path.size() + 1);
 
         int ret = connect(sock, (sockaddr*)&addr, sizeof(addr));
         if (ret == 0) {
@@ -130,8 +147,8 @@ int ServerConnector::createConnection() {
             if (sel > 0 && FD_ISSET(sock, &wfds)) {
                 int so_error = 0;
                 socklen_t len = sizeof(so_error);
-                getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_error, &len);
-                if (so_error == 0) {
+                if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_error, &len) == 0 &&
+                    so_error == 0) {
                     // Connected
                     return sock;
                 }
@@ -158,12 +175,14 @@ int ServerConnector::createConnection() {
 std::optional<hazkey::ResponseEnvelope> ServerConnector::transactOnSocket(
     int sock, const hazkey::RequestEnvelope& send_data) {
     std::string msg;
-    if (!send_data.SerializeToString(&msg)) {
+    constexpr std::size_t maximumRequestBytes = 1024 * 1024;
+    if (!send_data.SerializeToString(&msg) || msg.size() > maximumRequestBytes ||
+        msg.size() > std::numeric_limits<std::uint32_t>::max()) {
         return std::nullopt;
     }
 
     // write length
-    uint32_t writeLen = htonl(msg.size());
+    uint32_t writeLen = htonl(static_cast<std::uint32_t>(msg.size()));
     if (!writeAll(sock, &writeLen, 4)) {
         return std::nullopt;
     }
@@ -337,4 +356,62 @@ bool ServerConnector::reloadZenzaiModel() {
     }
     auto responseVal = response.value();
     return responseVal.status() == hazkey::SUCCESS;
+}
+
+std::optional<std::vector<hazkey::config::UserDictionaryEntry>>
+ServerConnector::listUserDictionary() {
+    hazkey::RequestEnvelope request;
+    request.mutable_list_user_dictionary();
+    auto response = transact(request);
+    if (!response.has_value() || response->status() != hazkey::SUCCESS ||
+        !response->has_user_dictionary_result()) {
+        return std::nullopt;
+    }
+    const auto& result = response->user_dictionary_result();
+    return std::vector<hazkey::config::UserDictionaryEntry>(
+        result.entries().begin(), result.entries().end());
+}
+
+bool ServerConnector::addUserDictionaryEntry(
+    const hazkey::config::UserDictionaryEntry& entry) {
+    hazkey::RequestEnvelope request;
+    *request.mutable_add_user_dictionary_entry()->mutable_entry() = entry;
+    const auto response = transact(request);
+    return response.has_value() && response->status() == hazkey::SUCCESS;
+}
+
+bool ServerConnector::updateUserDictionaryEntry(
+    const hazkey::config::UserDictionaryEntry& entry) {
+    hazkey::RequestEnvelope request;
+    *request.mutable_update_user_dictionary_entry()->mutable_entry() = entry;
+    const auto response = transact(request);
+    return response.has_value() && response->status() == hazkey::SUCCESS;
+}
+
+bool ServerConnector::removeUserDictionaryEntry(const std::string& id) {
+    hazkey::RequestEnvelope request;
+    request.mutable_remove_user_dictionary_entry()->set_id(id);
+    const auto response = transact(request);
+    return response.has_value() && response->status() == hazkey::SUCCESS;
+}
+
+bool ServerConnector::importUserDictionary(const std::string& json,
+                                           bool merge) {
+    hazkey::RequestEnvelope request;
+    auto* import = request.mutable_import_user_dictionary();
+    import->set_json(json);
+    import->set_merge(merge);
+    const auto response = transact(request);
+    return response.has_value() && response->status() == hazkey::SUCCESS;
+}
+
+std::optional<std::string> ServerConnector::exportUserDictionary() {
+    hazkey::RequestEnvelope request;
+    request.mutable_export_user_dictionary();
+    const auto response = transact(request);
+    if (!response.has_value() || response->status() != hazkey::SUCCESS ||
+        !response->has_user_dictionary_result()) {
+        return std::nullopt;
+    }
+    return response->user_dictionary_result().exported_json();
 }

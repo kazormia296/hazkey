@@ -1,0 +1,19 @@
+{
+  "contract_version": "composition-behavior-v1",
+  "scenario_id": "secure-input",
+  "initial": { "phase": "idle", "composition": "", "revision": 0 },
+  "actions": [
+    { "type": "secure_input_changed", "secure_input": true },
+    { "type": "insert_text", "text": "秘密" },
+    { "type": "commit_all" },
+    { "type": "secure_input_changed", "secure_input": false }
+  ],
+  "statuses": ["success", "success", "success", "success"],
+  "snapshots": [
+    { "revision": 1, "phase": "idle", "preedit": [], "caret_utf8_byte_offset": null, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [], "recovery": null },
+    { "revision": 2, "phase": "composing", "preedit": [{ "text": "秘密", "style": "underline" }], "caret_utf8_byte_offset": 6, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [], "recovery": null },
+    { "revision": 3, "phase": "idle", "preedit": [], "caret_utf8_byte_offset": null, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [{ "effect_id": 1, "type": "commit_text", "text": "秘密" }], "recovery": null },
+    { "revision": 4, "phase": "idle", "preedit": [], "caret_utf8_byte_offset": null, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [], "recovery": {} }
+  ],
+  "expected_learning": { "completed": 0, "updated": 0, "committed": 0, "forgotten": 0 }
+}

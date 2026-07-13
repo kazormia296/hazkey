@@ -23,6 +23,8 @@
 
 namespace {
 
+void require(bool condition, const std::string& message);
+
 class ScopedRuntimeDirectory {
    public:
     ScopedRuntimeDirectory() {
@@ -128,7 +130,7 @@ int createListener(const std::string& socketPath) {
     return listener;
 }
 
-void receiveRequest(int client) {
+hazkey::RequestEnvelope receiveRequest(int client) {
     std::uint32_t networkLength = 0;
     readExactly(client, &networkLength, sizeof(networkLength));
     const std::uint32_t requestLength = ntohl(networkLength);
@@ -137,10 +139,10 @@ void receiveRequest(int client) {
 
     hazkey::RequestEnvelope envelope;
     if (!envelope.ParseFromArray(request.data(),
-                                 static_cast<int>(request.size())) ||
-        !envelope.has_set_config()) {
-        throw std::runtime_error("mock server received an unexpected request");
+                                 static_cast<int>(request.size()))) {
+        throw std::runtime_error("mock server received malformed protobuf");
     }
+    return envelope;
 }
 
 void sendResponse(int client, hazkey::StatusCode status,
@@ -171,7 +173,11 @@ std::optional<std::string> saveWithResponse(
             if (client < 0) {
                 throw std::runtime_error("mock server failed to accept client");
             }
-            receiveRequest(client);
+            const auto request = receiveRequest(client);
+            if (!request.has_set_config()) {
+                throw std::runtime_error(
+                    "mock server received an unexpected request");
+            }
             if (status.has_value()) {
                 sendResponse(client, *status, errorMessage);
             }
@@ -198,6 +204,107 @@ std::optional<std::string> saveWithResponse(
     return failure;
 }
 
+void dictionaryRoundTrip() {
+    ScopedRuntimeDirectory runtimeDirectory;
+    const int listener = createListener(runtimeDirectory.socketPath());
+    std::exception_ptr serverFailure;
+    std::thread server([&]() {
+        try {
+            for (int operation = 0; operation < 6; ++operation) {
+                const int client = accept(listener, nullptr, nullptr);
+                if (client < 0) {
+                    throw std::runtime_error(
+                        "mock dictionary server failed to accept client");
+                }
+                const auto request = receiveRequest(client);
+                hazkey::ResponseEnvelope response;
+                response.set_status(hazkey::SUCCESS);
+                switch (operation) {
+                    case 0: {
+                        require(request.has_list_user_dictionary(),
+                                "list request was not serialized");
+                        auto* entry = response.mutable_user_dictionary_result()
+                                          ->add_entries();
+                        entry->set_id("entry-1");
+                        entry->set_reading("せつな");
+                        entry->set_surface("刹那");
+                        entry->set_part_of_speech("person");
+                        entry->set_layer(hazkey::config::PERSONAL);
+                        break;
+                    }
+                    case 1:
+                        require(request.has_add_user_dictionary_entry() &&
+                                    request.add_user_dictionary_entry()
+                                            .entry()
+                                            .surface() == "刹那",
+                                "add request lost its entry");
+                        break;
+                    case 2:
+                        require(request.has_update_user_dictionary_entry() &&
+                                    request.update_user_dictionary_entry()
+                                            .entry()
+                                            .id() == "entry-1",
+                                "update request lost its id");
+                        break;
+                    case 3:
+                        require(request.has_remove_user_dictionary_entry() &&
+                                    request.remove_user_dictionary_entry().id() ==
+                                        "entry-1",
+                                "remove request lost its id");
+                        break;
+                    case 4:
+                        require(request.has_import_user_dictionary() &&
+                                    request.import_user_dictionary().merge() &&
+                                    request.import_user_dictionary().json() ==
+                                        "[]",
+                                "import request lost JSON or merge mode");
+                        break;
+                    case 5:
+                        require(request.has_export_user_dictionary(),
+                                "export request was not serialized");
+                        response.mutable_user_dictionary_result()
+                            ->set_exported_json("[{\"id\":\"entry-1\"}]");
+                        break;
+                }
+                std::string payload;
+                require(response.SerializeToString(&payload),
+                        "failed to serialize dictionary response");
+                const std::uint32_t networkLength =
+                    htonl(static_cast<std::uint32_t>(payload.size()));
+                writeExactly(client, &networkLength, sizeof(networkLength));
+                writeExactly(client, payload.data(), payload.size());
+                close(client);
+            }
+        } catch (...) {
+            serverFailure = std::current_exception();
+        }
+    });
+
+    ServerConnector connector;
+    const auto entries = connector.listUserDictionary();
+    require(entries.has_value() && entries->size() == 1 &&
+                entries->front().surface() == "刹那",
+            "list response was not decoded");
+    auto entry = entries->front();
+    require(connector.addUserDictionaryEntry(entry), "add request failed");
+    require(connector.updateUserDictionaryEntry(entry),
+            "update request failed");
+    require(connector.removeUserDictionaryEntry(entry.id()),
+            "remove request failed");
+    require(connector.importUserDictionary("[]", true),
+            "import request failed");
+    const auto exported = connector.exportUserDictionary();
+    require(exported.has_value() &&
+                *exported == "[{\"id\":\"entry-1\"}]",
+            "export response was not decoded");
+
+    server.join();
+    close(listener);
+    if (serverFailure != nullptr) {
+        std::rethrow_exception(serverFailure);
+    }
+}
+
 void require(bool condition, const std::string& message) {
     if (!condition) {
         throw std::runtime_error(message);
@@ -221,6 +328,8 @@ int main() {
 
         const auto saved = saveWithResponse(hazkey::SUCCESS);
         require(!saved.has_value(), "successful response raised a save error");
+
+        dictionaryRoundTrip();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

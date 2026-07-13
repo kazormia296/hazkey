@@ -84,27 +84,22 @@ enum GrimodexZenzaiConditionResolver {
     }
 }
 
-final class GrimodexStateCompositionApplier: GrimodexDynamicDictionaryApplying {
-    private unowned let state: HazkeyServerState
+final class GrimodexEnvironmentDictionaryApplier: GrimodexDynamicDictionaryApplying {
+    private unowned let environment: HazkeySessionEnvironment
 
-    init(state: HazkeyServerState) {
-        self.state = state
+    init(environment: HazkeySessionEnvironment) {
+        self.environment = environment
     }
 
     func stopComposition() {
-        state.converter.stopComposition()
+        environment.converter.stopComposition()
     }
 
     func abortSessionComposition() {
-        state.converter.stopComposition()
-        state.composingText = ComposingTextBox()
-        state.currentCandidateList = nil
-        state.isSubInputMode = false
-        state.isShiftPressedAlone = false
-        state.learningDataNeedsCommit = false
+        environment.converter.stopComposition()
     }
 
     func replaceDynamicDictionary(_ entries: [GrimodexMappedDictionaryEntry]) {
-        state.converter.importDynamicUserDictionary(entries.map(\.dictionaryElement))
+        environment.replaceGrimodexDynamicDictionary(entries)
     }
 }

@@ -19,6 +19,11 @@ message OpenSession {
 
 message OpenSessionResult {
     string session_id = 1;
+    uint32 protocol_version = 2;
+    uint64 feature_bits = 3;
+    uint32 max_snapshot_version = 4;
+    bool recovery_support = 5;
+    bool idempotent_request_support = 6;
 }
 
 message CloseSession {
@@ -28,26 +33,28 @@ message CloseSession {
 message RequestEnvelope {
     string session_id = 200;
 
+    // Protocol v1 procedural IME commands occupied fields 1 through 13.
+    // They are permanently reserved after the Protocol v2 cutover.
+    reserved 1 to 13;
+    reserved "new_composing_text", "set_context", "input_char",
+        "modifier_event", "move_cursor", "prefix_complete", "delete_left",
+        "delete_right", "get_composing_string", "get_hiragana_with_cursor",
+        "get_candidates", "get_current_input_mode", "save_learning_data";
+
     oneof payload {
-        hazkey.commands.NewComposingText new_composing_text = 1;
-        hazkey.commands.SetContext set_context = 2;
-        hazkey.commands.InputChar input_char = 3;
-        hazkey.commands.ModifierEvent modifier_event = 4;
-        hazkey.commands.MoveCursor move_cursor = 5;
-        hazkey.commands.PrefixComplete prefix_complete = 6;
-        hazkey.commands.DeleteLeft delete_left = 7;
-        hazkey.commands.DeleteRight delete_right = 8;
-        hazkey.commands.GetComposingString get_composing_string = 9;
-        hazkey.commands.GetHiraganaWithCursor get_hiragana_with_cursor = 10;
-        hazkey.commands.GetCandidates get_candidates = 11;
-        hazkey.commands.GetCurrentInputModeInfo get_current_input_mode = 12;
-        hazkey.commands.SaveLearningData save_learning_data = 13;
+        hazkey.commands.HandleImeAction handle_ime_action = 14;
 
         hazkey.config.GetConfig get_config = 100;
         hazkey.config.SetConfig set_config = 101;
         hazkey.config.GetDefaultProfile get_default_profile = 102;
         hazkey.config.ClearAllHistory clear_all_history = 103;
         hazkey.config.ReloadZenzaiModel reload_zenzai_model = 104;
+        hazkey.config.ListUserDictionary list_user_dictionary = 105;
+        hazkey.config.AddUserDictionaryEntry add_user_dictionary_entry = 106;
+        hazkey.config.UpdateUserDictionaryEntry update_user_dictionary_entry = 107;
+        hazkey.config.RemoveUserDictionaryEntry remove_user_dictionary_entry = 108;
+        hazkey.config.ImportUserDictionary import_user_dictionary = 109;
+        hazkey.config.ExportUserDictionary export_user_dictionary = 110;
 
         OpenSession open_session = 201;
         CloseSession close_session = 202;
@@ -59,17 +66,99 @@ enum StatusCode {
     SUCCESS = 1;
     FAILED = 2;
     SESSION_NOT_FOUND = 3;
+    STALE_REVISION = 4;
+    STALE_CANDIDATE = 5;
+    INVALID_ACTION = 6;
+    CONVERTER_UNAVAILABLE = 7;
+    SECURE_INPUT_VIOLATION = 8;
+    MALFORMED_REQUEST = 9;
+    RETRYABLE_TRANSPORT_ERROR = 10;
 }
 
 message ResponseEnvelope {
     StatusCode status = 1;
     string error_message = 2;
+    reserved 3 to 6;
+    reserved "text", "candidates", "text_with_cursor", "current_input_mode_info";
     oneof payload {
-        string text = 3;
-        hazkey.commands.CandidatesResult candidates = 4;
-        hazkey.commands.TextWithCursor text_with_cursor = 5;
-        hazkey.commands.CurrentInputModeInfo current_input_mode_info = 6;
+        SessionSnapshot session_snapshot = 7;
+        HandleImeActionResult handle_ime_action_result = 8;
         hazkey.config.CurrentConfig current_config = 100;
+        hazkey.config.UserDictionaryResult user_dictionary_result = 101;
         OpenSessionResult open_session_result = 200;
     }
+}
+
+enum ImePhase {
+    IME_PHASE_UNSPECIFIED = 0;
+    IDLE = 1;
+    COMPOSING = 2;
+    PREVIEWING = 3;
+    SELECTING = 4;
+    RECONVERTING = 5;
+    UNICODE_INPUT = 6;
+}
+
+message PreeditSpan {
+    enum Style {
+        STYLE_UNSPECIFIED = 0;
+        PLAIN = 1;
+        UNDERLINE = 2;
+        ACTIVE = 3;
+    }
+    string text = 1;
+    Style style = 2;
+}
+
+message CandidateSnapshot {
+    string id = 1;
+    string text = 2;
+    string annotation = 3;
+    uint32 consuming_count = 4;
+}
+
+message CandidateWindowSnapshot {
+    uint64 generation = 1;
+    repeated CandidateSnapshot items = 2;
+    optional uint32 selected_index = 3;
+    uint32 page_size = 4;
+}
+
+message ClientEffect {
+    enum Type {
+        TYPE_UNSPECIFIED = 0;
+        COMMIT_TEXT = 1;
+        DELETE_SURROUNDING_TEXT = 2;
+        SWITCH_INPUT_MODE = 3;
+        NOTIFY = 4;
+    }
+    uint64 effect_id = 1;
+    Type type = 2;
+    string text = 3;
+    sint32 before = 4;
+    sint32 after = 5;
+    string mode = 6;
+    string message = 7;
+}
+
+message RecoveryCheckpoint {
+    uint64 revision = 1;
+    bytes opaque_state = 2;
+}
+
+message SessionSnapshot {
+    uint64 revision = 1;
+    ImePhase phase = 2;
+    repeated PreeditSpan preedit = 3;
+    optional uint32 caret_utf8_byte_offset = 4;
+    CandidateWindowSnapshot candidate_window = 5;
+    repeated ClientEffect effects = 6;
+    optional RecoveryCheckpoint recovery = 7;
+    string aux = 8;
+}
+
+message HandleImeActionResult {
+    StatusCode status = 1;
+    string error_message = 2;
+    SessionSnapshot snapshot = 3;
 }
