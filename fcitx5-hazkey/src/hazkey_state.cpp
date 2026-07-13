@@ -41,6 +41,16 @@ bool hasTextInputModifiers(const Key& key) {
            key.states().test(KeyState::Meta);
 }
 
+bool isPendingLearningCancellationKey(const Key& key) {
+    const auto sym = key.sym();
+    if (sym == FcitxKey_Escape || sym == FcitxKey_BackSpace ||
+        sym == FcitxKey_Delete) {
+        return true;
+    }
+    return key.states().test(KeyState::Ctrl) &&
+           (sym == FcitxKey_z || sym == FcitxKey_Z);
+}
+
 HazkeyInputPhase inputPhaseFor(hazkey::ImePhase phase) {
     switch (phase) {
         case hazkey::COMPOSING:
@@ -126,7 +136,8 @@ bool HazkeyState::isAltDigitKeyEvent(const KeyEvent& event) const {
 
 void HazkeyState::commitPreedit() {
     cancelLiveConversionTimer();
-    if (protocolAvailable_ && snapshot_.phase() != hazkey::IDLE) {
+    if (protocolAvailable_ &&
+        (snapshot_.phase() != hazkey::IDLE || snapshot_.pending_learning())) {
         dispatchV2(HazkeySemanticAction{HazkeySemanticActionKind::commitAll});
     }
 }
@@ -142,6 +153,17 @@ void HazkeyState::keyEvent(KeyEvent& event) {
 
 void HazkeyState::keyEventV2(KeyEvent& event) {
     if (event.isRelease()) {
+        return;
+    }
+
+    // A just-committed surface can leave learning staged while the protocol
+    // is already idle. These keys are cancellation signals for the staged
+    // transaction, but must remain visible to the application (for example,
+    // Backspace must not be swallowed merely because learning is pending).
+    if (snapshot_.pending_learning() &&
+        isPendingLearningCancellationKey(event.key())) {
+        notifyPendingLearningCancellation();
+        event.filter();
         return;
     }
 
@@ -257,6 +279,12 @@ void HazkeyState::updateSurroundingTextV2() {
         }
     }
     applyV2Response(server_.transactV2(std::move(request)));
+}
+
+void HazkeyState::notifyPendingLearningCancellation() {
+    hazkey::commands::HandleImeAction request;
+    request.mutable_resolve_pending_learning()->set_commit(false);
+    (void)applyV2Response(server_.transactV2BestEffort(std::move(request)));
 }
 
 bool HazkeyState::dispatchV2(const HazkeySemanticAction& action,
@@ -542,6 +570,9 @@ void HazkeyState::reset() {
         for (int attempt = 0;
              attempt < 3 && snapshot_.phase() != hazkey::IDLE; ++attempt) {
             dispatchV2(HazkeySemanticAction{HazkeySemanticActionKind::cancel});
+        }
+        if (snapshot_.pending_learning()) {
+            notifyPendingLearningCancellation();
         }
     }
     snapshot_.Clear();

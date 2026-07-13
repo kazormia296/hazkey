@@ -162,6 +162,7 @@ message SessionSnapshot {
     repeated ClientEffect effects = 6;
     optional RecoveryCheckpoint recovery = 7;
     string aux = 8;
+    bool pending_learning = 9;
 }
 
 message HandleImeActionResult {

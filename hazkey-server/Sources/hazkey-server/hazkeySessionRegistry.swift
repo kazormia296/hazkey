@@ -233,6 +233,9 @@ final class HazkeySessionRegistry {
                 projectRevision: appliedRevision?.generation ?? 0,
                 autoConvertMode: environment.grimodexAutoConvertMode,
                 liveConversionDelayMilliseconds: liveConversionDelayMilliseconds,
+                suggestionListMode: environment.grimodexSuggestionListMode,
+                auxTextMode: environment.grimodexAuxTextMode,
+                directCommitTargets: environment.grimodexDirectCommitTargets,
                 inputTableName: environment.currentTableName,
                 keymap: pinnedKeymap(environment.keymap)
             )
@@ -297,6 +300,9 @@ final class HazkeySessionRegistry {
                     liveConversionDelayMilliseconds: supportsScheduledLiveConversion
                         ? environment.grimodexLiveConversionDelayMilliseconds
                         : 0,
+                    suggestionListMode: environment.grimodexSuggestionListMode,
+                    auxTextMode: environment.grimodexAuxTextMode,
+                    directCommitTargets: environment.grimodexDirectCommitTargets,
                     inputTableName: environment.currentTableName,
                     keymap: pinnedKeymap(environment.keymap)
                 )

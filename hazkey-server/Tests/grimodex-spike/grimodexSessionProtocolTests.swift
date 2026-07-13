@@ -48,6 +48,45 @@ final class GrimodexSessionProtocolTests: XCTestCase {
     XCTAssertEqual(response.handleImeActionResult.status, .invalidAction)
   }
 
+  func testPendingLearningResolutionAndSnapshotFlagRoundTrip() throws {
+    let request = Hazkey_Commands_HandleImeAction.with {
+      $0.requestID = "resolve-learning"
+      $0.resolvePendingLearning = Hazkey_Commands_ResolvePendingLearning.with {
+        $0.commit = false
+      }
+    }
+
+    let decoded = try Hazkey_Commands_HandleImeAction(
+      serializedBytes: request.serializedData()
+    )
+    guard case .resolvePendingLearning(let command) = decoded.action else {
+      return XCTFail("resolve_pending_learning action was not preserved")
+    }
+    XCTAssertFalse(command.commit)
+    XCTAssertEqual(
+      ImeV2SessionController().handle(decoded).handleImeActionResult.status,
+      .success
+    )
+
+    let snapshot = Hazkey_SessionSnapshot.with { $0.pendingLearning = true }
+    let roundTripped = try Hazkey_SessionSnapshot(
+      serializedBytes: snapshot.serializedData()
+    )
+    XCTAssertTrue(roundTripped.pendingLearning)
+  }
+
+  func testLegacyCodableSnapshotDefaultsPendingLearningToFalse() throws {
+    let encoded = try JSONEncoder().encode(ImeReducer().currentSnapshot())
+    var object = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    )
+    object.removeValue(forKey: "pendingLearning")
+    let legacy = try JSONSerialization.data(withJSONObject: object)
+
+    let decoded = try JSONDecoder().decode(SessionSnapshot.self, from: legacy)
+    XCTAssertFalse(decoded.pendingLearning)
+  }
+
   func testOpenAndCloseSessionMessagesRoundTripClientIdentity() throws {
     let open = Hazkey_RequestEnvelope.with {
       $0.openSession = Hazkey_OpenSession.with {

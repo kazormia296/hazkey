@@ -29,6 +29,7 @@ enum ImeAction: Equatable, Codable, Sendable {
     case resizeSegment(Int)
     case moveActiveSegment(Int)
     case applyLiveConversion(scheduledRevision: UInt64)
+    case resolvePendingLearning(commit: Bool)
     case commitSelected
     case commitAll
     case cancel
@@ -113,6 +114,7 @@ extension ImeAction {
         case deleteAfter
         case data
         case scheduledRevision
+        case commit
     }
 
     private enum Kind: String, Codable {
@@ -128,6 +130,7 @@ extension ImeAction {
         case resizeSegment
         case moveActiveSegment
         case applyLiveConversion
+        case resolvePendingLearning
         case commitSelected
         case commitAll
         case cancel
@@ -164,6 +167,10 @@ extension ImeAction {
                     UInt64.self,
                     forKey: .scheduledRevision
                 )
+            )
+        case .resolvePendingLearning:
+            self = .resolvePendingLearning(
+                commit: try container.decode(Bool.self, forKey: .commit)
             )
         case .commitSelected: self = .commitSelected
         case .commitAll: self = .commitAll
@@ -237,6 +244,9 @@ extension ImeAction {
         case .applyLiveConversion(let scheduledRevision):
             try encode(.applyLiveConversion)
             try container.encode(scheduledRevision, forKey: .scheduledRevision)
+        case .resolvePendingLearning(let commit):
+            try encode(.resolvePendingLearning)
+            try container.encode(commit, forKey: .commit)
         case .commitSelected: try encode(.commitSelected)
         case .commitAll: try encode(.commitAll)
         case .cancel: try encode(.cancel)

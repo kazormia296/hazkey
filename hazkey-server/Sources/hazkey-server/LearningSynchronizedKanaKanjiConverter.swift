@@ -76,6 +76,21 @@ final class LearningSynchronizedKanaKanjiConverter: KanaKanjiConverting {
         observedRevision = revisionStore.recordCommit()
     }
 
+    func stageLearning(
+        candidate: ConverterCandidate,
+        reading: String
+    ) -> ConverterLearningToken? {
+        base.stageLearning(candidate: candidate, reading: reading)
+    }
+
+    func commitStagedLearning(_ token: ConverterLearningToken) {
+        base.commitStagedLearning(token)
+    }
+
+    func discardStagedLearning(_ token: ConverterLearningToken) {
+        base.discardStagedLearning(token)
+    }
+
     func forget(_ candidate: ConverterCandidate) {
         base.forget(candidate)
         // AzooKey's forget operation merges directly into long-term memory.

@@ -1,0 +1,6 @@
+id	reading	split_at	category	notes
+plain-particle	きょうは	3	particle	one-shot versus きょう + は
+plain-predicate	きょういく	3	predicate	one-shot versus きょう + いく
+project-term	かんそくせい	5	project-term	project term should remain one surface
+ascii-boundary	api/v2	3	protected	ASCII path boundary must not be rewritten
+punctuation-boundary	かな。は	2	punctuation	Japanese punctuation stays ordered

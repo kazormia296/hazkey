@@ -72,6 +72,26 @@ final class HazkeySessionEnvironment {
             return .disabled
         }
     }
+    var grimodexAuxTextMode: ImeAuxTextMode {
+        switch serverConfig.currentProfile.auxTextMode {
+        case .auxTextShowAlways:
+            return .always
+        case .auxTextDisabled:
+            return .disabled
+        case .auxTextShowWhenCursorNotAtEnd, .unspecified:
+            return .whenCursorNotAtEnd
+        default:
+            return .whenCursorNotAtEnd
+        }
+    }
+    var grimodexDirectCommitTargets: DirectCommitTargetSet {
+        guard serverConfig.currentProfile.hasDirectCommitTargets else {
+            return []
+        }
+        return DirectCommitTargetSet(
+            rawValue: serverConfig.currentProfile.directCommitTargets
+        )
+    }
 
     init(
         serverConfig injectedServerConfig: HazkeyServerConfig? = nil,

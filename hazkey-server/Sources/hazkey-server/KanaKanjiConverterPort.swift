@@ -5,12 +5,14 @@ struct ConversionOptions: Equatable, Sendable {
     let zenzaiEnabled: Bool
     let leftContext: String
     let rightContext: String
+    let suggestionListMode: ImeSuggestionListMode
 
     static let `default` = ConversionOptions(
         allowLearning: true,
         zenzaiEnabled: true,
         leftContext: "",
-        rightContext: ""
+        rightContext: "",
+        suggestionListMode: .predictive
     )
 }
 
@@ -19,18 +21,41 @@ struct ConverterCandidate: Equatable, Hashable, Codable, Sendable {
     let annotation: String?
     let consumingCount: Int
     let sourceID: String?
+    let provenance: CandidateProvenance
 
     init(
         text: String,
         annotation: String? = nil,
         consumingCount: Int,
-        sourceID: String? = nil
+        sourceID: String? = nil,
+        provenance: CandidateProvenance = .unknown
     ) {
         self.text = text
         self.annotation = annotation
         self.consumingCount = max(1, consumingCount)
         self.sourceID = sourceID
+        self.provenance = provenance
     }
+}
+
+enum CandidateProvenance: String, Codable, Hashable, Sendable {
+    case standard
+    case personalDictionary
+    case projectDictionary
+    case temporaryDictionary
+    case zenzai
+    case builtInGuard
+    case unknown
+}
+
+struct ConverterLearningToken: Hashable, Codable, Sendable {
+    let rawValue: String
+}
+
+enum LearningOrigin: String, Codable, Sendable, Equatable {
+    case liveConversion
+    case directCommit
+    case explicitConversion
 }
 
 struct ConversionOutput: Equatable, Sendable {
@@ -54,6 +79,50 @@ enum ImeSuggestionListMode: String, Codable, Sendable, Equatable {
     case disabled
     case normal
     case predictive
+}
+
+enum ImeAuxTextMode: String, Codable, Sendable, Equatable {
+    case disabled
+    case always
+    case whenCursorNotAtEnd
+}
+
+struct DirectCommitTargetSet: OptionSet, Codable, Sendable, Equatable {
+    let rawValue: UInt32
+
+    static let comma = Self(rawValue: 1 << 0)
+    static let period = Self(rawValue: 1 << 1)
+    static let question = Self(rawValue: 1 << 2)
+    static let exclamation = Self(rawValue: 1 << 3)
+    static let initial: Self = []
+
+    init(rawValue: UInt32) {
+        self.rawValue = rawValue
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.init(rawValue: try container.decode(UInt32.self))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    func contains(renderedSuffix: String) -> Bool {
+        guard let scalar = renderedSuffix.unicodeScalars.last,
+              renderedSuffix.unicodeScalars.count == 1 else {
+            return false
+        }
+        switch scalar.value {
+        case 0x3001: return contains(.comma) // 、
+        case 0x3002: return contains(.period) // 。
+        case 0xFF1F, 0x003F: return contains(.question) // ？ or ?
+        case 0xFF01, 0x0021: return contains(.exclamation) // ！ or !
+        default: return false
+        }
+    }
 }
 
 struct CompositionDisplay: Equatable, Sendable {
@@ -102,6 +171,12 @@ protocol KanaKanjiConverting: AnyObject {
     func setCompletedData(_ candidate: ConverterCandidate)
     func updateLearningData(_ candidate: ConverterCandidate)
     func commitLearning()
+    func stageLearning(
+        candidate: ConverterCandidate,
+        reading: String
+    ) -> ConverterLearningToken?
+    func commitStagedLearning(_ token: ConverterLearningToken)
+    func discardStagedLearning(_ token: ConverterLearningToken)
     func forget(_ candidate: ConverterCandidate)
     func stopComposition()
 }
@@ -158,6 +233,17 @@ extension KanaKanjiConverting {
             pageSize: output.pageSize
         )
     }
+
+    func stageLearning(
+        candidate: ConverterCandidate,
+        reading: String
+    ) -> ConverterLearningToken? {
+        return nil
+    }
+
+    func commitStagedLearning(_ token: ConverterLearningToken) {}
+
+    func discardStagedLearning(_ token: ConverterLearningToken) {}
 }
 
 final class NoopKanaKanjiConverter: KanaKanjiConverting {
@@ -299,6 +385,9 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
     var zenzaiEnabled: Bool
     var autoConvertMode: ImeAutoConvertMode
     var liveConversionDelayMilliseconds: UInt32
+    var suggestionListMode: ImeSuggestionListMode
+    var auxTextMode: ImeAuxTextMode
+    var directCommitTargets: DirectCommitTargetSet
     var projectRevision: UInt64
     var inputTableName: String? = nil
     var keymap: [String: PinnedKeymapRule] = [:]
@@ -310,6 +399,9 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         projectRevision: 0,
         autoConvertMode: .disabled,
         liveConversionDelayMilliseconds: 228,
+        suggestionListMode: .predictive,
+        auxTextMode: .whenCursorNotAtEnd,
+        directCommitTargets: [],
         inputTableName: nil,
         keymap: [:]
     )
@@ -320,6 +412,9 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         case zenzaiEnabled
         case autoConvertMode
         case liveConversionDelayMilliseconds
+        case suggestionListMode
+        case auxTextMode
+        case directCommitTargets
         case projectRevision
         case inputTableName
         case keymap
@@ -332,6 +427,9 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         projectRevision: UInt64,
         autoConvertMode: ImeAutoConvertMode = .disabled,
         liveConversionDelayMilliseconds: UInt32 = 228,
+        suggestionListMode: ImeSuggestionListMode = .predictive,
+        auxTextMode: ImeAuxTextMode = .whenCursorNotAtEnd,
+        directCommitTargets: DirectCommitTargetSet = [],
         inputTableName: String? = nil,
         keymap: [String: PinnedKeymapRule] = [:]
     ) {
@@ -340,6 +438,9 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         self.zenzaiEnabled = zenzaiEnabled
         self.autoConvertMode = autoConvertMode
         self.liveConversionDelayMilliseconds = liveConversionDelayMilliseconds
+        self.suggestionListMode = suggestionListMode
+        self.auxTextMode = auxTextMode
+        self.directCommitTargets = directCommitTargets
         self.projectRevision = projectRevision
         self.inputTableName = inputTableName
         self.keymap = keymap
@@ -358,6 +459,18 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
             UInt32.self,
             forKey: .liveConversionDelayMilliseconds
         ) ?? 228
+        suggestionListMode = try container.decodeIfPresent(
+            ImeSuggestionListMode.self,
+            forKey: .suggestionListMode
+        ) ?? .predictive
+        auxTextMode = try container.decodeIfPresent(
+            ImeAuxTextMode.self,
+            forKey: .auxTextMode
+        ) ?? .whenCursorNotAtEnd
+        directCommitTargets = try container.decodeIfPresent(
+            DirectCommitTargetSet.self,
+            forKey: .directCommitTargets
+        ) ?? []
         projectRevision = try container.decode(UInt64.self, forKey: .projectRevision)
         inputTableName = try container.decodeIfPresent(
             String.self,

@@ -16,6 +16,10 @@ private final class ReducerFixtureConverter: KanaKanjiConverting {
   var predictionCandidates: [ConverterCandidate] = []
   var lastOptions: ConversionOptions?
   var lastComposition: CompositionInput?
+  var useStagedLearning = false
+  var stagedLearningCount = 0
+  var committedStagedLearningCount = 0
+  var discardedStagedLearningCount = 0
 
   func display(for composition: CompositionInput) -> CompositionDisplay {
     let raw = composition.elements.map(\.text).joined()
@@ -87,6 +91,22 @@ private final class ReducerFixtureConverter: KanaKanjiConverting {
   func setCompletedData(_ candidate: ConverterCandidate) { completed += 1 }
   func updateLearningData(_ candidate: ConverterCandidate) { learningUpdates += 1 }
   func commitLearning() {}
+  func stageLearning(
+    candidate: ConverterCandidate,
+    reading: String
+  ) -> ConverterLearningToken? {
+    guard useStagedLearning else { return nil }
+    stagedLearningCount += 1
+    return ConverterLearningToken(rawValue: "fixture-\(stagedLearningCount)")
+  }
+  func commitStagedLearning(_ token: ConverterLearningToken) {
+    committedStagedLearningCount += 1
+    completed += 1
+    learningUpdates += 1
+  }
+  func discardStagedLearning(_ token: ConverterLearningToken) {
+    discardedStagedLearningCount += 1
+  }
   func forget(_ candidate: ConverterCandidate) { forgotten += 1 }
   func stopComposition() { stopCount += 1 }
 
@@ -160,6 +180,143 @@ private struct ReducerDeterministicGenerator {
 }
 
 final class GrimodexImeReducerTests: XCTestCase {
+  func testProtectedSurfacePolicyPreservesAsciiTokensAndAllowsDictionaryTerms() {
+    let generic = ConverterCandidate(
+      text: "変換",
+      consumingCount: 1,
+      provenance: .standard
+    )
+    XCTAssertFalse(ProtectedSurfacePolicy.allows(generic, for: "https://example.com"))
+    XCTAssertFalse(ProtectedSurfacePolicy.allows(generic, for: "foo?bar"))
+
+    let preserved = ConverterCandidate(
+      text: "https://example.com",
+      consumingCount: 1,
+      provenance: .standard
+    )
+    XCTAssertTrue(ProtectedSurfacePolicy.allows(preserved, for: "https://example.com"))
+
+    let projectTerm = ConverterCandidate(
+      text: "変換",
+      consumingCount: 1,
+      provenance: .projectDictionary
+    )
+    XCTAssertTrue(ProtectedSurfacePolicy.allows(projectTerm, for: "https://example.com"))
+  }
+
+  func testBuiltInGuardDictionaryIsSmallAndReviewable() {
+    XCTAssertLessThanOrEqual(GrimodexBuiltInGuardDictionary.count, 200)
+    let candidates = GrimodexBuiltInGuardDictionary.candidates(
+      for: "かんそくせい",
+      consumingCount: 5
+    )
+    XCTAssertEqual(candidates.first?.text, "可観測性")
+    XCTAssertEqual(candidates.first?.provenance, .builtInGuard)
+  }
+
+  func testAuxiliaryReadingFollowsPinnedPolicy() {
+    let always = PinnedCompositionPolicy(
+      allowsLearning: false,
+      secureInput: false,
+      zenzaiEnabled: false,
+      projectRevision: 0,
+      auxTextMode: .always
+    )
+    let alwaysReducer = ImeReducer(session: CompositionSession(policy: always))
+    XCTAssertEqual(
+      alwaysReducer.reduce(.insertText("かな"), requestID: "always").snapshot.aux,
+      "かな"
+    )
+
+    let defaultReducer = ImeReducer()
+    let inserted = defaultReducer.reduce(.insertText("かな"), requestID: "insert")
+    XCTAssertNil(inserted.snapshot.aux)
+    let moved = defaultReducer.reduce(
+      .moveCursor(-1),
+      requestID: "left",
+      expectedRevision: inserted.snapshot.revision
+    )
+    XCTAssertEqual(moved.snapshot.aux, "かな")
+  }
+
+  func testDirectCommitUsesRenderedPunctuationSuffix() {
+    let policy = PinnedCompositionPolicy(
+      allowsLearning: false,
+      secureInput: false,
+      zenzaiEnabled: false,
+      projectRevision: 0,
+      directCommitTargets: [.comma]
+    )
+    let reducer = ImeReducer(session: CompositionSession(policy: policy))
+    let result = reducer.reduce(.insertText("かな、"), requestID: "direct")
+
+    XCTAssertEqual(result.snapshot.phase, .idle)
+    XCTAssertEqual(
+      result.snapshot.effects,
+      [.commitText(effectID: 1, text: "かな、")]
+    )
+  }
+
+  func testMaterializedLivePrefixStaysVisibleWhileNewSuffixIsDebounced() {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.policy.autoConvertMode = .always
+    session.policy.liveConversionDelayMilliseconds = 228
+    let reducer = ImeReducer(session: session, converter: converter)
+
+    let inserted = reducer.reduce(.insertText("かな"), requestID: "insert")
+    let live = reducer.reduce(
+      .applyLiveConversion(scheduledRevision: inserted.snapshot.revision),
+      requestID: "live",
+      expectedRevision: inserted.snapshot.revision
+    )
+    XCTAssertEqual(live.snapshot.preedit.first?.text, "変換")
+
+    let suffix = reducer.reduce(
+      .insertText("に"),
+      requestID: "suffix",
+      expectedRevision: live.snapshot.revision
+    )
+    XCTAssertEqual(
+      suffix.snapshot.preedit,
+      [
+        PreeditSpan(text: "変換", style: .active),
+        PreeditSpan(text: "に", style: .underline),
+      ]
+    )
+    XCTAssertEqual(converter.realtimeRequests, 1)
+  }
+
+  func testPendingLearningCanBeCommittedOrCancelledAfterVisibleCommit() {
+    let converter = ReducerFixtureConverter()
+    converter.useStagedLearning = true
+    let reducer = ImeReducer(converter: converter)
+    _ = reducer.reduce(.insertText("かな"), requestID: "insert")
+    _ = reducer.reduce(.startConversion, requestID: "convert")
+    let committed = reducer.reduce(.commitAll, requestID: "commit")
+
+    XCTAssertTrue(committed.snapshot.pendingLearning)
+    XCTAssertEqual(converter.committedStagedLearningCount, 0)
+    let cancelled = reducer.reduce(
+      .resolvePendingLearning(commit: false),
+      requestID: "cancel-learning",
+      expectedRevision: committed.snapshot.revision
+    )
+    XCTAssertFalse(cancelled.snapshot.pendingLearning)
+    XCTAssertEqual(converter.discardedStagedLearningCount, 1)
+
+    _ = reducer.reduce(.insertText("かな"), requestID: "insert-again")
+    _ = reducer.reduce(.startConversion, requestID: "convert-again")
+    let visible = reducer.reduce(.commitAll, requestID: "commit-again")
+    let resolved = reducer.reduce(
+      .resolvePendingLearning(commit: true),
+      requestID: "commit-learning",
+      expectedRevision: visible.snapshot.revision
+    )
+    XCTAssertFalse(resolved.snapshot.pendingLearning)
+    XCTAssertEqual(converter.committedStagedLearningCount, 1)
+  }
+
   func testEditorUsesInputElementsAndUtf8Caret() {
     let reducer = ImeReducer()
 

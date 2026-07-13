@@ -248,7 +248,10 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
     private let projectDictionaryIndexProvider: () -> GrimodexProjectDictionaryIndex
     private let zenzaiDiagnosticsReporter: (ConversionOptions, String) -> Void
     private var completedCandidates: [String: Candidate] = [:]
+    private var completedCandidateOrder: [String] = []
+    private var stagedLearningCandidates: [ConverterLearningToken: Candidate] = [:]
     private var nextCandidateSourceID: UInt64 = 1
+    private var nextLearningTokenID: UInt64 = 1
 
     init(
         converter: KanaKanjiConverter,
@@ -323,9 +326,20 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
                 elementCount: targetElements.count
             )
         }
+        let protectedCandidates = candidates.filter {
+            ProtectedSurfacePolicy.allows($0, for: composingText.convertTarget)
+        }
+        let guardedCandidates = GrimodexBuiltInGuardDictionary.candidates(
+            for: composingText.convertTarget,
+            consumingCount: targetElements.count
+        )
+        let finalCandidates = mergeGuardCandidates(
+            guardedCandidates,
+            with: protectedCandidates
+        )
         return ConversionOutput(
-            candidates: candidates,
-            pageSize: min(max(requestOptions.N_best, 1), candidates.count)
+            candidates: finalCandidates,
+            pageSize: min(max(requestOptions.N_best, 1), finalCandidates.count)
         )
     }
 
@@ -489,11 +503,15 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
                   seenTexts.insert(candidate.text).inserted else {
                 return nil
             }
-            return makeConverterCandidate(
+            let converted = makeConverterCandidate(
                 candidate,
                 in: prefixComposingText,
                 elementCount: segmentCount
             )
+            return ProtectedSurfacePolicy.allows(
+                converted,
+                for: prefixComposingText.convertTarget
+            ) ? converted : nil
         }
 
         let targetedInput = CompositionInput(
@@ -515,6 +533,12 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             }
             candidates.append(candidate)
         }
+
+        let guardedCandidates = GrimodexBuiltInGuardDictionary.candidates(
+            for: prefixComposingText.convertTarget,
+            consumingCount: segmentCount
+        )
+        candidates = mergeGuardCandidates(guardedCandidates, with: candidates)
 
         if candidates.count < 2 {
             let segmentElements = Array(composition.elements.prefix(segmentCount))
@@ -558,7 +582,10 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             from: targetElements,
             mappedTableName: composition.mappedTableName
         )
-        let mode = suggestionListModeProvider()
+        // The reducer passes the composition-start policy through the port.
+        // Keeping this value out of the live provider closure prevents a
+        // settings reload from changing an in-flight composition.
+        let mode = options.suggestionListMode
         let configuration = predictionConfigurationProvider()
         var requestOptions = optionsProvider(options)
         let limit = max(configuration.limit, 1)
@@ -593,8 +620,18 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
                 in: composingText,
                 elementCount: targetElements.count
             )
+        }.filter {
+            ProtectedSurfacePolicy.allows($0, for: composingText.convertTarget)
         }
-        let liveCandidate = mainCandidates.first {
+        let guardedCandidates = GrimodexBuiltInGuardDictionary.candidates(
+            for: composingText.convertTarget,
+            consumingCount: targetElements.count
+        )
+        let orderedMainCandidates = mergeGuardCandidates(
+            guardedCandidates,
+            with: mainCandidates
+        )
+        let liveCandidate = orderedMainCandidates.first {
             $0.consumingCount == targetElements.count
         }
 
@@ -605,16 +642,22 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             candidates = []
             pageSize = 0
         case .normal:
-            candidates = Array(mainCandidates.prefix(limit))
+            candidates = Array(orderedMainCandidates.prefix(limit))
             pageSize = min(limit, candidates.count)
         case .predictive:
-            candidates = result.predictionResults.prefix(limit).map {
+            let predictionCandidates = result.predictionResults.prefix(limit).map {
                 makePredictionCandidate(
                     $0,
                     in: composingText,
                     elementCount: targetElements.count
                 )
+            }.filter {
+                ProtectedSurfacePolicy.allows($0, for: composingText.convertTarget)
             }
+            candidates = Array(
+                mergeGuardCandidates(guardedCandidates, with: predictionCandidates)
+                    .prefix(limit)
+            )
             pageSize = min(limit, candidates.count)
         }
         return RealtimeConversionOutput(
@@ -649,13 +692,23 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             requestOptions: requestOptions,
             conversionOptions: options
         )
-        let candidates = result.predictionResults.prefix(configuration.limit).map { candidate in
+        let predictionCandidates = result.predictionResults.prefix(configuration.limit).map { candidate in
             makePredictionCandidate(
                 candidate,
                 in: composingText,
                 elementCount: composition.elements.count
             )
+        }.filter {
+            ProtectedSurfacePolicy.allows($0, for: composingText.convertTarget)
         }
+        let guardedCandidates = GrimodexBuiltInGuardDictionary.candidates(
+            for: composingText.convertTarget,
+            consumingCount: composition.elements.count
+        )
+        let candidates = Array(
+            mergeGuardCandidates(guardedCandidates, with: predictionCandidates)
+                .prefix(configuration.limit)
+        )
         return ConversionOutput(
             candidates: candidates,
             pageSize: min(configuration.limit, candidates.count)
@@ -734,6 +787,37 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         converter.commitUpdateLearningData()
     }
 
+    func stageLearning(
+        candidate: ConverterCandidate,
+        reading: String
+    ) -> ConverterLearningToken? {
+        guard let sourceID = candidate.sourceID,
+              let original = completedCandidates[sourceID] else {
+            return nil
+        }
+        let tokenID = nextLearningTokenID
+        nextLearningTokenID = nextLearningTokenID == UInt64.max
+            ? 1
+            : nextLearningTokenID + 1
+        let token = ConverterLearningToken(
+            rawValue: "learning-\(tokenID)-\(sourceID)-\(reading.count)"
+        )
+        stagedLearningCandidates[token] = original
+        return token
+    }
+
+    func commitStagedLearning(_ token: ConverterLearningToken) {
+        guard let original = stagedLearningCandidates.removeValue(forKey: token) else {
+            return
+        }
+        converter.setCompletedData(original)
+        converter.updateLearningData(original)
+    }
+
+    func discardStagedLearning(_ token: ConverterLearningToken) {
+        stagedLearningCandidates.removeValue(forKey: token)
+    }
+
     func forget(_ candidate: ConverterCandidate) {
         guard let sourceID = candidate.sourceID,
               let original = completedCandidates[sourceID] else { return }
@@ -745,7 +829,13 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         if boundaryConverter !== converter {
             boundaryConverter.stopComposition()
         }
-        completedCandidates.removeAll(keepingCapacity: true)
+        // Keep a bounded process-local tail so a live-converted prefix can be
+        // committed after the next edit. The map never crosses the protocol
+        // boundary and staged tokens still own their original Candidate.
+        while completedCandidateOrder.count > 512 {
+            let evicted = completedCandidateOrder.removeFirst()
+            completedCandidates.removeValue(forKey: evicted)
+        }
     }
 
     private func allocateCandidateSourceID() -> String {
@@ -782,9 +872,11 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         let value = ConverterCandidate(
             text: candidate.text,
             consumingCount: min(max(consumingCount, 1), elementCount),
-            sourceID: sourceID
+            sourceID: sourceID,
+            provenance: candidateProvenance(candidate)
         )
         completedCandidates[sourceID] = candidate
+        completedCandidateOrder.append(sourceID)
         return value
     }
 
@@ -802,8 +894,53 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             text: value.text,
             annotation: "予測",
             consumingCount: value.consumingCount,
-            sourceID: value.sourceID
+            sourceID: value.sourceID,
+            provenance: value.provenance
         )
+    }
+
+    private func candidateProvenance(_ candidate: Candidate) -> CandidateProvenance {
+        let projectIndex = projectDictionaryIndexProvider()
+        if candidate.data.contains(where: { data in
+            !projectIndex.entries(matching: data).isEmpty
+        }) {
+            return .projectDictionary
+        }
+        if candidate.data.contains(where: {
+            $0.metadata.contains(.isFromUserDictionary)
+        }) {
+            // AzooKey intentionally collapses personal, temporary, and
+            // project dynamic entries into the same metadata bit. The project
+            // index was checked first, so the remaining user-dictionary node
+            // is conservatively classified as personal rather than generic.
+            return .personalDictionary
+        }
+        return .standard
+    }
+
+    private func uniqueCandidates(
+        _ candidates: [ConverterCandidate]
+    ) -> [ConverterCandidate] {
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0.text).inserted }
+    }
+
+    private func mergeGuardCandidates(
+        _ guards: [ConverterCandidate],
+        with candidates: [ConverterCandidate]
+    ) -> [ConverterCandidate] {
+        let trusted = candidates.filter { candidate in
+            switch candidate.provenance {
+            case .projectDictionary, .personalDictionary, .temporaryDictionary:
+                return true
+            case .standard, .zenzai, .builtInGuard, .unknown:
+                return false
+            }
+        }
+        let untrusted = candidates.filter { candidate in
+            !trusted.contains(candidate)
+        }
+        return uniqueCandidates(trusted + guards + untrusted)
     }
 
     private func makeComposingText(

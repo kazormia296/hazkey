@@ -190,6 +190,21 @@ struct Hazkey_Commands_ApplyLiveConversion: Sendable {
   init() {}
 }
 
+struct Hazkey_Commands_ResolvePendingLearning: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Commit staged learning when true; discard it when false. This action is
+  /// intentionally explicit so a client can cancel a just-committed
+  /// composition without losing the visible text effect.
+  var commit: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
 struct Hazkey_Commands_CommitSelected: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -677,6 +692,14 @@ struct Hazkey_Commands_HandleImeAction: Sendable {
     set {action = .applyLiveConversion(newValue)}
   }
 
+  var resolvePendingLearning: Hazkey_Commands_ResolvePendingLearning {
+    get {
+      if case .resolvePendingLearning(let v)? = action {return v}
+      return Hazkey_Commands_ResolvePendingLearning()
+    }
+    set {action = .resolvePendingLearning(newValue)}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   enum OneOf_Action: Equatable, Sendable {
@@ -704,6 +727,7 @@ struct Hazkey_Commands_HandleImeAction: Sendable {
     case commitUnicodeInput(Hazkey_Commands_CommitUnicodeInput)
     case moveActiveSegment(Hazkey_Commands_MoveActiveSegment)
     case applyLiveConversion(Hazkey_Commands_ApplyLiveConversion)
+    case resolvePendingLearning(Hazkey_Commands_ResolvePendingLearning)
 
   }
 
@@ -1030,6 +1054,38 @@ extension Hazkey_Commands_ApplyLiveConversion: SwiftProtobuf.Message, SwiftProto
 
   static func ==(lhs: Hazkey_Commands_ApplyLiveConversion, rhs: Hazkey_Commands_ApplyLiveConversion) -> Bool {
     if lhs.scheduledRevision != rhs.scheduledRevision {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_Commands_ResolvePendingLearning: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ResolvePendingLearning"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "commit"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.commit) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.commit != false {
+      try visitor.visitSingularBoolField(value: self.commit, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Commands_ResolvePendingLearning, rhs: Hazkey_Commands_ResolvePendingLearning) -> Bool {
+    if lhs.commit != rhs.commit {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1495,6 +1551,7 @@ extension Hazkey_Commands_HandleImeAction: SwiftProtobuf.Message, SwiftProtobuf.
     31: .standard(proto: "commit_unicode_input"),
     32: .standard(proto: "move_active_segment"),
     33: .standard(proto: "apply_live_conversion"),
+    34: .standard(proto: "resolve_pending_learning"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -1817,6 +1874,19 @@ extension Hazkey_Commands_HandleImeAction: SwiftProtobuf.Message, SwiftProtobuf.
           self.action = .applyLiveConversion(v)
         }
       }()
+      case 34: try {
+        var v: Hazkey_Commands_ResolvePendingLearning?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .resolvePendingLearning(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .resolvePendingLearning(v)
+        }
+      }()
       default: break
       }
     }
@@ -1929,6 +1999,10 @@ extension Hazkey_Commands_HandleImeAction: SwiftProtobuf.Message, SwiftProtobuf.
     case .applyLiveConversion?: try {
       guard case .applyLiveConversion(let v)? = self.action else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 33)
+    }()
+    case .resolvePendingLearning?: try {
+      guard case .resolvePendingLearning(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 34)
     }()
     case nil: break
     }

@@ -20,19 +20,24 @@ struct CandidateSnapshot: Equatable, Hashable, Codable, Sendable {
     /// omitted from Codable/protobuf snapshots and never crosses the client
     /// boundary.
     let sourceID: String?
+    /// Internal converter provenance. It is deliberately omitted from the
+    /// wire snapshot, just like sourceID.
+    let provenance: CandidateProvenance
 
     init(
         id: String,
         text: String,
         annotation: String? = nil,
         consumingCount: Int,
-        sourceID: String? = nil
+        sourceID: String? = nil,
+        provenance: CandidateProvenance = .unknown
     ) {
         self.id = id
         self.text = text
         self.annotation = annotation
         self.consumingCount = consumingCount
         self.sourceID = sourceID
+        self.provenance = provenance
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -51,7 +56,8 @@ struct CandidateSnapshot: Equatable, Hashable, Codable, Sendable {
                 String.self,
                 forKey: .annotation
             ),
-            consumingCount: try container.decode(Int.self, forKey: .consumingCount)
+            consumingCount: try container.decode(Int.self, forKey: .consumingCount),
+            provenance: .unknown
         )
     }
 }
@@ -86,8 +92,71 @@ struct SessionSnapshot: Equatable, Codable, Sendable {
     let caretUtf8ByteOffset: UInt32?
     let candidateWindow: CandidateWindowSnapshot
     let aux: String?
+    let pendingLearning: Bool
     let recovery: RecoveryCheckpoint?
     let effects: [ClientEffect]
+
+    private enum CodingKeys: String, CodingKey {
+        case revision
+        case phase
+        case preedit
+        case caretUtf8ByteOffset
+        case candidateWindow
+        case aux
+        case pendingLearning
+        case recovery
+        case effects
+    }
+
+    init(
+        revision: UInt64,
+        phase: ImePhase,
+        preedit: [PreeditSpan],
+        caretUtf8ByteOffset: UInt32?,
+        candidateWindow: CandidateWindowSnapshot,
+        aux: String?,
+        pendingLearning: Bool,
+        recovery: RecoveryCheckpoint?,
+        effects: [ClientEffect]
+    ) {
+        self.revision = revision
+        self.phase = phase
+        self.preedit = preedit
+        self.caretUtf8ByteOffset = caretUtf8ByteOffset
+        self.candidateWindow = candidateWindow
+        self.aux = aux
+        self.pendingLearning = pendingLearning
+        self.recovery = recovery
+        self.effects = effects
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        revision = try container.decode(UInt64.self, forKey: .revision)
+        phase = try container.decode(ImePhase.self, forKey: .phase)
+        preedit = try container.decode([PreeditSpan].self, forKey: .preedit)
+        caretUtf8ByteOffset = try container.decodeIfPresent(
+            UInt32.self,
+            forKey: .caretUtf8ByteOffset
+        )
+        candidateWindow = try container.decode(
+            CandidateWindowSnapshot.self,
+            forKey: .candidateWindow
+        )
+        aux = try container.decodeIfPresent(String.self, forKey: .aux)
+        // Older local snapshots predate the pending-learning indicator. A
+        // missing field means no staged transaction, preserving Codable
+        // compatibility while the protobuf field remains additive.
+        pendingLearning = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .pendingLearning
+        ) ?? false
+        recovery = try container.decodeIfPresent(
+            RecoveryCheckpoint.self,
+            forKey: .recovery
+        )
+        effects = try container.decode([ClientEffect].self, forKey: .effects)
+    }
 }
 
 enum ImeReductionStatus: String, Codable, Equatable, Sendable {

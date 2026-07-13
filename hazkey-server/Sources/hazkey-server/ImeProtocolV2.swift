@@ -162,6 +162,8 @@ final class ImeV2SessionController {
             return .moveActiveSegment(Int(value.offset))
         case .applyLiveConversion(let value):
             return .applyLiveConversion(scheduledRevision: value.scheduledRevision)
+        case .resolvePendingLearning(let value):
+            return .resolvePendingLearning(commit: value.commit)
         case .commitSelected: return .commitSelected
         case .commitAll: return .commitAll
         case .cancel: return .cancel
@@ -286,6 +288,7 @@ private func protobufSnapshot(_ snapshot: SessionSnapshot) -> Hazkey_SessionSnap
             }
             $0.pageSize = UInt32(max(snapshot.candidateWindow.pageSize, 0))
         }
+        $0.pendingLearning = snapshot.pendingLearning
         $0.effects = snapshot.effects.map { effect in
             Hazkey_ClientEffect.with {
                 switch effect {
