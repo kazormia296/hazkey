@@ -39,6 +39,9 @@ void UserInterfaceTabController::loadFromConfig() {
     SET_SPINBOX(ui_->numCandidatesPerPage,
                 context_.currentProfile->num_candidates_per_page(),
                 ConfigDefs::SpinboxDefaults::NUM_CANDIDATES_PER_PAGE);
+    ui_->directCommitPunctuation->setChecked(
+        context_.currentProfile->has_direct_commit_targets()
+        && context_.currentProfile->direct_commit_targets() != 0);
 }
 
 void UserInterfaceTabController::saveToConfig() {
@@ -57,6 +60,8 @@ void UserInterfaceTabController::saveToConfig() {
         GET_SPINBOX_INT(ui_->numSuggestion));
     context_.currentProfile->set_num_candidates_per_page(
         GET_SPINBOX_INT(ui_->numCandidatesPerPage));
+    context_.currentProfile->set_direct_commit_targets(
+        ui_->directCommitPunctuation->isChecked() ? 0x0F : 0);
 }
 
 }  // namespace hazkey::settings

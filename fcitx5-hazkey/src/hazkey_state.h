@@ -49,6 +49,7 @@ class HazkeyState : public InputContextProperty {
     void forgetV2Candidate(int index);
     bool reconvertV2Selection();
     void updateSurroundingTextV2();
+    void notifyPendingLearningCancellation();
     void scheduleLiveConversion(uint64_t effectID, uint32_t delayMs,
                                 uint64_t scheduledRevision);
     void cancelLiveConversionTimer();

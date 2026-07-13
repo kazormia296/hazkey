@@ -365,55 +365,64 @@ struct Hazkey_RequestEnvelope: Sendable {
   init() {}
 }
 
-struct Hazkey_ResponseEnvelope: Sendable {
+struct Hazkey_ResponseEnvelope: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var status: Hazkey_StatusCode = .unspecified
+  var status: Hazkey_StatusCode {
+    get {return _storage._status}
+    set {_uniqueStorage()._status = newValue}
+  }
 
-  var errorMessage: String = String()
+  var errorMessage: String {
+    get {return _storage._errorMessage}
+    set {_uniqueStorage()._errorMessage = newValue}
+  }
 
-  var payload: Hazkey_ResponseEnvelope.OneOf_Payload? = nil
+  var payload: OneOf_Payload? {
+    get {return _storage._payload}
+    set {_uniqueStorage()._payload = newValue}
+  }
 
   var sessionSnapshot: Hazkey_SessionSnapshot {
     get {
-      if case .sessionSnapshot(let v)? = payload {return v}
+      if case .sessionSnapshot(let v)? = _storage._payload {return v}
       return Hazkey_SessionSnapshot()
     }
-    set {payload = .sessionSnapshot(newValue)}
+    set {_uniqueStorage()._payload = .sessionSnapshot(newValue)}
   }
 
   var handleImeActionResult: Hazkey_HandleImeActionResult {
     get {
-      if case .handleImeActionResult(let v)? = payload {return v}
+      if case .handleImeActionResult(let v)? = _storage._payload {return v}
       return Hazkey_HandleImeActionResult()
     }
-    set {payload = .handleImeActionResult(newValue)}
+    set {_uniqueStorage()._payload = .handleImeActionResult(newValue)}
   }
 
   var currentConfig: Hazkey_Config_CurrentConfig {
     get {
-      if case .currentConfig(let v)? = payload {return v}
+      if case .currentConfig(let v)? = _storage._payload {return v}
       return Hazkey_Config_CurrentConfig()
     }
-    set {payload = .currentConfig(newValue)}
+    set {_uniqueStorage()._payload = .currentConfig(newValue)}
   }
 
   var userDictionaryResult: Hazkey_Config_UserDictionaryResult {
     get {
-      if case .userDictionaryResult(let v)? = payload {return v}
+      if case .userDictionaryResult(let v)? = _storage._payload {return v}
       return Hazkey_Config_UserDictionaryResult()
     }
-    set {payload = .userDictionaryResult(newValue)}
+    set {_uniqueStorage()._payload = .userDictionaryResult(newValue)}
   }
 
   var openSessionResult: Hazkey_OpenSessionResult {
     get {
-      if case .openSessionResult(let v)? = payload {return v}
+      if case .openSessionResult(let v)? = _storage._payload {return v}
       return Hazkey_OpenSessionResult()
     }
-    set {payload = .openSessionResult(newValue)}
+    set {_uniqueStorage()._payload = .openSessionResult(newValue)}
   }
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -428,6 +437,8 @@ struct Hazkey_ResponseEnvelope: Sendable {
   }
 
   init() {}
+
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 struct Hazkey_PreeditSpan: Sendable {
@@ -664,6 +675,8 @@ struct Hazkey_SessionSnapshot: Sendable {
   mutating func clearRecovery() {self._recovery = nil}
 
   var aux: String = String()
+
+  var pendingLearning: Bool = false
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1224,125 +1237,165 @@ extension Hazkey_ResponseEnvelope: SwiftProtobuf.Message, SwiftProtobuf._Message
         200: .standard(proto: "open_session_result"),
   ])
 
+  fileprivate class _StorageClass {
+    var _status: Hazkey_StatusCode = .unspecified
+    var _errorMessage: String = String()
+    var _payload: Hazkey_ResponseEnvelope.OneOf_Payload?
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _status = source._status
+      _errorMessage = source._errorMessage
+      _payload = source._payload
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularEnumField(value: &self.status) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.errorMessage) }()
-      case 7: try {
-        var v: Hazkey_SessionSnapshot?
-        var hadOneofValue = false
-        if let current = self.payload {
-          hadOneofValue = true
-          if case .sessionSnapshot(let m) = current {v = m}
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularEnumField(value: &_storage._status) }()
+        case 2: try { try decoder.decodeSingularStringField(value: &_storage._errorMessage) }()
+        case 7: try {
+          var v: Hazkey_SessionSnapshot?
+          var hadOneofValue = false
+          if let current = _storage._payload {
+            hadOneofValue = true
+            if case .sessionSnapshot(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._payload = .sessionSnapshot(v)
+          }
+        }()
+        case 8: try {
+          var v: Hazkey_HandleImeActionResult?
+          var hadOneofValue = false
+          if let current = _storage._payload {
+            hadOneofValue = true
+            if case .handleImeActionResult(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._payload = .handleImeActionResult(v)
+          }
+        }()
+        case 100: try {
+          var v: Hazkey_Config_CurrentConfig?
+          var hadOneofValue = false
+          if let current = _storage._payload {
+            hadOneofValue = true
+            if case .currentConfig(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._payload = .currentConfig(v)
+          }
+        }()
+        case 101: try {
+          var v: Hazkey_Config_UserDictionaryResult?
+          var hadOneofValue = false
+          if let current = _storage._payload {
+            hadOneofValue = true
+            if case .userDictionaryResult(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._payload = .userDictionaryResult(v)
+          }
+        }()
+        case 200: try {
+          var v: Hazkey_OpenSessionResult?
+          var hadOneofValue = false
+          if let current = _storage._payload {
+            hadOneofValue = true
+            if case .openSessionResult(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._payload = .openSessionResult(v)
+          }
+        }()
+        default: break
         }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .sessionSnapshot(v)
-        }
-      }()
-      case 8: try {
-        var v: Hazkey_HandleImeActionResult?
-        var hadOneofValue = false
-        if let current = self.payload {
-          hadOneofValue = true
-          if case .handleImeActionResult(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .handleImeActionResult(v)
-        }
-      }()
-      case 100: try {
-        var v: Hazkey_Config_CurrentConfig?
-        var hadOneofValue = false
-        if let current = self.payload {
-          hadOneofValue = true
-          if case .currentConfig(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .currentConfig(v)
-        }
-      }()
-      case 101: try {
-        var v: Hazkey_Config_UserDictionaryResult?
-        var hadOneofValue = false
-        if let current = self.payload {
-          hadOneofValue = true
-          if case .userDictionaryResult(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .userDictionaryResult(v)
-        }
-      }()
-      case 200: try {
-        var v: Hazkey_OpenSessionResult?
-        var hadOneofValue = false
-        if let current = self.payload {
-          hadOneofValue = true
-          if case .openSessionResult(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .openSessionResult(v)
-        }
-      }()
-      default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if self.status != .unspecified {
-      try visitor.visitSingularEnumField(value: self.status, fieldNumber: 1)
-    }
-    if !self.errorMessage.isEmpty {
-      try visitor.visitSingularStringField(value: self.errorMessage, fieldNumber: 2)
-    }
-    switch self.payload {
-    case .sessionSnapshot?: try {
-      guard case .sessionSnapshot(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
-    }()
-    case .handleImeActionResult?: try {
-      guard case .handleImeActionResult(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
-    }()
-    case .currentConfig?: try {
-      guard case .currentConfig(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 100)
-    }()
-    case .userDictionaryResult?: try {
-      guard case .userDictionaryResult(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 101)
-    }()
-    case .openSessionResult?: try {
-      guard case .openSessionResult(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 200)
-    }()
-    case nil: break
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      if _storage._status != .unspecified {
+        try visitor.visitSingularEnumField(value: _storage._status, fieldNumber: 1)
+      }
+      if !_storage._errorMessage.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._errorMessage, fieldNumber: 2)
+      }
+      switch _storage._payload {
+      case .sessionSnapshot?: try {
+        guard case .sessionSnapshot(let v)? = _storage._payload else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+      }()
+      case .handleImeActionResult?: try {
+        guard case .handleImeActionResult(let v)? = _storage._payload else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
+      }()
+      case .currentConfig?: try {
+        guard case .currentConfig(let v)? = _storage._payload else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 100)
+      }()
+      case .userDictionaryResult?: try {
+        guard case .userDictionaryResult(let v)? = _storage._payload else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 101)
+      }()
+      case .openSessionResult?: try {
+        guard case .openSessionResult(let v)? = _storage._payload else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 200)
+      }()
+      case nil: break
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Hazkey_ResponseEnvelope, rhs: Hazkey_ResponseEnvelope) -> Bool {
-    if lhs.status != rhs.status {return false}
-    if lhs.errorMessage != rhs.errorMessage {return false}
-    if lhs.payload != rhs.payload {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._status != rhs_storage._status {return false}
+        if _storage._errorMessage != rhs_storage._errorMessage {return false}
+        if _storage._payload != rhs_storage._payload {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1639,6 +1692,7 @@ extension Hazkey_SessionSnapshot: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     6: .same(proto: "effects"),
     7: .same(proto: "recovery"),
     8: .same(proto: "aux"),
+    9: .standard(proto: "pending_learning"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -1655,6 +1709,7 @@ extension Hazkey_SessionSnapshot: SwiftProtobuf.Message, SwiftProtobuf._MessageI
       case 6: try { try decoder.decodeRepeatedMessageField(value: &self.effects) }()
       case 7: try { try decoder.decodeSingularMessageField(value: &self._recovery) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.aux) }()
+      case 9: try { try decoder.decodeSingularBoolField(value: &self.pendingLearning) }()
       default: break
       }
     }
@@ -1689,6 +1744,9 @@ extension Hazkey_SessionSnapshot: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if !self.aux.isEmpty {
       try visitor.visitSingularStringField(value: self.aux, fieldNumber: 8)
     }
+    if self.pendingLearning != false {
+      try visitor.visitSingularBoolField(value: self.pendingLearning, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1701,6 +1759,7 @@ extension Hazkey_SessionSnapshot: SwiftProtobuf.Message, SwiftProtobuf._MessageI
     if lhs.effects != rhs.effects {return false}
     if lhs._recovery != rhs._recovery {return false}
     if lhs.aux != rhs.aux {return false}
+    if lhs.pendingLearning != rhs.pendingLearning {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

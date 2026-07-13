@@ -1,5 +1,12 @@
 import Foundation
 
+private struct VisibleComposition {
+    let spans: [PreeditSpan]
+    let text: String
+    let caretUtf8ByteOffset: UInt32?
+    let learnableCandidates: [CandidateSnapshot]
+}
+
 final class ImeReducer {
     private struct CachedRequest {
         let action: ImeAction
@@ -32,6 +39,7 @@ final class ImeReducer {
     func invalidateCandidatesForExternalDictionaryChange() {
         guard session.candidates != nil else { return }
         converter.stopComposition()
+        clearLivePresentation()
         clearConversionState()
         session.phase = session.composingText.isEmpty ? .idle : .composing
         session.advanceRevision()
@@ -77,6 +85,8 @@ final class ImeReducer {
             if session.phase == .idle {
                 session.reconversionReplacement = nil
             }
+            resolvePendingLearning(commit: true)
+            preserveMaterializedLivePrefixForEditing()
             if session.candidates != nil { converter.stopComposition() }
             session.phase = .composing
             session.composingText.insert(text, keymap: session.policy.keymap)
@@ -84,6 +94,7 @@ final class ImeReducer {
             result = finishInteractiveEdit()
 
         case .deleteBackward:
+            resolvePendingLearning(commit: false)
             if session.phase == .unicodeInput {
                 if session.unicodeInputBuffer.isEmpty {
                     finishUnicodeInput(cancelled: true)
@@ -99,6 +110,7 @@ final class ImeReducer {
             result = finishInteractiveEdit()
 
         case .deleteForward:
+            resolvePendingLearning(commit: false)
             guard session.phase != .unicodeInput else {
                 result = failure(.invalidAction, "forward delete is not valid during Unicode input")
                 break
@@ -130,6 +142,7 @@ final class ImeReducer {
             )
             converter.stopComposition()
             session.phase = .composing
+            clearLivePresentation()
             clearConversionState()
             result = finishInteractiveEdit()
 
@@ -145,6 +158,7 @@ final class ImeReducer {
             }
             converter.stopComposition()
             session.phase = .composing
+            clearLivePresentation()
             clearConversionState()
             result = finishInteractiveEdit()
 
@@ -158,14 +172,18 @@ final class ImeReducer {
                 break
             }
             guard shouldScheduleLiveConversion() else {
+                session.livePresentation.pendingRevision = nil
                 result = success()
                 break
             }
             refreshRealtimeCandidates()
+            session.livePresentation.pendingRevision = nil
             session.advanceRevision()
             result = success()
 
         case .startConversion:
+            resolvePendingLearning(commit: true)
+            clearLivePresentation()
             if session.candidates?.origin == .prediction {
                 converter.stopComposition()
                 clearConversionState()
@@ -173,6 +191,7 @@ final class ImeReducer {
             result = convert()
 
         case .navigateCandidate(let delta):
+            clearLivePresentation()
             if session.phase == .composing,
                session.candidates?.items.isEmpty ?? true {
                 converter.stopComposition()
@@ -209,6 +228,7 @@ final class ImeReducer {
             result = success()
 
         case .navigateCandidatePage(let delta):
+            clearLivePresentation()
             guard var candidates = session.candidates, !candidates.items.isEmpty,
                   session.phase == .composing || session.phase == .previewing
                     || session.phase == .selecting || session.phase == .reconverting else {
@@ -246,6 +266,7 @@ final class ImeReducer {
             candidates.selectedIndex = index
             session.candidates = candidates
             syncActiveSegmentCandidates(candidates)
+            clearLivePresentation()
             session.phase = .selecting
             session.advanceRevision()
             result = success()
@@ -263,6 +284,7 @@ final class ImeReducer {
             result = transformActiveSegment(transform)
 
         case .forgetCandidate(let id, let generation):
+            clearLivePresentation()
             guard !session.policy.secureInput else {
                 result = failure(.secureInputViolation, "learning is disabled for secure input")
                 break
@@ -287,6 +309,8 @@ final class ImeReducer {
             let deleteBefore,
             let deleteAfter
         ):
+            resolvePendingLearning(commit: false)
+            clearLivePresentation()
             guard !session.policy.secureInput else {
                 result = failure(
                     .secureInputViolation,
@@ -330,6 +354,8 @@ final class ImeReducer {
                 break
             }
             converter.stopComposition()
+            resolvePendingLearning(commit: false)
+            clearLivePresentation()
             session.phaseBeforeUnicodeInput = session.phase
             session.unicodeInputBuffer = ""
             clearConversionState()
@@ -387,6 +413,11 @@ final class ImeReducer {
         case .restoreCheckpoint(let data):
             result = restoreCheckpoint(data)
 
+        case .resolvePendingLearning(let commit):
+            resolvePendingLearning(commit: commit)
+            session.advanceRevision()
+            result = success()
+
         case .lifecycle(let event):
             result = lifecycle(event)
         }
@@ -418,12 +449,17 @@ final class ImeReducer {
     }
 
     private func finishInteractiveEdit() -> ImeReductionResult {
+        if shouldDirectCommitVisibleSuffix() {
+            return commitAll(learningOrigin: .directCommit)
+        }
         guard session.policy.autoConvertMode != .disabled else {
             refreshPredictions()
+            session.livePresentation.pendingRevision = nil
             session.advanceRevision()
             return success()
         }
         guard shouldScheduleLiveConversion() else {
+            session.livePresentation.pendingRevision = nil
             session.advanceRevision()
             return success()
         }
@@ -441,6 +477,7 @@ final class ImeReducer {
         let effectID = session.allocateEffectID()
         let scheduledRevision = session.revision &+ 1
         session.advanceRevision()
+        session.livePresentation.pendingRevision = scheduledRevision
         return success(effects: [
             .scheduleLiveConversion(
                 effectID: effectID,
@@ -489,7 +526,8 @@ final class ImeReducer {
                     zenzaiEnabled: session.policy.zenzaiEnabled
                         && !session.policy.secureInput,
                     leftContext: session.context.leftContext,
-                    rightContext: session.context.rightContext
+                    rightContext: session.context.rightContext,
+                    suggestionListMode: session.policy.suggestionListMode
                 )
             )
             let liveCandidate: CandidateSnapshot? = shouldPublishLiveCandidate(
@@ -498,6 +536,7 @@ final class ImeReducer {
                 ? output.liveCandidate.map { makeSnapshot($0) }
                 : nil
             guard !output.candidates.isEmpty || liveCandidate != nil else {
+                clearLivePresentation()
                 clearConversionState()
                 return
             }
@@ -519,14 +558,41 @@ final class ImeReducer {
                         text: $0.text,
                         annotation: $0.annotation,
                         consumingCount: $0.consumingCount,
-                        sourceID: $0.sourceID
+                        sourceID: $0.sourceID,
+                        provenance: $0.provenance
                     )
                 }
             )
             session.activeBoundary = nil
+            if let liveCandidate {
+                let consumed = min(
+                    max(liveCandidate.consumingCount, 1),
+                    session.composingText.elements.count
+                )
+                let sourceElements = Array(
+                    session.composingText.elements.prefix(consumed)
+                )
+                let sourceReading = converter.display(for: CompositionInput(
+                    elements: sourceElements,
+                    cursor: sourceElements.count,
+                    leftContext: session.context.leftContext,
+                    mappedTableName: session.policy.inputTableName
+                )).text
+                session.livePresentation.materializedPrefix = MaterializedLivePrefix(
+                    text: liveCandidate.text,
+                    consumedElementCount: consumed,
+                    sourceElements: sourceElements,
+                    sourceReading: sourceReading,
+                    candidate: liveCandidate
+                )
+            } else {
+                session.livePresentation.materializedPrefix = nil
+            }
+            session.livePresentation.pendingRevision = nil
         } catch {
             // Live conversion is opportunistic. Keep the reading editable when
             // the converter cannot produce a realtime result.
+            clearLivePresentation()
             clearConversionState()
         }
     }
@@ -566,7 +632,8 @@ final class ImeReducer {
                 max(candidate.consumingCount, 1),
                 session.composingText.elements.count
             ),
-            sourceID: candidate.sourceID
+            sourceID: candidate.sourceID,
+            provenance: candidate.provenance
         )
     }
 
@@ -574,6 +641,7 @@ final class ImeReducer {
         guard session.phase == .composing, !session.composingText.isEmpty else {
             return
         }
+        clearLivePresentation()
         let input = CompositionInput(
             elements: session.composingText.elements,
             cursor: session.composingText.cursor,
@@ -589,11 +657,13 @@ final class ImeReducer {
                     zenzaiEnabled: session.policy.zenzaiEnabled
                         && !session.policy.secureInput,
                     leftContext: session.context.leftContext,
-                    rightContext: session.context.rightContext
+                    rightContext: session.context.rightContext,
+                    suggestionListMode: session.policy.suggestionListMode
                 )
             )
             guard !output.candidates.isEmpty else {
                 clearConversionState()
+                clearLivePresentation()
                 return
             }
             clearSegmentedConversion()
@@ -609,7 +679,8 @@ final class ImeReducer {
                             max(candidate.consumingCount, 1),
                             session.composingText.elements.count
                         ),
-                        sourceID: candidate.sourceID
+                        sourceID: candidate.sourceID,
+                        provenance: candidate.provenance
                     )
                 },
                 selectedIndex: nil,
@@ -775,7 +846,8 @@ final class ImeReducer {
                     text: candidate.text,
                     annotation: candidate.annotation,
                     consumingCount: segmentCount,
-                    sourceID: candidate.sourceID
+                    sourceID: candidate.sourceID,
+                    provenance: candidate.provenance
                 )
             }
             let preferredText = preferredTextsByStart[offset]
@@ -806,7 +878,8 @@ final class ImeReducer {
             allowLearning: session.policy.allowsLearning && !session.policy.secureInput,
             zenzaiEnabled: session.policy.zenzaiEnabled && !session.policy.secureInput,
             leftContext: leftContext,
-            rightContext: session.context.rightContext
+            rightContext: session.context.rightContext,
+            suggestionListMode: session.policy.suggestionListMode
         )
     }
 
@@ -945,6 +1018,8 @@ final class ImeReducer {
     }
 
     private func commitSelectedCandidate() -> ImeReductionResult {
+        resolvePendingLearning(commit: true)
+        let reading = currentDisplay().text
         if let activeIndex = session.activeSegmentIndex,
            session.segments.indices.contains(activeIndex) {
             let committedSegments = Array(session.segments.prefix(activeIndex + 1))
@@ -960,7 +1035,11 @@ final class ImeReducer {
             if !session.policy.secureInput {
                 session.context.leftContext.append(text)
             }
-            learn(committedCandidates)
+            learn(
+                committedCandidates,
+                origin: .explicitConversion,
+                reading: reading
+            )
             converter.stopComposition()
             clearConversionState()
             session.composingText.moveCursorToEnd()
@@ -990,8 +1069,13 @@ final class ImeReducer {
         if !session.policy.secureInput {
             session.context.leftContext.append(candidate.text)
         }
-        learn([candidate])
+        learn(
+            [candidate],
+            origin: .explicitConversion,
+            reading: reading
+        )
         clearConversionState()
+        clearLivePresentation()
         session.phase = session.composingText.isEmpty ? .idle : .composing
         session.composingText.moveCursorToEnd()
         session.advanceRevision()
@@ -1003,36 +1087,41 @@ final class ImeReducer {
         return success(effects: effects)
     }
 
-    private func commitAll() -> ImeReductionResult {
+    private func commitAll(
+        learningOrigin: LearningOrigin = .explicitConversion
+    ) -> ImeReductionResult {
+        resolvePendingLearning(commit: true)
         guard !session.composingText.isEmpty else { return success() }
-        var text = currentDisplay().text
-        var selectedCandidates: [CandidateSnapshot] = []
+        let reading = currentDisplay().text
+        var visible = visibleComposition()
         if !session.segments.isEmpty {
-            selectedCandidates = session.segments.compactMap(\.selectedCandidate)
+            let selectedCandidates = session.segments.compactMap(\.selectedCandidate)
             guard selectedCandidates.count == session.segments.count else {
                 return failure(.invalidAction, "a converted segment has no selection")
             }
-            text = selectedCandidates.map(\.text).joined()
-        } else if let candidates = session.candidates,
-           let index = candidates.selectedIndex,
-           candidates.items.indices.contains(index) {
-            let selectedCandidate = candidates.items[index]
-            selectedCandidates = [selectedCandidate]
-            let count = min(selectedCandidate.consumingCount, session.composingText.elements.count)
-            text = selectedCandidate.text + suffixDisplay(after: count).text
-        } else if let liveCandidate = session.candidates?.liveCandidate {
-            selectedCandidates = [liveCandidate]
-            let count = min(liveCandidate.consumingCount, session.composingText.elements.count)
-            text = liveCandidate.text + suffixDisplay(after: count).text
+            visible = VisibleComposition(
+                spans: visible.spans,
+                text: selectedCandidates.map(\.text).joined(),
+                caretUtf8ByteOffset: UInt32(
+                    selectedCandidates.map(\.text).joined().utf8.count
+                ),
+                learnableCandidates: selectedCandidates
+            )
         }
+        let text = visible.text
         var effects = takeReconversionReplacementEffect()
         effects.append(.commitText(effectID: session.allocateEffectID(), text: text))
         if !session.policy.secureInput {
             session.context.leftContext.append(text)
         }
-        learn(selectedCandidates)
+        learn(
+            visible.learnableCandidates,
+            origin: learningOrigin,
+            reading: reading
+        )
         session.composingText = CompositionBuffer()
         clearConversionState()
+        clearLivePresentation()
         session.phase = .idle
         session.advanceRevision()
         converter.stopComposition()
@@ -1040,6 +1129,8 @@ final class ImeReducer {
     }
 
     private func cancel() -> ImeReductionResult {
+        resolvePendingLearning(commit: false)
+        clearLivePresentation()
         switch session.phase {
         case .selecting:
             if session.candidates?.origin == .prediction {
@@ -1071,6 +1162,8 @@ final class ImeReducer {
     }
 
     private func transformActiveSegment(_ transform: ImeTextTransform) -> ImeReductionResult {
+        resolvePendingLearning(commit: false)
+        clearLivePresentation()
         let source: String
         if let candidates = session.candidates,
            let index = candidates.selectedIndex,
@@ -1111,6 +1204,7 @@ final class ImeReducer {
     private func lifecycle(_ event: ImeLifecycleEvent) -> ImeReductionResult {
         switch event {
         case .secureInputChanged(let secure):
+            resolvePendingLearning(commit: false)
             converter.stopComposition()
             session.policy.secureInput = secure
             // Crossing either direction is a security-domain transition. Do
@@ -1124,16 +1218,21 @@ final class ImeReducer {
             session.reconversionReplacement = nil
             session.unicodeInputBuffer = ""
             session.phaseBeforeUnicodeInput = nil
+            clearLivePresentation()
             session.phase = session.composingText.isEmpty ? .idle : .composing
         case .deactivate, .focusChanged:
+            resolvePendingLearning(commit: true)
             converter.stopComposition()
             clearConversionState()
+            clearLivePresentation()
             session.phase = session.composingText.isEmpty ? .idle : .composing
         case .capabilityChanged:
             break
         case .serverRestarted:
+            resolvePendingLearning(commit: false)
             converter.stopComposition()
             clearConversionState()
+            clearLivePresentation()
             session.phase = session.composingText.isEmpty ? .idle : .composing
         }
         session.advanceRevision()
@@ -1141,6 +1240,8 @@ final class ImeReducer {
     }
 
     private func restoreCheckpoint(_ data: Data) -> ImeReductionResult {
+        resolvePendingLearning(commit: false)
+        clearLivePresentation()
         guard !session.policy.secureInput else {
             return failure(
                 .secureInputViolation,
@@ -1211,26 +1312,230 @@ final class ImeReducer {
         return candidates.items.first { $0.id == id }
     }
 
-    private func learn(_ candidates: [CandidateSnapshot]) {
+    private func preserveMaterializedLivePrefixForEditing() {
+        guard session.phase == .composing,
+              session.composingText.cursor == session.composingText.elements.count,
+              let liveCandidate = session.candidates?.liveCandidate else {
+            return
+        }
+        let consumed = min(
+            max(liveCandidate.consumingCount, 1),
+            session.composingText.elements.count
+        )
+        let sourceElements = Array(session.composingText.elements.prefix(consumed))
+        let sourceReading = converter.display(for: CompositionInput(
+            elements: sourceElements,
+            cursor: sourceElements.count,
+            leftContext: session.context.leftContext,
+            mappedTableName: session.policy.inputTableName
+        )).text
+        session.livePresentation.materializedPrefix = MaterializedLivePrefix(
+            text: liveCandidate.text,
+            consumedElementCount: consumed,
+            sourceElements: sourceElements,
+            sourceReading: sourceReading,
+            candidate: liveCandidate
+        )
+    }
+
+    private func clearLivePresentation() {
+        session.livePresentation = .empty
+    }
+
+    private func validMaterializedLivePrefix() -> MaterializedLivePrefix? {
+        guard !session.policy.secureInput,
+              session.phase == .composing,
+              session.composingText.cursor == session.composingText.elements.count,
+              let prefix = session.livePresentation.materializedPrefix,
+              prefix.consumedElementCount > 0,
+              prefix.consumedElementCount <= session.composingText.elements.count,
+              Array(session.composingText.elements.prefix(prefix.consumedElementCount))
+                  == prefix.sourceElements else {
+            return nil
+        }
+        let reading = converter.display(for: CompositionInput(
+            elements: prefix.sourceElements,
+            cursor: prefix.sourceElements.count,
+            leftContext: session.context.leftContext,
+            mappedTableName: session.policy.inputTableName
+        )).text
+        guard reading == prefix.sourceReading else { return nil }
+        return prefix
+    }
+
+    private func shouldDirectCommitVisibleSuffix() -> Bool {
+        guard !session.policy.directCommitTargets.isEmpty,
+              session.phase == .composing,
+              session.composingText.cursor == session.composingText.elements.count else {
+            return false
+        }
+        let visible = visibleComposition().text
+        guard let scalar = visible.unicodeScalars.last else { return false }
+        return session.policy.directCommitTargets.contains(
+            renderedSuffix: String(scalar)
+        )
+    }
+
+    private func resolvePendingLearning(commit: Bool) {
+        guard !session.pendingLearningTransactions.isEmpty else { return }
+        let transactions = session.pendingLearningTransactions
+        session.pendingLearningTransactions.removeAll(keepingCapacity: true)
+        for transaction in transactions {
+            if commit {
+                converter.commitStagedLearning(transaction.token)
+            } else {
+                converter.discardStagedLearning(transaction.token)
+            }
+        }
+        if commit {
+            converter.commitLearning()
+        }
+    }
+
+    private func learn(
+        _ candidates: [CandidateSnapshot],
+        origin: LearningOrigin,
+        reading: String
+    ) {
         guard !candidates.isEmpty else { return }
         let converterCandidates = candidates.map { candidate in
             ConverterCandidate(
                 text: candidate.text,
                 annotation: candidate.annotation,
                 consumingCount: candidate.consumingCount,
-                sourceID: candidate.sourceID
+                sourceID: candidate.sourceID,
+                provenance: candidate.provenance
             )
         }
-        for candidate in converterCandidates {
+        for candidate in converterCandidates where candidate.provenance != .builtInGuard {
+            // `setCompletedData` only updates the converter's process-local
+            // completion cache. Keep that compatibility behavior even when
+            // learning is disabled or secure input prevents persistence.
             converter.setCompletedData(candidate)
         }
         guard session.policy.allowsLearning && !session.policy.secureInput else { return }
+        var immediateLearning = false
         for candidate in converterCandidates {
-            converter.updateLearningData(candidate)
+            if let token = converter.stageLearning(
+                candidate: candidate,
+                reading: reading
+            ) {
+                session.pendingLearningTransactions.append(
+                    PendingLearningTransaction(
+                        token: token,
+                        reading: reading,
+                        surface: candidate.text,
+                        origin: origin,
+                        createdRevision: session.revision
+                    )
+                )
+            } else if candidate.provenance != .builtInGuard {
+                // Ports predating staged learning retain the old immediate
+                // behavior. The production adapter returns a token for every
+                // learnable converter candidate and keeps this compatibility
+                // path out of the new transaction semantics.
+                converter.updateLearningData(candidate)
+                immediateLearning = true
+            }
         }
-        // Persist once for the whole confirmed composition so the converter's
-        // left-to-right learning chain remains atomic across all segments.
-        converter.commitLearning()
+        if immediateLearning {
+            converter.commitLearning()
+        }
+    }
+
+    private func visibleComposition() -> VisibleComposition {
+        if !session.segments.isEmpty,
+           let activeIndex = session.activeSegmentIndex,
+           session.segments.indices.contains(activeIndex) {
+            let spans: [PreeditSpan] = session.segments.enumerated().compactMap { entry in
+                let index = entry.offset
+                let segment = entry.element
+                guard let candidate = segment.selectedCandidate,
+                      !candidate.text.isEmpty else { return nil }
+                return PreeditSpan(
+                    text: candidate.text,
+                    style: index == activeIndex ? .active : .underline
+                )
+            }
+            let text = spans.map(\.text).joined()
+            let caretText = session.segments
+                .prefix(activeIndex + 1)
+                .compactMap(\.selectedCandidate)
+                .map(\.text)
+                .joined()
+            return VisibleComposition(
+                spans: spans,
+                text: text,
+                caretUtf8ByteOffset: UInt32(caretText.utf8.count),
+                learnableCandidates: session.segments.compactMap(\.selectedCandidate)
+            )
+        }
+        if let candidates = session.candidates,
+           let selectedIndex = candidates.selectedIndex,
+           candidates.items.indices.contains(selectedIndex) {
+            let selected = candidates.items[selectedIndex]
+            let boundary = session.activeBoundary ?? selected.consumingCount
+            let suffix = suffixDisplay(after: boundary)
+            let spans = [
+                PreeditSpan(text: selected.text, style: .active),
+                PreeditSpan(text: suffix.text, style: .underline),
+            ].filter { !$0.text.isEmpty }
+            return VisibleComposition(
+                spans: spans,
+                text: spans.map(\.text).joined(),
+                caretUtf8ByteOffset: UInt32(selected.text.utf8.count),
+                learnableCandidates: [selected]
+            )
+        }
+        if let liveCandidate = session.candidates?.liveCandidate,
+           session.phase == .composing {
+            let boundary = min(
+                max(liveCandidate.consumingCount, 1),
+                session.composingText.elements.count
+            )
+            let suffix = suffixDisplay(after: boundary)
+            let spans = [
+                PreeditSpan(text: liveCandidate.text, style: .active),
+                PreeditSpan(text: suffix.text, style: .underline),
+            ].filter { !$0.text.isEmpty }
+            return VisibleComposition(
+                spans: spans,
+                text: spans.map(\.text).joined(),
+                caretUtf8ByteOffset: UInt32(liveCandidate.text.utf8.count),
+                learnableCandidates: [liveCandidate]
+            )
+        }
+        if let prefix = validMaterializedLivePrefix() {
+            let suffix = suffixDisplay(after: prefix.consumedElementCount)
+            let spans = [
+                PreeditSpan(text: prefix.text, style: .active),
+                PreeditSpan(text: suffix.text, style: .underline),
+            ].filter { !$0.text.isEmpty }
+            return VisibleComposition(
+                spans: spans,
+                text: spans.map(\.text).joined(),
+                caretUtf8ByteOffset: UInt32(
+                    prefix.text.utf8.count
+                ) + suffix.caretUtf8ByteOffset,
+                learnableCandidates: prefix.candidate.map { [$0] } ?? []
+            )
+        }
+        guard !session.composingText.isEmpty else {
+            return VisibleComposition(
+                spans: [],
+                text: "",
+                caretUtf8ByteOffset: nil,
+                learnableCandidates: []
+            )
+        }
+        let display = currentDisplay()
+        return VisibleComposition(
+            spans: [PreeditSpan(text: display.text, style: .underline)]
+                .filter { !$0.text.isEmpty },
+            text: display.text,
+            caretUtf8ByteOffset: display.caretUtf8ByteOffset,
+            learnableCandidates: []
+        )
     }
 
     private func clearSegmentedConversion() {
@@ -1251,10 +1556,14 @@ final class ImeReducer {
         if session.composingText.isEmpty {
             session.phase = .idle
             clearConversionState()
+            clearLivePresentation()
             session.reconversionReplacement = nil
         } else {
             session.phase = .composing
             clearConversionState()
+            if validMaterializedLivePrefix() == nil {
+                clearLivePresentation()
+            }
         }
     }
 
@@ -1377,54 +1686,11 @@ final class ImeReducer {
             ].filter { !$0.text.isEmpty }
             caret = UInt32(display.text.utf8.count + marker.utf8.count)
             aux = "Unicode U+" + session.unicodeInputBuffer.uppercased()
-        } else if !session.segments.isEmpty,
-                  let activeIndex = session.activeSegmentIndex,
-                  session.segments.indices.contains(activeIndex) {
-            preedit = session.segments.enumerated().compactMap { index, segment in
-                guard let candidate = segment.selectedCandidate,
-                      !candidate.text.isEmpty else { return nil }
-                return PreeditSpan(
-                    text: candidate.text,
-                    style: index == activeIndex ? .active : .underline
-                )
-            }
-            let textBeforeCaret = session.segments
-                .prefix(activeIndex + 1)
-                .compactMap(\.selectedCandidate?.text)
-                .joined()
-            caret = UInt32(textBeforeCaret.utf8.count)
-            aux = nil
-        } else if let candidates = session.candidates,
-           let selectedIndex = candidates.selectedIndex,
-           candidates.items.indices.contains(selectedIndex) {
-            let boundary = session.activeBoundary ?? candidates.items[selectedIndex].consumingCount
-            preedit = [
-                PreeditSpan(text: candidates.items[selectedIndex].text, style: .active),
-                PreeditSpan(text: suffixDisplay(after: boundary).text, style: .underline),
-            ].filter { !$0.text.isEmpty }
-            caret = UInt32(candidates.items[selectedIndex].text.utf8.count)
-            aux = nil
-        } else if let liveCandidate = session.candidates?.liveCandidate,
-                  session.phase == .composing {
-            let boundary = min(
-                max(liveCandidate.consumingCount, 1),
-                session.composingText.elements.count
-            )
-            preedit = [
-                PreeditSpan(text: liveCandidate.text, style: .active),
-                PreeditSpan(text: suffixDisplay(after: boundary).text, style: .underline),
-            ].filter { !$0.text.isEmpty }
-            caret = UInt32(liveCandidate.text.utf8.count)
-            aux = nil
-        } else if session.composingText.isEmpty {
-            preedit = []
-            caret = nil
-            aux = nil
         } else {
-            let display = currentDisplay()
-            preedit = [PreeditSpan(text: display.text, style: .underline)]
-            caret = display.caretUtf8ByteOffset
-            aux = nil
+            let visible = visibleComposition()
+            preedit = visible.spans
+            caret = visible.caretUtf8ByteOffset
+            aux = auxiliaryText(for: visible)
         }
         let checkpoint = session.policy.secureInput ? nil : session.recoveryCheckpoint
         return SessionSnapshot(
@@ -1434,9 +1700,33 @@ final class ImeReducer {
             caretUtf8ByteOffset: caret,
             candidateWindow: session.candidates?.snapshot() ?? .empty,
             aux: aux,
+            pendingLearning: !session.pendingLearningTransactions.isEmpty,
             recovery: checkpoint,
             effects: effects
         )
+    }
+
+    private func auxiliaryText(for visible: VisibleComposition) -> String? {
+        guard !session.policy.secureInput,
+              !session.composingText.isEmpty,
+              session.phase == .composing || session.phase == .reconverting else {
+            return nil
+        }
+        let reading = currentDisplay().text
+        guard !reading.isEmpty else { return nil }
+        switch session.policy.auxTextMode {
+        case .disabled:
+            return nil
+        case .always:
+            return reading
+        case .whenCursorNotAtEnd:
+            guard session.composingText.cursor < session.composingText.elements.count
+                    || session.livePresentation.pendingRevision != nil
+                    || visible.text != reading else {
+                return nil
+            }
+            return reading
+        }
     }
 
     private func currentDisplay() -> CompositionDisplay {

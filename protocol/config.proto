@@ -98,6 +98,10 @@ message Profile {
     // 0 applies live conversion immediately. If omitted, the server uses
     // 228 ms. Values above 1000 ms are clamped by the server.
     optional uint32 live_conversion_delay_msec = 16;
+    // Bit mask of rendered preedit suffixes that may commit the current
+    // visible composition in the same insertion transaction. The first four
+    // bits are 、 。 ？ ！ respectively. The default is zero (disabled).
+    optional uint32 direct_commit_targets = 17;
 
     optional bool use_default_conversion_ui_settings = 20;
     optional int32 num_candidates_per_page = 21;

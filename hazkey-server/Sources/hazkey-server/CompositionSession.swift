@@ -47,6 +47,32 @@ struct ReconversionReplacement: Equatable, Codable, Sendable {
     let after: Int
 }
 
+struct MaterializedLivePrefix: Equatable, Sendable {
+    let text: String
+    let consumedElementCount: Int
+    let sourceElements: [CompositionElement]
+    let sourceReading: String
+    let candidate: CandidateSnapshot?
+}
+
+struct LivePresentationState: Equatable, Sendable {
+    var materializedPrefix: MaterializedLivePrefix?
+    var pendingRevision: UInt64?
+
+    static let empty = LivePresentationState(
+        materializedPrefix: nil,
+        pendingRevision: nil
+    )
+}
+
+struct PendingLearningTransaction: Equatable, Sendable {
+    let token: ConverterLearningToken
+    let reading: String
+    let surface: String
+    let origin: LearningOrigin
+    let createdRevision: UInt64
+}
+
 struct CompositionSession: Equatable, Sendable {
     var phase: ImePhase = .idle
     var composingText = CompositionBuffer()
@@ -63,6 +89,12 @@ struct CompositionSession: Equatable, Sendable {
     var reconversionReplacement: ReconversionReplacement?
     var unicodeInputBuffer = ""
     var phaseBeforeUnicodeInput: ImePhase?
+    /// Non-persistent presentation cache. It may be discarded at any point
+    /// without changing the semantic composition or recovery checkpoint.
+    var livePresentation = LivePresentationState.empty
+    /// Learning is held outside the checkpoint and resolved explicitly at the
+    /// next stable boundary or cancellation action.
+    var pendingLearningTransactions: [PendingLearningTransaction] = []
 
     init(
         sessionID: String = UUID().uuidString,

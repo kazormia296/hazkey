@@ -330,6 +330,7 @@ jobs:
       - name: Run consumer writer-to-reader process E2E
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/hazkey-server/build-ci/bin
+          GGML_BACKEND_DIR: ${{ github.workspace }}/hazkey-server/build-ci/bin
           GRIMODEX_LINUX_IME_SERVER: ${{ github.workspace }}/hazkey-server/build-ci/swift-build/release/hazkey-server
           FCITX5_GRIMODEX_DICTIONARY: ${{ github.workspace }}/hazkey-server/azooKey_dictionary_storage/Dictionary
         run: |
@@ -342,6 +343,7 @@ jobs:
       - name: Run Grimodex spike tests
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/hazkey-server/build-ci/bin
+          GGML_BACKEND_DIR: ${{ github.workspace }}/hazkey-server/build-ci/bin
           GRIMODEX_PROCESS_E2E_SERVER: ${{ github.workspace }}/hazkey-server/build-ci/swift-build/release/hazkey-server
           FCITX5_GRIMODEX_DICTIONARY: ${{ github.workspace }}/hazkey-server/azooKey_dictionary_storage/Dictionary
           FCITX5_GRIMODEX_ZENZAI_MODEL: ${{ runner.temp }}/grimodex-zenzai-model/zenzai.gguf
@@ -359,6 +361,7 @@ jobs:
       - name: Run Zenzai diagnostics and same-path reload tests
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/hazkey-server/build-ci/bin
+          GGML_BACKEND_DIR: ${{ github.workspace }}/hazkey-server/build-ci/bin
           FCITX5_GRIMODEX_DICTIONARY: ${{ github.workspace }}/hazkey-server/azooKey_dictionary_storage/Dictionary
           GRIMODEX_ZENZAI_RELOAD_TEST_MODEL: ${{ runner.temp }}/grimodex-zenzai-model/zenzai.gguf
         run: |

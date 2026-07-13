@@ -200,7 +200,7 @@ final class GrimodexProcessE2ETests: XCTestCase {
     XCTAssertEqual(stale.status, .staleCandidate)
     XCTAssertTrue(stale.handleImeActionResult.snapshot.effects.isEmpty)
 
-    let committed = try client.transactV2(
+    let selected = try client.transactV2(
       sessionID: open.sessionID,
       requestID: "v2-commit-candidate",
       expectedRevision: convertedSnapshot.revision
@@ -209,6 +209,15 @@ final class GrimodexProcessE2ETests: XCTestCase {
         $0.candidateID = candidate.id
         $0.generation = convertedSnapshot.candidateWindow.generation
       }
+    }
+    XCTAssertEqual(selected.status, .success)
+
+    let committed = try client.transactV2(
+      sessionID: open.sessionID,
+      requestID: "v2-commit-selected",
+      expectedRevision: selected.handleImeActionResult.snapshot.revision
+    ) {
+      $0.commitSelected = .init()
     }
     XCTAssertEqual(committed.status, .success)
     XCTAssertEqual(committed.handleImeActionResult.snapshot.effects.first?.text, candidate.text)

@@ -51,6 +51,13 @@ message ApplyLiveConversion {
     uint64 scheduled_revision = 1;
 }
 
+message ResolvePendingLearning {
+    // Commit staged learning when true; discard it when false. This action is
+    // intentionally explicit so a client can cancel a just-committed
+    // composition without losing the visible text effect.
+    bool commit = 1;
+}
+
 message CommitSelected {}
 message CommitAll {}
 message Cancel {}
@@ -148,5 +155,6 @@ message HandleImeAction {
         CommitUnicodeInput commit_unicode_input = 31;
         MoveActiveSegment move_active_segment = 32;
         ApplyLiveConversion apply_live_conversion = 33;
+        ResolvePendingLearning resolve_pending_learning = 34;
     }
 }

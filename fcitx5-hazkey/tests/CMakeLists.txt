@@ -116,6 +116,26 @@ add_test(
         -P "${CMAKE_CURRENT_SOURCE_DIR}/verify_contract_fixture.cmake"
 )
 
+add_test(
+    NAME hazkey-conversion-quality-self-test
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/dictionary/evaluate_conversion_quality.py"
+        --corpus
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../hazkey-server/Tests/grimodex-spike/Fixtures/quality-v1/conversion-quality-v1.tsv"
+        --self-test
+)
+
+add_test(
+    NAME hazkey-context-boundary-self-test
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/dictionary/evaluate_context_boundaries.py"
+        --fixture
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../hazkey-server/Tests/grimodex-spike/Fixtures/quality-v1/context-boundary-v1.tsv"
+        --self-test
+)
+
 add_executable(
     hazkey-action-mapper-test
     hazkey_action_mapper_test.cpp

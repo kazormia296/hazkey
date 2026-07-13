@@ -252,6 +252,18 @@ struct Hazkey_Config_Profile: @unchecked Sendable {
   /// Clears the value of `liveConversionDelayMsec`. Subsequent reads from it will return its default value.
   mutating func clearLiveConversionDelayMsec() {_uniqueStorage()._liveConversionDelayMsec = nil}
 
+  /// Bit mask of rendered preedit suffixes that may commit the current
+  /// visible composition in the same insertion transaction. The first four
+  /// bits are 、 。 ？ ！ respectively. The default is zero (disabled).
+  var directCommitTargets: UInt32 {
+    get {return _storage._directCommitTargets ?? 0}
+    set {_uniqueStorage()._directCommitTargets = newValue}
+  }
+  /// Returns true if `directCommitTargets` has been explicitly set.
+  var hasDirectCommitTargets: Bool {return _storage._directCommitTargets != nil}
+  /// Clears the value of `directCommitTargets`. Subsequent reads from it will return its default value.
+  mutating func clearDirectCommitTargets() {_uniqueStorage()._directCommitTargets = nil}
+
   var useDefaultConversionUiSettings: Bool {
     get {return _storage._useDefaultConversionUiSettings ?? false}
     set {_uniqueStorage()._useDefaultConversionUiSettings = newValue}
@@ -1486,6 +1498,7 @@ extension Hazkey_Config_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     14: .standard(proto: "use_rich_suggestion"),
     15: .standard(proto: "num_suggestions"),
     16: .standard(proto: "live_conversion_delay_msec"),
+    17: .standard(proto: "direct_commit_targets"),
     20: .standard(proto: "use_default_conversion_ui_settings"),
     21: .standard(proto: "num_candidates_per_page"),
     22: .standard(proto: "use_rich_candidates"),
@@ -1525,6 +1538,7 @@ extension Hazkey_Config_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
     var _useRichSuggestion: Bool? = nil
     var _numSuggestions: Int32? = nil
     var _liveConversionDelayMsec: UInt32? = nil
+    var _directCommitTargets: UInt32? = nil
     var _useDefaultConversionUiSettings: Bool? = nil
     var _numCandidatesPerPage: Int32? = nil
     var _useRichCandidates: Bool? = nil
@@ -1571,6 +1585,7 @@ extension Hazkey_Config_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
       _useRichSuggestion = source._useRichSuggestion
       _numSuggestions = source._numSuggestions
       _liveConversionDelayMsec = source._liveConversionDelayMsec
+      _directCommitTargets = source._directCommitTargets
       _useDefaultConversionUiSettings = source._useDefaultConversionUiSettings
       _numCandidatesPerPage = source._numCandidatesPerPage
       _useRichCandidates = source._useRichCandidates
@@ -1625,6 +1640,7 @@ extension Hazkey_Config_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
         case 14: try { try decoder.decodeSingularBoolField(value: &_storage._useRichSuggestion) }()
         case 15: try { try decoder.decodeSingularInt32Field(value: &_storage._numSuggestions) }()
         case 16: try { try decoder.decodeSingularUInt32Field(value: &_storage._liveConversionDelayMsec) }()
+        case 17: try { try decoder.decodeSingularUInt32Field(value: &_storage._directCommitTargets) }()
         case 20: try { try decoder.decodeSingularBoolField(value: &_storage._useDefaultConversionUiSettings) }()
         case 21: try { try decoder.decodeSingularInt32Field(value: &_storage._numCandidatesPerPage) }()
         case 22: try { try decoder.decodeSingularBoolField(value: &_storage._useRichCandidates) }()
@@ -1692,6 +1708,9 @@ extension Hazkey_Config_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
       } }()
       try { if let v = _storage._liveConversionDelayMsec {
         try visitor.visitSingularUInt32Field(value: v, fieldNumber: 16)
+      } }()
+      try { if let v = _storage._directCommitTargets {
+        try visitor.visitSingularUInt32Field(value: v, fieldNumber: 17)
       } }()
       try { if let v = _storage._useDefaultConversionUiSettings {
         try visitor.visitSingularBoolField(value: v, fieldNumber: 20)
@@ -1790,6 +1809,7 @@ extension Hazkey_Config_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
         if _storage._useRichSuggestion != rhs_storage._useRichSuggestion {return false}
         if _storage._numSuggestions != rhs_storage._numSuggestions {return false}
         if _storage._liveConversionDelayMsec != rhs_storage._liveConversionDelayMsec {return false}
+        if _storage._directCommitTargets != rhs_storage._directCommitTargets {return false}
         if _storage._useDefaultConversionUiSettings != rhs_storage._useDefaultConversionUiSettings {return false}
         if _storage._numCandidatesPerPage != rhs_storage._numCandidatesPerPage {return false}
         if _storage._useRichCandidates != rhs_storage._useRichCandidates {return false}
