@@ -51,25 +51,41 @@ void mapsSpaceWidthByModeAndShift() {
            "candidate Shift+Space must move backward instead of inserting whitespace");
 }
 
-void separatesCandidateNavigationFromPaging() {
-    const auto left = fcitx::mapHazkeyKey(
-        Key(FcitxKey_Left), HazkeyInputPhase::selecting, true);
+void separatesCandidateNavigationFromSegmentMovement() {
     const auto page = fcitx::mapHazkeyKey(
         Key(FcitxKey_Page_Down), HazkeyInputPhase::selecting, true);
-    expect(left && left->kind == HazkeySemanticActionKind::consume,
-           "candidate Left must not become page navigation");
     expect(page && page->kind == HazkeySemanticActionKind::navigateCandidatePage && page->value == 1,
            "PageDown must be candidate page navigation");
 
-    const auto resize = fcitx::mapHazkeyKey(
-        Key(FcitxKey_Right, KeyState::Shift), HazkeyInputPhase::selecting, true);
-    const auto commit = fcitx::mapHazkeyKey(
-        Key(FcitxKey_Right), HazkeyInputPhase::selecting, true);
-    expect(resize && resize->kind == HazkeySemanticActionKind::resizeSegment &&
-                      resize->value == 1,
-           "Shift+Right must resize the active segment");
-    expect(commit && commit->kind == HazkeySemanticActionKind::commitSelected,
-           "Right must partially commit the selected segment");
+    for (const auto phase : {HazkeyInputPhase::previewing,
+                             HazkeyInputPhase::selecting,
+                             HazkeyInputPhase::reconverting}) {
+        const auto left = fcitx::mapHazkeyKey(
+            Key(FcitxKey_Left), phase, true);
+        const auto right = fcitx::mapHazkeyKey(
+            Key(FcitxKey_Right), phase, true);
+        const auto shrink = fcitx::mapHazkeyKey(
+            Key(FcitxKey_Left, KeyState::Shift), phase, true);
+        const auto expand = fcitx::mapHazkeyKey(
+            Key(FcitxKey_Right, KeyState::Shift), phase, true);
+
+        expect(left &&
+                   left->kind == HazkeySemanticActionKind::moveActiveSegment &&
+                   left->value == -1,
+               "conversion Left must focus the previous segment");
+        expect(right &&
+                   right->kind == HazkeySemanticActionKind::moveActiveSegment &&
+                   right->value == 1,
+               "conversion Right must focus the next segment");
+        expect(shrink &&
+                   shrink->kind == HazkeySemanticActionKind::resizeSegment &&
+                   shrink->value == -1,
+               "Shift+Left must shrink the active segment");
+        expect(expand &&
+                   expand->kind == HazkeySemanticActionKind::resizeSegment &&
+                   expand->value == 1,
+               "Shift+Right must expand the active segment");
+    }
 }
 
 void mapsEditorKeysWithoutCandidateFocus() {
@@ -77,10 +93,15 @@ void mapsEditorKeysWithoutCandidateFocus() {
         Key(FcitxKey_Home), HazkeyInputPhase::composing, true);
     const auto backspace = fcitx::mapHazkeyKey(
         Key(FcitxKey_BackSpace), HazkeyInputPhase::composing, true);
+    const auto left = fcitx::mapHazkeyKey(
+        Key(FcitxKey_Left), HazkeyInputPhase::composing, true);
     expect(home && home->kind == HazkeySemanticActionKind::moveCursorToStart,
            "Home must move to the composition start");
     expect(backspace && backspace->kind == HazkeySemanticActionKind::deleteBackward,
            "Backspace must delete backward");
+    expect(left && left->kind == HazkeySemanticActionKind::moveCursor &&
+                       left->value == -1,
+           "composing Left must keep moving the editing cursor");
 }
 
 void mapsJapaneseKeyboardKeys() {
@@ -216,11 +237,16 @@ void followsExplicitSnapshotPhase() {
         Key(FcitxKey_Return), HazkeyInputPhase::previewing, true);
     const auto selectionEnter = fcitx::mapHazkeyKey(
         Key(FcitxKey_Return), HazkeyInputPhase::selecting, true);
+    const auto selectionTab = fcitx::mapHazkeyKey(
+        Key(FcitxKey_Tab), HazkeyInputPhase::selecting, true);
     expect(previewEnter && previewEnter->kind == HazkeySemanticActionKind::commitAll,
            "preview Enter must commit the entire displayed preedit");
     expect(selectionEnter &&
-               selectionEnter->kind == HazkeySemanticActionKind::commitSelected,
-           "selection Enter must commit only the active segment");
+               selectionEnter->kind == HazkeySemanticActionKind::commitAll,
+           "selection Enter must commit the entire segmented conversion");
+    expect(selectionTab &&
+               selectionTab->kind == HazkeySemanticActionKind::commitSelected,
+           "selection Tab must preserve partial-commit compatibility");
 }
 
 void preservesInputWhenTheFirstDispatchFails() {
@@ -246,7 +272,7 @@ void preservesInputWhenTheFirstDispatchFails() {
 
 int main() {
     mapsSpaceWidthByModeAndShift();
-    separatesCandidateNavigationFromPaging();
+    separatesCandidateNavigationFromSegmentMovement();
     mapsEditorKeysWithoutCandidateFocus();
     mapsJapaneseKeyboardKeys();
     mapsEveryJapaneseModeKeyAcrossPhases();

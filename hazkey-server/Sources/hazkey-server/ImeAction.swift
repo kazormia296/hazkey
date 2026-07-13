@@ -27,6 +27,7 @@ enum ImeAction: Equatable, Codable, Sendable {
     case navigateCandidate(Int)
     case navigateCandidatePage(Int)
     case resizeSegment(Int)
+    case moveActiveSegment(Int)
     case commitSelected
     case commitAll
     case cancel
@@ -123,6 +124,7 @@ extension ImeAction {
         case navigateCandidate
         case navigateCandidatePage
         case resizeSegment
+        case moveActiveSegment
         case commitSelected
         case commitAll
         case cancel
@@ -151,6 +153,8 @@ extension ImeAction {
         case .navigateCandidate: self = .navigateCandidate(try container.decode(Int.self, forKey: .offset))
         case .navigateCandidatePage: self = .navigateCandidatePage(try container.decode(Int.self, forKey: .offset))
         case .resizeSegment: self = .resizeSegment(try container.decode(Int.self, forKey: .offset))
+        case .moveActiveSegment:
+            self = .moveActiveSegment(try container.decode(Int.self, forKey: .offset))
         case .commitSelected: self = .commitSelected
         case .commitAll: self = .commitAll
         case .cancel: self = .cancel
@@ -218,6 +222,8 @@ extension ImeAction {
         case .navigateCandidate(let delta): try encode(.navigateCandidate); try container.encode(delta, forKey: .offset)
         case .navigateCandidatePage(let delta): try encode(.navigateCandidatePage); try container.encode(delta, forKey: .offset)
         case .resizeSegment(let delta): try encode(.resizeSegment); try container.encode(delta, forKey: .offset)
+        case .moveActiveSegment(let delta):
+            try encode(.moveActiveSegment); try container.encode(delta, forKey: .offset)
         case .commitSelected: try encode(.commitSelected)
         case .commitAll: try encode(.commitAll)
         case .cancel: try encode(.cancel)

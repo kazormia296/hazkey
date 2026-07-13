@@ -18,6 +18,7 @@ enum class HazkeySemanticActionKind {
     navigateCandidate,
     navigateCandidatePage,
     resizeSegment,
+    moveActiveSegment,
     commitSelected,
     commitAll,
     cancel,

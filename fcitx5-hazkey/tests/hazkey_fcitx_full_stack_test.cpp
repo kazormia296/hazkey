@@ -10,6 +10,7 @@
 #include <fcitx/addonmanager.h>
 #include <fcitx/inputcontext.h>
 #include <fcitx/inputcontextmanager.h>
+#include <fcitx/inputpanel.h>
 #include <fcitx/instance.h>
 
 namespace {
@@ -90,6 +91,42 @@ int main() {
                                     FcitxKey_a, FcitxKey_Return});
         milestone("kana commit passed");
 
+        runKeys(clientPreeditUUID, {FcitxKey_k, FcitxKey_a, FcitxKey_n,
+                                    FcitxKey_a, FcitxKey_space});
+        const auto initialCandidateList =
+            clientPreeditContext->inputPanel().candidateList();
+        if (initialCandidateList == nullptr ||
+            initialCandidateList->size() <= 1) {
+            fail("initial active segment did not expose candidate alternatives");
+        }
+        if (initialCandidateList->cursorIndex() != 0 ||
+            initialCandidateList->candidate(0).text().toString().empty()) {
+            fail("initial active-segment candidate was not selected");
+        }
+        const auto initialConversionCommit =
+            clientPreeditContext->inputPanel().clientPreedit()
+                .toStringForCommit();
+        frontend->call<fcitx::ITestFrontend::pushCommitExpectation>(
+            initialConversionCommit);
+        runKeys(clientPreeditUUID, {FcitxKey_Return});
+        milestone("initial active-segment candidates passed");
+
+        runKeys(clientPreeditUUID,
+                {FcitxKey_k, FcitxKey_y, FcitxKey_o, FcitxKey_u,
+                 FcitxKey_h, FcitxKey_a, FcitxKey_i, FcitxKey_s,
+                 FcitxKey_h, FcitxKey_a, FcitxKey_n, FcitxKey_i,
+                 FcitxKey_i, FcitxKey_k, FcitxKey_u, FcitxKey_Left});
+        const auto segmentedPreedit =
+            clientPreeditContext->inputPanel().clientPreedit();
+        const auto segmentedCommit = segmentedPreedit.toStringForCommit();
+        if (segmentedCommit.empty()) {
+            fail("Left during live conversion unexpectedly lost the composition");
+        }
+        frontend->call<fcitx::ITestFrontend::pushCommitExpectation>(
+            segmentedCommit);
+        runKeys(clientPreeditUUID, {FcitxKey_Return});
+        milestone("live-conversion Left preserved composition and committed");
+
         frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("カナ");
         runKeys(clientPreeditUUID, {FcitxKey_k, FcitxKey_a, FcitxKey_n,
                                     FcitxKey_a, FcitxKey_F7,
@@ -113,7 +150,7 @@ int main() {
         milestone("panel-preedit context activated");
         frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("イ");
         runKeys(panelPreeditUUID, {FcitxKey_kana_A, FcitxKey_kana_I,
-                                   FcitxKey_Left, FcitxKey_BackSpace,
+                                   FcitxKey_Home, FcitxKey_Delete,
                                    FcitxKey_Return});
         milestone("direct-kana cursor/edit passed");
 

@@ -95,6 +95,48 @@ void rendersDisplayOnlyBoundaryForTheActiveSegment() {
            "a caret after the boundary must account for its display-only bytes");
 }
 
+void rendersEveryAdjacentConversionSegmentBoundary() {
+    hazkey::SessionSnapshot snapshot;
+    snapshot.set_phase(hazkey::PREVIEWING);
+    auto* first = snapshot.add_preedit();
+    first->set_text("東京");
+    first->set_style(hazkey::PreeditSpan::UNDERLINE);
+    auto* active = snapshot.add_preedit();
+    active->set_text("都へ");
+    active->set_style(hazkey::PreeditSpan::ACTIVE);
+    auto* last = snapshot.add_preedit();
+    last->set_text("行く");
+    last->set_style(hazkey::PreeditSpan::UNDERLINE);
+    snapshot.set_caret_utf8_byte_offset(static_cast<uint32_t>(
+        first->text().size() + active->text().size()));
+
+    const auto rendered = fcitx::HazkeySnapshotRenderer::renderPreedit(snapshot);
+    expect(rendered.toString() == "東京│都へ│行く",
+           "every adjacent conversion segment must have a visible boundary");
+    expect(rendered.toStringForCommit() == "東京都へ行く",
+           "no conversion segment boundary may enter committed text");
+    expect(rendered.cursor() == static_cast<int>(
+        first->text().size() + std::string("│").size() + active->text().size()),
+           "the active-middle caret must account only for preceding markers");
+    expect(rendered.cursor() != -1,
+           "non-empty conversion preedit must publish an explicit caret");
+}
+
+void doesNotRenderSegmentBoundariesWhileComposing() {
+    hazkey::SessionSnapshot snapshot;
+    snapshot.set_phase(hazkey::COMPOSING);
+    auto* live = snapshot.add_preedit();
+    live->set_text("東京");
+    live->set_style(hazkey::PreeditSpan::ACTIVE);
+    auto* suffix = snapshot.add_preedit();
+    suffix->set_text("と");
+    suffix->set_style(hazkey::PreeditSpan::UNDERLINE);
+
+    const auto rendered = fcitx::HazkeySnapshotRenderer::renderPreedit(snapshot);
+    expect(rendered.toString() == "東京と",
+           "live composing spans must not be mistaken for conversion segments");
+}
+
 }  // namespace
 
 int main() {
@@ -102,5 +144,7 @@ int main() {
     clampsMalformedCaretOffsetsWithoutChangingText();
     canAnchorTheInputPanelAtThePreeditStart();
     rendersDisplayOnlyBoundaryForTheActiveSegment();
+    rendersEveryAdjacentConversionSegmentBoundary();
+    doesNotRenderSegmentBoundariesWhileComposing();
     return 0;
 }

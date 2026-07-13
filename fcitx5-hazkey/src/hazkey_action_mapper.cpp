@@ -55,13 +55,16 @@ std::optional<HazkeySemanticAction> mapHazkeyKey(
                 return HazkeySemanticAction{HazkeySemanticActionKind::navigateCandidate,
                                             sym == FcitxKey_space && shifted ? -1 : 1};
             case FcitxKey_Return:
+                return HazkeySemanticAction{HazkeySemanticActionKind::commitAll};
             case FcitxKey_Tab:
+                return HazkeySemanticAction{HazkeySemanticActionKind::commitSelected};
             case FcitxKey_Right:
                 if (shifted && sym == FcitxKey_Right) {
                     return HazkeySemanticAction{
                         HazkeySemanticActionKind::resizeSegment, 1};
                 }
-                return HazkeySemanticAction{HazkeySemanticActionKind::commitSelected};
+                return HazkeySemanticAction{
+                    HazkeySemanticActionKind::moveActiveSegment, 1};
             case FcitxKey_BackSpace:
                 return HazkeySemanticAction{HazkeySemanticActionKind::deleteBackward};
             case FcitxKey_Escape:
@@ -71,7 +74,8 @@ std::optional<HazkeySemanticAction> mapHazkeyKey(
                     return HazkeySemanticAction{
                         HazkeySemanticActionKind::resizeSegment, -1};
                 }
-                return HazkeySemanticAction{HazkeySemanticActionKind::consume};
+                return HazkeySemanticAction{
+                    HazkeySemanticActionKind::moveActiveSegment, -1};
             case FcitxKey_Muhenkan:
             case FcitxKey_F6:
             case FcitxKey_Hiragana:
@@ -123,13 +127,15 @@ std::optional<HazkeySemanticAction> mapHazkeyKey(
                     return HazkeySemanticAction{
                         HazkeySemanticActionKind::resizeSegment, 1};
                 }
-                return HazkeySemanticAction{HazkeySemanticActionKind::commitSelected};
+                return HazkeySemanticAction{
+                    HazkeySemanticActionKind::moveActiveSegment, 1};
             case FcitxKey_Left:
                 if (shifted) {
                     return HazkeySemanticAction{
                         HazkeySemanticActionKind::resizeSegment, -1};
                 }
-                return HazkeySemanticAction{HazkeySemanticActionKind::consume};
+                return HazkeySemanticAction{
+                    HazkeySemanticActionKind::moveActiveSegment, -1};
             case FcitxKey_BackSpace:
                 return HazkeySemanticAction{HazkeySemanticActionKind::deleteBackward};
             case FcitxKey_Escape:

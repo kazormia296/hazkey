@@ -153,6 +153,8 @@ final class ImeV2SessionController {
         case .navigateCandidatePage(let value):
             return .navigateCandidatePage(Int(value.delta))
         case .resizeSegment(let value): return .resizeSegment(Int(value.delta))
+        case .moveActiveSegment(let value):
+            return .moveActiveSegment(Int(value.offset))
         case .commitSelected: return .commitSelected
         case .commitAll: return .commitAll
         case .cancel: return .cancel

@@ -31,16 +31,21 @@ TextFormatFlags segmentBoundaryFormat() {
 }
 
 bool needsSegmentBoundary(const hazkey::SessionSnapshot& snapshot, int index) {
-    if (snapshot.phase() != hazkey::SELECTING || index <= 0 ||
-        index >= snapshot.preedit_size()) {
+    if (index <= 0 || index >= snapshot.preedit_size()) {
         return false;
     }
-    const auto previousStyle = snapshot.preedit(index - 1).style();
-    const auto currentStyle = snapshot.preedit(index).style();
-    return (previousStyle == hazkey::PreeditSpan::ACTIVE &&
-            currentStyle == hazkey::PreeditSpan::UNDERLINE) ||
-           (previousStyle == hazkey::PreeditSpan::UNDERLINE &&
-            currentStyle == hazkey::PreeditSpan::ACTIVE);
+    switch (snapshot.phase()) {
+        case hazkey::PREVIEWING:
+        case hazkey::SELECTING:
+        case hazkey::RECONVERTING:
+            return true;
+        case hazkey::IDLE:
+        case hazkey::COMPOSING:
+        case hazkey::UNICODE_INPUT:
+        case hazkey::IME_PHASE_UNSPECIFIED:
+        default:
+            return false;
+    }
 }
 }  // namespace
 

@@ -62,9 +62,29 @@ struct CompositionDisplay: Equatable, Sendable {
 }
 
 protocol KanaKanjiConverting: AnyObject {
+    /// Whether this converter can expose stable first-clause candidates for a
+    /// fully segmented, still-uncommitted conversion plan.
+    var supportsSegmentEditing: Bool { get }
+
     func display(for composition: CompositionInput) -> CompositionDisplay
 
+    /// Returns an input-element cursor positioned at the requested display
+    /// boundary. Converters whose input and rendered surfaces differ can skip
+    /// input indices that do not correspond to a stable visible caret.
+    func inputCursorPosition(
+        for composition: CompositionInput,
+        movingBy offset: Int
+    ) -> Int
+
     func candidates(
+        for composition: CompositionInput,
+        options: ConversionOptions
+    ) throws -> ConversionOutput
+
+    /// Returns candidates for the first natural clause of the composition.
+    /// The reducer uses this to retain a complete, editable list of clauses
+    /// instead of treating conversion as a single prefix plus raw suffix.
+    func segmentCandidates(
         for composition: CompositionInput,
         options: ConversionOptions
     ) throws -> ConversionOutput
@@ -87,6 +107,20 @@ protocol KanaKanjiConverting: AnyObject {
 }
 
 extension KanaKanjiConverting {
+    var supportsSegmentEditing: Bool { false }
+
+    func inputCursorPosition(
+        for composition: CompositionInput,
+        movingBy offset: Int
+    ) -> Int {
+        let cursor = min(max(composition.cursor, 0), composition.elements.count)
+        let (moved, overflow) = cursor.addingReportingOverflow(offset)
+        if overflow {
+            return offset < 0 ? 0 : composition.elements.count
+        }
+        return min(max(moved, 0), composition.elements.count)
+    }
+
     func display(for composition: CompositionInput) -> CompositionDisplay {
         let cursor = min(max(composition.cursor, 0), composition.elements.count)
         let text = composition.elements.map(\.text).joined()
@@ -97,6 +131,13 @@ extension KanaKanjiConverting {
             text: text,
             caretUtf8ByteOffset: UInt32(caret)
         )
+    }
+
+    func segmentCandidates(
+        for composition: CompositionInput,
+        options: ConversionOptions
+    ) throws -> ConversionOutput {
+        try candidates(for: composition, options: options)
     }
 
     func predictions(
@@ -120,6 +161,8 @@ extension KanaKanjiConverting {
 }
 
 final class NoopKanaKanjiConverter: KanaKanjiConverting {
+    var supportsSegmentEditing: Bool { true }
+
     func candidates(
         for composition: CompositionInput,
         options: ConversionOptions

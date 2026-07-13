@@ -4,6 +4,8 @@ import XCTest
 @testable import hazkey_server
 
 private final class ReducerFixtureConverter: KanaKanjiConverting {
+  let supportsSegmentEditing = true
+
   var shouldFail = false
   var learningUpdates = 0
   var completed = 0
@@ -221,12 +223,18 @@ final class GrimodexImeReducerTests: XCTestCase {
     let converted = reducer.reduce(.startConversion, requestID: "convert")
     let window = converted.snapshot.candidateWindow
 
-    let committed = reducer.reduce(
+    let selected = reducer.reduce(
       .selectCandidate(id: window.items[1].id, generation: window.generation),
       requestID: "select-second"
     )
 
-    XCTAssertEqual(committed.status, .success)
+    XCTAssertEqual(selected.status, .success)
+    XCTAssertTrue(selected.snapshot.effects.isEmpty)
+    XCTAssertTrue(converter.completedSourceIDs.isEmpty)
+    XCTAssertTrue(converter.learnedSourceIDs.isEmpty)
+
+    let committed = reducer.reduce(.commitAll, requestID: "commit-all")
+    XCTAssertEqual(committed.snapshot.effects.count, 1)
     XCTAssertEqual(converter.completedSourceIDs, ["second"])
     XCTAssertEqual(converter.learnedSourceIDs, ["second"])
   }
@@ -700,7 +708,7 @@ final class GrimodexImeReducerTests: XCTestCase {
     XCTAssertNil(reducer.session.candidates?.liveCandidate)
   }
 
-  func testAutoConversionShowsReadingAndCaretWhileEditingInTheMiddle() {
+  func testLeftDuringAutoConversionEntersSegmentEditingWithoutDroppingConversion() {
     let converter = ReducerFixtureConverter()
     var session = CompositionSession()
     session.policy.autoConvertMode = .always
@@ -709,10 +717,12 @@ final class GrimodexImeReducerTests: XCTestCase {
 
     let moved = reducer.reduce(.moveCursor(-1), requestID: "left")
 
-    XCTAssertEqual(moved.snapshot.preedit.first?.text, "かな")
-    XCTAssertEqual(moved.snapshot.preedit.first?.style, .underline)
-    XCTAssertEqual(moved.snapshot.caretUtf8ByteOffset, UInt32("か".utf8.count))
+    XCTAssertEqual(moved.snapshot.phase, .selecting)
+    XCTAssertEqual(moved.snapshot.preedit.first?.text, "変換")
+    XCTAssertEqual(moved.snapshot.preedit.first?.style, .active)
+    XCTAssertEqual(moved.snapshot.caretUtf8ByteOffset, UInt32("変換".utf8.count))
     XCTAssertNil(reducer.session.candidates?.liveCandidate)
+    XCTAssertEqual(reducer.session.activeSegmentIndex, reducer.session.segments.count - 1)
   }
 
   func testTextTransformUsesReadingInsteadOfUnselectedLiveCandidate() {
@@ -750,13 +760,14 @@ final class GrimodexImeReducerTests: XCTestCase {
     XCTAssertEqual(resized.snapshot.phase, .selecting)
     XCTAssertEqual(resized.snapshot.candidateWindow.items.first?.consumingCount, 1)
     XCTAssertEqual(reducer.session.activeBoundary, 1)
+    XCTAssertEqual(reducer.session.segments.map(\.inputCount), [1, 2])
+    XCTAssertEqual(resized.snapshot.preedit.count, 2)
+    XCTAssertEqual(resized.snapshot.preedit[0], PreeditSpan(text: "変換", style: .active))
+    XCTAssertEqual(resized.snapshot.preedit[1].style, .underline)
     XCTAssertEqual(
-      resized.snapshot.preedit,
-      [
-        PreeditSpan(text: "変換", style: .active),
-        PreeditSpan(text: "ょう", style: .underline),
-      ],
-      "segment editing must keep the active segment distinct from the remaining reading"
+      reducer.session.segments.map(\.inputCount).reduce(0, +),
+      reducer.session.composingText.elements.count,
+      "converted segments must cover the input exactly once"
     )
   }
 

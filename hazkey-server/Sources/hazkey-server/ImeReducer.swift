@@ -32,8 +32,7 @@ final class ImeReducer {
     func invalidateCandidatesForExternalDictionaryChange() {
         guard session.candidates != nil else { return }
         converter.stopComposition()
-        session.candidates = nil
-        session.activeBoundary = nil
+        clearConversionState()
         session.phase = session.composingText.isEmpty ? .idle : .composing
         session.advanceRevision()
     }
@@ -81,8 +80,7 @@ final class ImeReducer {
             if session.candidates != nil { converter.stopComposition() }
             session.phase = .composing
             session.composingText.insert(text, keymap: session.policy.keymap)
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
             refreshInteractiveCandidates()
             session.advanceRevision()
             result = success()
@@ -120,11 +118,41 @@ final class ImeReducer {
                 result = failure(.invalidAction, "cursor movement requires a composing session")
                 break
             }
-            session.composingText.moveCursor(by: offset)
+            if session.phase == .composing,
+               session.candidates?.liveCandidate != nil {
+                // Realtime conversion is still reported as `composing` so
+                // typing remains editable. An arrow key, however, means the
+                // user wants to enter clause editing rather than discard the
+                // converted surface and expose a raw input cursor.
+                let conversion = convert(advanceRevision: false)
+                guard conversion.status == .success else {
+                    result = conversion
+                    break
+                }
+                if !session.segments.isEmpty {
+                    activateSegment(at: session.segments.count - 1)
+                    session.phase = .selecting
+                }
+                session.advanceRevision()
+                result = success()
+                break
+            }
+            let input = CompositionInput(
+                elements: session.composingText.elements,
+                cursor: session.composingText.cursor,
+                leftContext: session.context.leftContext,
+                mappedTableName: session.policy.inputTableName
+            )
+            let nextCursor = converter.inputCursorPosition(
+                for: input,
+                movingBy: offset
+            )
+            session.composingText.moveCursor(
+                by: nextCursor - session.composingText.cursor
+            )
             converter.stopComposition()
             session.phase = .composing
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
             refreshInteractiveCandidates()
             session.advanceRevision()
             result = success()
@@ -141,8 +169,7 @@ final class ImeReducer {
             }
             converter.stopComposition()
             session.phase = .composing
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
             refreshInteractiveCandidates()
             session.advanceRevision()
             result = success()
@@ -150,8 +177,7 @@ final class ImeReducer {
         case .startConversion:
             if session.candidates?.origin == .prediction {
                 converter.stopComposition()
-                session.candidates = nil
-                session.activeBoundary = nil
+                clearConversionState()
             }
             result = convert()
 
@@ -159,8 +185,7 @@ final class ImeReducer {
             if session.phase == .composing,
                session.candidates?.items.isEmpty ?? true {
                 converter.stopComposition()
-                session.candidates = nil
-                session.activeBoundary = nil
+                clearConversionState()
                 let conversion = convert(advanceRevision: false)
                 guard conversion.status == .success else {
                     result = conversion
@@ -183,7 +208,11 @@ final class ImeReducer {
                 max(current + delta, 0), candidates.items.count - 1
             )
             session.candidates = candidates
-            session.activeBoundary = candidates.items[candidates.selectedIndex ?? 0].consumingCount
+            syncActiveSegmentCandidates(candidates)
+            if session.activeSegmentIndex == nil {
+                session.activeBoundary = candidates.items[candidates.selectedIndex ?? 0]
+                    .consumingCount
+            }
             session.phase = .selecting
             session.advanceRevision()
             result = success()
@@ -201,13 +230,20 @@ final class ImeReducer {
                 max(current + delta * page, 0), candidates.items.count - 1
             )
             session.candidates = candidates
-            session.activeBoundary = candidates.items[candidates.selectedIndex ?? 0].consumingCount
+            syncActiveSegmentCandidates(candidates)
+            if session.activeSegmentIndex == nil {
+                session.activeBoundary = candidates.items[candidates.selectedIndex ?? 0]
+                    .consumingCount
+            }
             session.phase = .selecting
             session.advanceRevision()
             result = success()
 
         case .resizeSegment(let delta):
             result = resizeSegment(delta)
+
+        case .moveActiveSegment(let delta):
+            result = moveActiveSegment(delta)
 
         case .selectCandidate(let id, let generation):
             guard var candidates = session.candidates,
@@ -218,9 +254,10 @@ final class ImeReducer {
             }
             candidates.selectedIndex = index
             session.candidates = candidates
-            session.activeBoundary = candidates.items[index].consumingCount
+            syncActiveSegmentCandidates(candidates)
             session.phase = .selecting
-            result = commitSelectedCandidate()
+            session.advanceRevision()
+            result = success()
 
         case .commitSelected:
             result = commitSelectedCandidate()
@@ -290,8 +327,7 @@ final class ImeReducer {
                 nil
             }
             session.phase = .reconverting
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
             result = convert()
 
         case .beginUnicodeInput:
@@ -305,8 +341,7 @@ final class ImeReducer {
             converter.stopComposition()
             session.phaseBeforeUnicodeInput = session.phase
             session.unicodeInputBuffer = ""
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
             session.phase = .unicodeInput
             session.advanceRevision()
             result = success()
@@ -428,10 +463,10 @@ final class ImeReducer {
                 ? output.liveCandidate.map { makeSnapshot($0) }
                 : nil
             guard !output.candidates.isEmpty || liveCandidate != nil else {
-                session.candidates = nil
-                session.activeBoundary = nil
+                clearConversionState()
                 return
             }
+            clearSegmentedConversion()
             let generation = session.allocateCandidateGeneration()
             session.candidates = CandidateSet(
                 generation: generation,
@@ -457,8 +492,7 @@ final class ImeReducer {
         } catch {
             // Live conversion is opportunistic. Keep the reading editable when
             // the converter cannot produce a realtime result.
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
         }
     }
 
@@ -524,10 +558,10 @@ final class ImeReducer {
                 )
             )
             guard !output.candidates.isEmpty else {
-                session.candidates = nil
-                session.activeBoundary = nil
+                clearConversionState()
                 return
             }
+            clearSegmentedConversion()
             let generation = session.allocateCandidateGeneration()
             session.candidates = CandidateSet(
                 generation: generation,
@@ -552,8 +586,7 @@ final class ImeReducer {
         } catch {
             // Predictions are opportunistic. Conversion and the editable
             // reading remain available even when prediction generation fails.
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
         }
     }
 
@@ -561,10 +594,44 @@ final class ImeReducer {
         let isReconversion = session.phase == .reconverting
         guard !session.composingText.isEmpty else {
             session.phase = .idle
-            session.candidates = nil
+            clearConversionState()
             if advanceRevision { session.advanceRevision() }
             return success()
         }
+        if !converter.supportsSegmentEditing {
+            return convertLegacy(
+                isReconversion: isReconversion,
+                advanceRevision: advanceRevision
+            )
+        }
+        converter.stopComposition()
+        do {
+            let segments = try buildSegments(
+                from: session.composingText.elements
+            )
+            session.segments = segments
+            activateSegment(at: 0)
+            session.composingText.moveCursorToEnd()
+            session.phase = isReconversion ? .reconverting : .previewing
+            if advanceRevision { session.advanceRevision() }
+            return success()
+        } catch {
+            converter.stopComposition()
+            session.phase = isReconversion ? .reconverting : .composing
+            clearConversionState()
+            if advanceRevision { session.advanceRevision() }
+            return failure(.converterUnavailable, "converter failed: \(error)")
+        }
+    }
+
+    /// Compatibility path for converter implementations that only expose a
+    /// single converted prefix. The production Hazkey adapter opts into the
+    /// segmented path; this keeps the versioned cross-platform v1 contract
+    /// valid for older ports without pretending they have clause metadata.
+    private func convertLegacy(
+        isReconversion: Bool,
+        advanceRevision: Bool
+    ) -> ImeReductionResult {
         let input = CompositionInput(
             elements: session.composingText.elements,
             cursor: session.composingText.cursor,
@@ -575,56 +642,170 @@ final class ImeReducer {
         do {
             let output = try converter.candidates(
                 for: input,
-                options: ConversionOptions(
-                    allowLearning: session.policy.allowsLearning && !session.policy.secureInput,
-                    zenzaiEnabled: session.policy.zenzaiEnabled && !session.policy.secureInput,
-                    leftContext: session.context.leftContext,
-                    rightContext: session.context.rightContext
-                )
+                options: conversionOptions(leftContext: session.context.leftContext)
             )
             guard !output.candidates.isEmpty else {
                 converter.stopComposition()
                 session.phase = isReconversion ? .reconverting : .composing
-                session.candidates = nil
-                session.activeBoundary = nil
+                clearConversionState()
                 if advanceRevision { session.advanceRevision() }
                 return success()
             }
             let generation = session.allocateCandidateGeneration()
-            session.activeBoundary = min(
-                max(output.candidates[0].consumingCount, 1),
-                session.composingText.elements.count
-            )
+            let items = output.candidates.enumerated().map { index, candidate in
+                makeSnapshot(candidate, generation: generation, index: index)
+            }
+            session.activeBoundary = items[0].consumingCount
             session.candidates = CandidateSet(
                 generation: generation,
-                items: output.candidates.enumerated().map { index, candidate in
-                    CandidateSnapshot(
-                        id: "\(generation)-\(index)",
-                        text: candidate.text,
-                        annotation: candidate.annotation,
-                        consumingCount: min(
-                            max(candidate.consumingCount, 1),
-                            session.composingText.elements.count
-                        ),
-                        sourceID: candidate.sourceID
-                    )
-                },
+                items: items,
                 selectedIndex: 0,
-                pageSize: max(1, min(output.pageSize, output.candidates.count)),
+                pageSize: max(1, min(output.pageSize, items.count)),
                 origin: .conversion,
                 liveCandidate: nil
             )
+            clearSegmentedConversion()
             session.phase = isReconversion ? .reconverting : .previewing
             if advanceRevision { session.advanceRevision() }
             return success()
         } catch {
             converter.stopComposition()
             session.phase = isReconversion ? .reconverting : .composing
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
             if advanceRevision { session.advanceRevision() }
             return failure(.converterUnavailable, "converter failed: \(error)")
         }
+    }
+
+    /// Decomposes the whole composition into first-clause results. Every
+    /// segment owns its candidate set, allowing focus to move without losing
+    /// choices already made in other segments.
+    private func buildSegments(
+        from elements: [CompositionElement],
+        forcedLeadingCounts: [Int] = [],
+        preferredTextsByStart: [Int: String] = [:]
+    ) throws -> [CompositionSegment] {
+        var result: [CompositionSegment] = []
+        var offset = 0
+        var forcedIndex = 0
+        var leftContext = session.context.leftContext
+
+        while offset < elements.count {
+            let remaining = Array(elements.dropFirst(offset))
+            let forcedCount: Int? = if forcedIndex < forcedLeadingCounts.count {
+                min(max(forcedLeadingCounts[forcedIndex], 1), remaining.count)
+            } else {
+                nil
+            }
+            let input = CompositionInput(
+                elements: remaining,
+                cursor: remaining.count,
+                leftContext: leftContext,
+                targetCount: forcedCount,
+                mappedTableName: session.policy.inputTableName
+            )
+            let options = conversionOptions(leftContext: leftContext)
+            let output = if forcedCount != nil {
+                try converter.candidates(for: input, options: options)
+            } else {
+                try converter.segmentCandidates(for: input, options: options)
+            }
+            let segmentCount = forcedCount ?? min(
+                max(output.candidates.first?.consumingCount ?? remaining.count, 1),
+                remaining.count
+            )
+            var matching = output.candidates.filter {
+                min(max($0.consumingCount, 1), remaining.count) == segmentCount
+            }
+            if matching.isEmpty {
+                let segmentElements = Array(remaining.prefix(segmentCount))
+                let display = converter.display(for: CompositionInput(
+                    elements: segmentElements,
+                    cursor: segmentElements.count,
+                    leftContext: leftContext,
+                    mappedTableName: session.policy.inputTableName
+                ))
+                matching = [ConverterCandidate(
+                    text: display.text,
+                    consumingCount: segmentCount
+                )]
+            }
+
+            let generation = session.allocateCandidateGeneration()
+            let snapshots = matching.enumerated().map { index, candidate in
+                CandidateSnapshot(
+                    id: "\(generation)-\(index)",
+                    text: candidate.text,
+                    annotation: candidate.annotation,
+                    consumingCount: segmentCount,
+                    sourceID: candidate.sourceID
+                )
+            }
+            let preferredText = preferredTextsByStart[offset]
+            let selectedIndex = preferredText.flatMap { text in
+                snapshots.firstIndex(where: { $0.text == text })
+            } ?? 0
+            let candidateSet = CandidateSet(
+                generation: generation,
+                items: snapshots,
+                selectedIndex: selectedIndex,
+                pageSize: max(1, min(output.pageSize, snapshots.count)),
+                origin: .conversion,
+                liveCandidate: nil
+            )
+            result.append(CompositionSegment(
+                inputCount: segmentCount,
+                candidates: candidateSet
+            ))
+            leftContext.append(snapshots[selectedIndex].text)
+            offset += segmentCount
+            if forcedCount != nil { forcedIndex += 1 }
+        }
+        return result
+    }
+
+    private func conversionOptions(leftContext: String) -> ConversionOptions {
+        ConversionOptions(
+            allowLearning: session.policy.allowsLearning && !session.policy.secureInput,
+            zenzaiEnabled: session.policy.zenzaiEnabled && !session.policy.secureInput,
+            leftContext: leftContext,
+            rightContext: session.context.rightContext
+        )
+    }
+
+    private func activateSegment(at requestedIndex: Int) {
+        guard !session.segments.isEmpty else {
+            clearConversionState()
+            return
+        }
+        let index = min(max(requestedIndex, 0), session.segments.count - 1)
+        session.activeSegmentIndex = index
+        session.candidates = session.segments[index].candidates
+        session.activeBoundary = session.segments[index].inputCount
+    }
+
+    private func syncActiveSegmentCandidates(_ candidates: CandidateSet) {
+        guard let index = session.activeSegmentIndex,
+              session.segments.indices.contains(index) else { return }
+        session.segments[index].candidates = candidates
+        session.activeBoundary = session.segments[index].inputCount
+    }
+
+    private func moveActiveSegment(_ delta: Int) -> ImeReductionResult {
+        guard !session.segments.isEmpty,
+              let activeIndex = session.activeSegmentIndex,
+              session.phase == .previewing || session.phase == .selecting
+                || session.phase == .reconverting else {
+            return failure(.invalidAction, "segment movement requires converted segments")
+        }
+        let (requested, overflow) = activeIndex.addingReportingOverflow(delta)
+        let index = overflow
+            ? (delta < 0 ? 0 : session.segments.count - 1)
+            : min(max(requested, 0), session.segments.count - 1)
+        activateSegment(at: index)
+        session.phase = .selecting
+        session.advanceRevision()
+        return success()
     }
 
     private func resizeSegment(_ delta: Int) -> ImeReductionResult {
@@ -633,14 +814,63 @@ final class ImeReducer {
                 || session.phase == .selecting || session.phase == .reconverting else {
             return failure(.invalidAction, "segment resizing requires an active segment")
         }
+        if !converter.supportsSegmentEditing {
+            return resizeLegacySegment(delta)
+        }
+        let totalCount = session.composingText.elements.count
+        let oldSegments = session.segments
+        let activeIndex = session.activeSegmentIndex ?? 0
+        let prefixCounts: [Int]
+        let newCount: Int
+        if oldSegments.indices.contains(activeIndex) {
+            prefixCounts = oldSegments.prefix(activeIndex).map(\.inputCount)
+            let prefixTotal = prefixCounts.reduce(0, +)
+            let currentCount = oldSegments[activeIndex].inputCount
+            newCount = min(
+                max(currentCount + delta, 1),
+                totalCount - prefixTotal
+            )
+            guard newCount != currentCount else { return success() }
+        } else {
+            prefixCounts = []
+            newCount = delta > 0
+                ? min(max(delta, 1), totalCount)
+                : min(max(totalCount + delta, 1), totalCount)
+        }
+        var preferredTextsByStart: [Int: String] = [:]
+        var start = 0
+        for segment in oldSegments {
+            if let selected = segment.selectedCandidate {
+                preferredTextsByStart[start] = selected.text
+            }
+            start += segment.inputCount
+        }
+        converter.stopComposition()
+        do {
+            session.segments = try buildSegments(
+                from: session.composingText.elements,
+                forcedLeadingCounts: prefixCounts + [newCount],
+                preferredTextsByStart: preferredTextsByStart
+            )
+            activateSegment(at: activeIndex)
+            session.phase = .selecting
+            session.advanceRevision()
+            return success()
+        } catch {
+            session.phase = session.reconversionReplacement == nil ? .composing : .reconverting
+            clearConversionState()
+            session.advanceRevision()
+            return failure(.converterUnavailable, "converter failed: \(error)")
+        }
+    }
+
+    private func resizeLegacySegment(_ delta: Int) -> ImeReductionResult {
         let count = session.composingText.elements.count
         let newBoundary: Int
         if let boundary = session.activeBoundary {
             newBoundary = min(max(boundary + delta, 1), count)
             guard newBoundary != boundary else { return success() }
         } else if delta > 0 {
-            // Match the azooKey editing convention: the first expansion from
-            // raw composing starts with the smallest legal leading segment.
             newBoundary = 1
         } else {
             newBoundary = min(max(count + delta, 1), count)
@@ -648,17 +878,50 @@ final class ImeReducer {
         converter.stopComposition()
         session.activeBoundary = newBoundary
         session.candidates = nil
+        clearSegmentedConversion()
         session.phase = session.reconversionReplacement == nil ? .composing : .reconverting
-        let converted = convert(advanceRevision: false)
+        let converted = convertLegacy(
+            isReconversion: session.phase == .reconverting,
+            advanceRevision: false
+        )
         guard converted.status == .success else { return converted }
-        if session.candidates != nil {
-            session.phase = .selecting
-        }
+        if session.candidates != nil { session.phase = .selecting }
         session.advanceRevision()
         return success()
     }
 
     private func commitSelectedCandidate() -> ImeReductionResult {
+        if let activeIndex = session.activeSegmentIndex,
+           session.segments.indices.contains(activeIndex) {
+            let committedSegments = Array(session.segments.prefix(activeIndex + 1))
+            let committedCandidates = committedSegments.compactMap(\.selectedCandidate)
+            guard committedCandidates.count == committedSegments.count else {
+                return failure(.invalidAction, "no candidate is selected")
+            }
+            let count = committedSegments.reduce(0) { $0 + $1.inputCount }
+            let text = committedCandidates.map(\.text).joined()
+            let _ = session.composingText.removePrefix(count: count)
+            var effects = takeReconversionReplacementEffect()
+            effects.append(.commitText(effectID: session.allocateEffectID(), text: text))
+            if !session.policy.secureInput {
+                session.context.leftContext.append(text)
+            }
+            learn(committedCandidates)
+            converter.stopComposition()
+            clearConversionState()
+            session.composingText.moveCursorToEnd()
+            if session.composingText.isEmpty {
+                session.phase = .idle
+            } else {
+                session.phase = .composing
+                // The prefix has already been committed. Re-converting the
+                // remainder is best-effort; a converter failure must not hide
+                // the commit effect or make the client and reducer diverge.
+                _ = convert(advanceRevision: false)
+            }
+            session.advanceRevision()
+            return success(effects: effects)
+        }
         guard let candidates = session.candidates,
               let selected = candidates.selectedIndex,
               candidates.items.indices.contains(selected) else {
@@ -673,9 +936,8 @@ final class ImeReducer {
         if !session.policy.secureInput {
             session.context.leftContext.append(candidate.text)
         }
-        learn(candidate)
-        session.candidates = nil
-        session.activeBoundary = nil
+        learn([candidate])
+        clearConversionState()
         session.phase = session.composingText.isEmpty ? .idle : .composing
         session.composingText.moveCursorToEnd()
         session.advanceRevision()
@@ -690,15 +952,22 @@ final class ImeReducer {
     private func commitAll() -> ImeReductionResult {
         guard !session.composingText.isEmpty else { return success() }
         var text = currentDisplay().text
-        var selectedCandidate: CandidateSnapshot?
-        if let candidates = session.candidates,
+        var selectedCandidates: [CandidateSnapshot] = []
+        if !session.segments.isEmpty {
+            selectedCandidates = session.segments.compactMap(\.selectedCandidate)
+            guard selectedCandidates.count == session.segments.count else {
+                return failure(.invalidAction, "a converted segment has no selection")
+            }
+            text = selectedCandidates.map(\.text).joined()
+        } else if let candidates = session.candidates,
            let index = candidates.selectedIndex,
            candidates.items.indices.contains(index) {
-            selectedCandidate = candidates.items[index]
-            let count = min(selectedCandidate?.consumingCount ?? 0, session.composingText.elements.count)
-            text = (selectedCandidate?.text ?? "") + suffixDisplay(after: count).text
+            let selectedCandidate = candidates.items[index]
+            selectedCandidates = [selectedCandidate]
+            let count = min(selectedCandidate.consumingCount, session.composingText.elements.count)
+            text = selectedCandidate.text + suffixDisplay(after: count).text
         } else if let liveCandidate = session.candidates?.liveCandidate {
-            selectedCandidate = liveCandidate
+            selectedCandidates = [liveCandidate]
             let count = min(liveCandidate.consumingCount, session.composingText.elements.count)
             text = liveCandidate.text + suffixDisplay(after: count).text
         }
@@ -707,10 +976,9 @@ final class ImeReducer {
         if !session.policy.secureInput {
             session.context.leftContext.append(text)
         }
-        if let selectedCandidate { learn(selectedCandidate) }
+        learn(selectedCandidates)
         session.composingText = CompositionBuffer()
-        session.candidates = nil
-        session.activeBoundary = nil
+        clearConversionState()
         session.phase = .idle
         session.advanceRevision()
         converter.stopComposition()
@@ -722,8 +990,7 @@ final class ImeReducer {
         case .selecting:
             if session.candidates?.origin == .prediction {
                 converter.stopComposition()
-                session.candidates = nil
-                session.activeBoundary = nil
+                clearConversionState()
                 session.phase = .composing
             } else if session.reconversionReplacement != nil {
                 session.phase = .reconverting
@@ -733,15 +1000,13 @@ final class ImeReducer {
         case .previewing:
             converter.stopComposition()
             session.phase = .composing
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
         case .unicodeInput:
             finishUnicodeInput(cancelled: true)
         case .composing, .reconverting:
             converter.stopComposition()
             session.composingText = CompositionBuffer()
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
             session.reconversionReplacement = nil
             session.phase = .idle
         case .idle:
@@ -776,11 +1041,11 @@ final class ImeReducer {
                 sourceID: nil
             )
             session.candidates = candidates
+            syncActiveSegmentCandidates(candidates)
             session.phase = .selecting
         } else {
             converter.stopComposition()
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
             session.composingText = CompositionBuffer()
             session.composingText.insert(transformed, inputStyle: .direct)
             session.phase = .composing
@@ -801,23 +1066,20 @@ final class ImeReducer {
             session.composingText = CompositionBuffer()
             session.context.leftContext = ""
             session.context.rightContext = ""
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
             session.reconversionReplacement = nil
             session.unicodeInputBuffer = ""
             session.phaseBeforeUnicodeInput = nil
             session.phase = session.composingText.isEmpty ? .idle : .composing
         case .deactivate, .focusChanged:
             converter.stopComposition()
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
             session.phase = session.composingText.isEmpty ? .idle : .composing
         case .capabilityChanged:
             break
         case .serverRestarted:
             converter.stopComposition()
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
             session.phase = session.composingText.isEmpty ? .idle : .composing
         }
         session.advanceRevision()
@@ -856,8 +1118,7 @@ final class ImeReducer {
 
         converter.stopComposition()
         session.composingText = checkpoint.composition
-        session.candidates = nil
-        session.activeBoundary = nil
+        clearConversionState()
         session.phase = checkpoint.composition.isEmpty ? .idle : .composing
         session.revision = checkpoint.revision
         session.nextCandidateGeneration = checkpoint.nextCandidateGeneration &+ 1
@@ -896,17 +1157,37 @@ final class ImeReducer {
         return candidates.items.first { $0.id == id }
     }
 
-    private func learn(_ candidate: CandidateSnapshot) {
-        let converterCandidate = ConverterCandidate(
-            text: candidate.text,
-            annotation: candidate.annotation,
-            consumingCount: candidate.consumingCount,
-            sourceID: candidate.sourceID
-        )
-        converter.setCompletedData(converterCandidate)
+    private func learn(_ candidates: [CandidateSnapshot]) {
+        guard !candidates.isEmpty else { return }
+        let converterCandidates = candidates.map { candidate in
+            ConverterCandidate(
+                text: candidate.text,
+                annotation: candidate.annotation,
+                consumingCount: candidate.consumingCount,
+                sourceID: candidate.sourceID
+            )
+        }
+        for candidate in converterCandidates {
+            converter.setCompletedData(candidate)
+        }
         guard session.policy.allowsLearning && !session.policy.secureInput else { return }
-        converter.updateLearningData(converterCandidate)
+        for candidate in converterCandidates {
+            converter.updateLearningData(candidate)
+        }
+        // Persist once for the whole confirmed composition so the converter's
+        // left-to-right learning chain remains atomic across all segments.
         converter.commitLearning()
+    }
+
+    private func clearSegmentedConversion() {
+        session.segments = []
+        session.activeSegmentIndex = nil
+    }
+
+    private func clearConversionState() {
+        session.candidates = nil
+        session.activeBoundary = nil
+        clearSegmentedConversion()
     }
 
     private func normalizeAfterEditing() {
@@ -915,13 +1196,11 @@ final class ImeReducer {
         }
         if session.composingText.isEmpty {
             session.phase = .idle
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
             session.reconversionReplacement = nil
         } else {
             session.phase = .composing
-            session.candidates = nil
-            session.activeBoundary = nil
+            clearConversionState()
         }
     }
 
@@ -1043,6 +1322,23 @@ final class ImeReducer {
             ].filter { !$0.text.isEmpty }
             caret = UInt32(display.text.utf8.count + marker.utf8.count)
             aux = "Unicode U+" + session.unicodeInputBuffer.uppercased()
+        } else if !session.segments.isEmpty,
+                  let activeIndex = session.activeSegmentIndex,
+                  session.segments.indices.contains(activeIndex) {
+            preedit = session.segments.enumerated().compactMap { index, segment in
+                guard let candidate = segment.selectedCandidate,
+                      !candidate.text.isEmpty else { return nil }
+                return PreeditSpan(
+                    text: candidate.text,
+                    style: index == activeIndex ? .active : .underline
+                )
+            }
+            let textBeforeCaret = session.segments
+                .prefix(activeIndex + 1)
+                .compactMap(\.selectedCandidate?.text)
+                .joined()
+            caret = UInt32(textBeforeCaret.utf8.count)
+            aux = nil
         } else if let candidates = session.candidates,
            let selectedIndex = candidates.selectedIndex,
            candidates.items.indices.contains(selectedIndex) {

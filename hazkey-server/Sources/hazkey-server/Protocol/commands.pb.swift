@@ -163,6 +163,18 @@ struct Hazkey_Commands_ResizeSegment: Sendable {
   init() {}
 }
 
+struct Hazkey_Commands_MoveActiveSegment: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var offset: Int32 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
 struct Hazkey_Commands_CommitSelected: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -634,6 +646,14 @@ struct Hazkey_Commands_HandleImeAction: Sendable {
     set {action = .commitUnicodeInput(newValue)}
   }
 
+  var moveActiveSegment: Hazkey_Commands_MoveActiveSegment {
+    get {
+      if case .moveActiveSegment(let v)? = action {return v}
+      return Hazkey_Commands_MoveActiveSegment()
+    }
+    set {action = .moveActiveSegment(newValue)}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   enum OneOf_Action: Equatable, Sendable {
@@ -659,6 +679,7 @@ struct Hazkey_Commands_HandleImeAction: Sendable {
     case beginUnicodeInput(Hazkey_Commands_BeginUnicodeInput)
     case appendUnicodeDigit(Hazkey_Commands_AppendUnicodeDigit)
     case commitUnicodeInput(Hazkey_Commands_CommitUnicodeInput)
+    case moveActiveSegment(Hazkey_Commands_MoveActiveSegment)
 
   }
 
@@ -921,6 +942,38 @@ extension Hazkey_Commands_ResizeSegment: SwiftProtobuf.Message, SwiftProtobuf._M
 
   static func ==(lhs: Hazkey_Commands_ResizeSegment, rhs: Hazkey_Commands_ResizeSegment) -> Bool {
     if lhs.delta != rhs.delta {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_Commands_MoveActiveSegment: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".MoveActiveSegment"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "offset"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt32Field(value: &self.offset) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.offset != 0 {
+      try visitor.visitSingularInt32Field(value: self.offset, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Commands_MoveActiveSegment, rhs: Hazkey_Commands_MoveActiveSegment) -> Bool {
+    if lhs.offset != rhs.offset {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1384,6 +1437,7 @@ extension Hazkey_Commands_HandleImeAction: SwiftProtobuf.Message, SwiftProtobuf.
     29: .standard(proto: "begin_unicode_input"),
     30: .standard(proto: "append_unicode_digit"),
     31: .standard(proto: "commit_unicode_input"),
+    32: .standard(proto: "move_active_segment"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -1680,6 +1734,19 @@ extension Hazkey_Commands_HandleImeAction: SwiftProtobuf.Message, SwiftProtobuf.
           self.action = .commitUnicodeInput(v)
         }
       }()
+      case 32: try {
+        var v: Hazkey_Commands_MoveActiveSegment?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .moveActiveSegment(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .moveActiveSegment(v)
+        }
+      }()
       default: break
       }
     }
@@ -1784,6 +1851,10 @@ extension Hazkey_Commands_HandleImeAction: SwiftProtobuf.Message, SwiftProtobuf.
     case .commitUnicodeInput?: try {
       guard case .commitUnicodeInput(let v)? = self.action else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 31)
+    }()
+    case .moveActiveSegment?: try {
+      guard case .moveActiveSegment(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 32)
     }()
     case nil: break
     }

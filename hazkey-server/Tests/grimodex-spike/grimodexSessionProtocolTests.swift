@@ -26,6 +26,28 @@ final class GrimodexSessionProtocolTests: XCTestCase {
     XCTAssertEqual(command.insertText.text, "a")
   }
 
+  func testMoveActiveSegmentRoundTripsAndDecodesAsASemanticAction() throws {
+    let request = Hazkey_Commands_HandleImeAction.with {
+      $0.requestID = "move-segment"
+      $0.expectedRevision = 0
+      $0.moveActiveSegment = Hazkey_Commands_MoveActiveSegment.with {
+        $0.offset = -1
+      }
+    }
+
+    let decoded = try Hazkey_Commands_HandleImeAction(
+      serializedBytes: request.serializedData()
+    )
+    guard case .moveActiveSegment(let command) = decoded.action else {
+      return XCTFail("move_active_segment action was not preserved")
+    }
+    XCTAssertEqual(command.offset, -1)
+
+    let response = ImeV2SessionController().handle(decoded)
+    XCTAssertEqual(response.status, .invalidAction)
+    XCTAssertEqual(response.handleImeActionResult.status, .invalidAction)
+  }
+
   func testOpenAndCloseSessionMessagesRoundTripClientIdentity() throws {
     let open = Hazkey_RequestEnvelope.with {
       $0.openSession = Hazkey_OpenSession.with {

@@ -40,6 +40,10 @@ message ResizeSegment {
     int32 delta = 1;
 }
 
+message MoveActiveSegment {
+    int32 offset = 1;
+}
+
 message CommitSelected {}
 message CommitAll {}
 message Cancel {}
@@ -135,5 +139,6 @@ message HandleImeAction {
         BeginUnicodeInput begin_unicode_input = 29;
         AppendUnicodeDigit append_unicode_digit = 30;
         CommitUnicodeInput commit_unicode_input = 31;
+        MoveActiveSegment move_active_segment = 32;
     }
 }

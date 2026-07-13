@@ -18,8 +18,17 @@ final class LearningSynchronizedKanaKanjiConverter: KanaKanjiConverting {
         self.observedRevision = revisionStore.current()
     }
 
+    var supportsSegmentEditing: Bool { base.supportsSegmentEditing }
+
     func display(for composition: CompositionInput) -> CompositionDisplay {
         base.display(for: composition)
+    }
+
+    func inputCursorPosition(
+        for composition: CompositionInput,
+        movingBy offset: Int
+    ) -> Int {
+        base.inputCursorPosition(for: composition, movingBy: offset)
     }
 
     func candidates(
@@ -28,6 +37,14 @@ final class LearningSynchronizedKanaKanjiConverter: KanaKanjiConverting {
     ) throws -> ConversionOutput {
         synchronizePersistedLearningIfNeeded()
         return try base.candidates(for: composition, options: options)
+    }
+
+    func segmentCandidates(
+        for composition: CompositionInput,
+        options: ConversionOptions
+    ) throws -> ConversionOutput {
+        synchronizePersistedLearningIfNeeded()
+        return try base.segmentCandidates(for: composition, options: options)
     }
 
     func predictions(

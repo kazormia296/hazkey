@@ -288,6 +288,9 @@ bool HazkeyState::dispatchV2(const HazkeySemanticAction& action,
         case HazkeySemanticActionKind::resizeSegment:
             request.mutable_resize_segment()->set_delta(action.value);
             break;
+        case HazkeySemanticActionKind::moveActiveSegment:
+            request.mutable_move_active_segment()->set_offset(action.value);
+            break;
         case HazkeySemanticActionKind::commitSelected:
             request.mutable_commit_selected();
             break;
@@ -465,6 +468,10 @@ void HazkeyState::renderV2Snapshot() {
             select->set_candidate_id(id);
             select->set_generation(generation);
             applyV2Response(server_.transactV2(std::move(request)));
+            // Candidate clicks do not pass through HazkeyEngine::keyEvent(),
+            // so flush the newly selected active-segment snapshot here.
+            ic_->updatePreedit();
+            ic_->updateUserInterface(UserInterfaceComponent::InputPanel);
         });
     candidateList->setPageSize(
         std::max(1, static_cast<int>(

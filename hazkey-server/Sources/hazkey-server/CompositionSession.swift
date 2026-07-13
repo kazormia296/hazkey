@@ -21,6 +21,25 @@ struct CandidateSet: Equatable, Sendable {
             pageSize: pageSize
         )
     }
+
+    var selectedCandidate: CandidateSnapshot? {
+        guard let selectedIndex, items.indices.contains(selectedIndex) else {
+            return nil
+        }
+        return items[selectedIndex]
+    }
+}
+
+/// One uncommitted conversion segment. Candidate state stays with the segment
+/// while focus moves, so revisiting a segment restores the user's selection
+/// instead of regenerating or resetting it.
+struct CompositionSegment: Equatable, Sendable {
+    var inputCount: Int
+    var candidates: CandidateSet
+
+    var selectedCandidate: CandidateSnapshot? {
+        candidates.selectedCandidate
+    }
 }
 
 struct ReconversionReplacement: Equatable, Codable, Sendable {
@@ -33,6 +52,8 @@ struct CompositionSession: Equatable, Sendable {
     var composingText = CompositionBuffer()
     var activeBoundary: Int?
     var candidates: CandidateSet?
+    var segments: [CompositionSegment] = []
+    var activeSegmentIndex: Int?
     var revision: UInt64 = 0
     var nextCandidateGeneration: UInt64 = 0
     var nextEffectID: UInt64 = 1

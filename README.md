@@ -33,7 +33,9 @@ Grimodexとの共有契約は
 基本カーソル編集、候補/文節操作、部分確定、JISキー、F6–F10、再接続、
 secure inputに加え、ユーザー辞書CRUD/import/export、候補忘却、再変換、
 Unicode入力、right context、予測候補を実装しています。
-文節操作中は、選択文節と残りの読みの間を表示専用の `│` で示します。
+変換中はLeft / Rightで未確定の文節を移動し、Shift+Left / Shift+Rightで
+選択文節の境界を変更できます。Space / Up / Downは選択文節だけを変換し、
+Enterで全文節をまとめて確定します。各文節の間は表示専用の `│` で示します。
 
 ## Fcitx5 アドオン設定
 
@@ -78,6 +80,17 @@ cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DGGML_VULKAN=OFF -
 ninja
 sudo ninja install
 ```
+
+同じ操作を繰り返す場合は、付属スクリプトから呼び出せます。
+
+```sh
+./scripts/grimodex-ime.sh build    # configure + build
+./scripts/grimodex-ime.sh install  # install the existing build
+./scripts/grimodex-ime.sh restart  # replace the old server and restart Fcitx5
+./scripts/grimodex-ime.sh all      # build + install + restart
+```
+
+`BUILD_DIR`、`INSTALL_PREFIX`、`GGML_VULKAN` などは環境変数で上書きできます。
 
 主要なローカル検証:
 
