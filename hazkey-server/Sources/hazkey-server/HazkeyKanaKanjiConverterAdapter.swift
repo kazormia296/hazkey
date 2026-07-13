@@ -403,7 +403,16 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             : result.firstClauseResults
         let preferredClause: Candidate?
         let best = result.mainResults.first { candidate in
-            candidate.isLearningTarget
+            // Personal/project dictionary entries can be marked as non-learning
+            // targets by AzooKey even though they are authoritative one-node
+            // surfaces. They still need to define the boundary; otherwise a
+            // long user term is split at the first generic clause and the
+            // exact dictionary candidate never reaches the visible window.
+            let isAuthoritativeDictionaryNode = candidate.data.count == 1
+                && candidate.data.contains {
+                    $0.metadata.contains(.isFromUserDictionary)
+                }
+            return (candidate.isLearningTarget || isAuthoritativeDictionaryNode)
                 && !candidate.data.isEmpty
                 && consumedInputCount(candidate) == inputCount
         }
