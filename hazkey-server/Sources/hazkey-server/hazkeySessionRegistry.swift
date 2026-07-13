@@ -213,6 +213,7 @@ final class HazkeySessionRegistry {
                 secureInput: environment.grimodexSecureInput,
                 zenzaiEnabled: !environment.grimodexSecureInput,
                 projectRevision: appliedRevision?.generation ?? 0,
+                autoConvertMode: environment.grimodexAutoConvertMode,
                 inputTableName: environment.currentTableName,
                 keymap: pinnedKeymap(environment.keymap)
             )
@@ -239,6 +240,9 @@ final class HazkeySessionRegistry {
                         == .suggestionListShowPredictiveResults,
                     Int(profile.numSuggestions)
                 )
+            },
+            suggestionListModeProvider: { [environment] in
+                environment.grimodexSuggestionListMode
             }
         )
         let semanticController = ImeV2SessionController(
@@ -257,6 +261,7 @@ final class HazkeySessionRegistry {
                     secureInput: environment.grimodexSecureInput,
                     zenzaiEnabled: !environment.grimodexSecureInput,
                     projectRevision: revision?.generation ?? 0,
+                    autoConvertMode: environment.grimodexAutoConvertMode,
                     inputTableName: environment.currentTableName,
                     keymap: pinnedKeymap(environment.keymap)
                 )

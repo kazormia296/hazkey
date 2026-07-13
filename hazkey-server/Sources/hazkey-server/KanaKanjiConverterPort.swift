@@ -38,6 +38,24 @@ struct ConversionOutput: Equatable, Sendable {
     let pageSize: Int
 }
 
+struct RealtimeConversionOutput: Equatable, Sendable {
+    let liveCandidate: ConverterCandidate?
+    let candidates: [ConverterCandidate]
+    let pageSize: Int
+}
+
+enum ImeAutoConvertMode: String, Codable, Sendable, Equatable {
+    case disabled
+    case always
+    case forMultipleChars
+}
+
+enum ImeSuggestionListMode: String, Codable, Sendable, Equatable {
+    case disabled
+    case normal
+    case predictive
+}
+
 struct CompositionDisplay: Equatable, Sendable {
     let text: String
     let caretUtf8ByteOffset: UInt32
@@ -50,6 +68,11 @@ protocol KanaKanjiConverting: AnyObject {
         for composition: CompositionInput,
         options: ConversionOptions
     ) throws -> ConversionOutput
+
+    func realtimeCandidates(
+        for composition: CompositionInput,
+        options: ConversionOptions
+    ) throws -> RealtimeConversionOutput
 
     func predictions(
         for composition: CompositionInput,
@@ -81,6 +104,18 @@ extension KanaKanjiConverting {
         options: ConversionOptions
     ) throws -> ConversionOutput {
         ConversionOutput(candidates: [], pageSize: 0)
+    }
+
+    func realtimeCandidates(
+        for composition: CompositionInput,
+        options: ConversionOptions
+    ) throws -> RealtimeConversionOutput {
+        let output = try candidates(for: composition, options: options)
+        return RealtimeConversionOutput(
+            liveCandidate: output.candidates.first,
+            candidates: output.candidates,
+            pageSize: output.pageSize
+        )
     }
 }
 
@@ -219,6 +254,7 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
     var allowsLearning: Bool
     var secureInput: Bool
     var zenzaiEnabled: Bool
+    var autoConvertMode: ImeAutoConvertMode
     var projectRevision: UInt64
     var inputTableName: String? = nil
     var keymap: [String: PinnedKeymapRule] = [:]
@@ -228,6 +264,7 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         secureInput: false,
         zenzaiEnabled: true,
         projectRevision: 0,
+        autoConvertMode: .disabled,
         inputTableName: nil,
         keymap: [:]
     )
@@ -236,6 +273,7 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         case allowsLearning
         case secureInput
         case zenzaiEnabled
+        case autoConvertMode
         case projectRevision
         case inputTableName
         case keymap
@@ -246,12 +284,14 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         secureInput: Bool,
         zenzaiEnabled: Bool,
         projectRevision: UInt64,
+        autoConvertMode: ImeAutoConvertMode = .disabled,
         inputTableName: String? = nil,
         keymap: [String: PinnedKeymapRule] = [:]
     ) {
         self.allowsLearning = allowsLearning
         self.secureInput = secureInput
         self.zenzaiEnabled = zenzaiEnabled
+        self.autoConvertMode = autoConvertMode
         self.projectRevision = projectRevision
         self.inputTableName = inputTableName
         self.keymap = keymap
@@ -262,6 +302,10 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         allowsLearning = try container.decode(Bool.self, forKey: .allowsLearning)
         secureInput = try container.decode(Bool.self, forKey: .secureInput)
         zenzaiEnabled = try container.decode(Bool.self, forKey: .zenzaiEnabled)
+        autoConvertMode = try container.decodeIfPresent(
+            ImeAutoConvertMode.self,
+            forKey: .autoConvertMode
+        ) ?? .disabled
         projectRevision = try container.decode(UInt64.self, forKey: .projectRevision)
         inputTableName = try container.decodeIfPresent(
             String.self,

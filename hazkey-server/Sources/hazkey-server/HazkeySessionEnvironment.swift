@@ -40,6 +40,30 @@ final class HazkeySessionEnvironment {
     }
     var grimodexAllowsLearning: Bool { grimodexIntegration.allowsLearning }
     var grimodexSecureInput: Bool { grimodexIntegration.secureInput }
+    var grimodexAutoConvertMode: ImeAutoConvertMode {
+        switch serverConfig.currentProfile.autoConvertMode {
+        case .autoConvertAlways:
+            return .always
+        case .autoConvertForMultipleChars:
+            return .forMultipleChars
+        case .autoConvertDisabled, .unspecified:
+            return .disabled
+        default:
+            return .disabled
+        }
+    }
+    var grimodexSuggestionListMode: ImeSuggestionListMode {
+        switch serverConfig.currentProfile.suggestionListMode {
+        case .suggestionListShowNormalResults:
+            return .normal
+        case .suggestionListShowPredictiveResults:
+            return .predictive
+        case .suggestionListDisabled, .unspecified:
+            return .disabled
+        default:
+            return .disabled
+        }
+    }
 
     init(
         serverConfig injectedServerConfig: HazkeyServerConfig? = nil,

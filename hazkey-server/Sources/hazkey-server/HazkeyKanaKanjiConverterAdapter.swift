@@ -12,6 +12,7 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
     private let optionsProvider: (ConversionOptions) -> ConvertRequestOptions
     private let mappedInputStyleProvider: () -> InputStyle
     private let predictionConfigurationProvider: () -> (enabled: Bool, limit: Int)
+    private let suggestionListModeProvider: () -> ImeSuggestionListMode
     private var completedCandidates: [String: Candidate] = [:]
     private var nextCandidateSourceID: UInt64 = 1
 
@@ -21,12 +22,14 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         mappedInputStyleProvider: @escaping () -> InputStyle = { .roman2kana },
         predictionConfigurationProvider: @escaping () -> (enabled: Bool, limit: Int) = {
             (false, 0)
-        }
+        },
+        suggestionListModeProvider: @escaping () -> ImeSuggestionListMode = { .predictive }
     ) {
         self.converter = converter
         self.optionsProvider = optionsProvider
         self.mappedInputStyleProvider = mappedInputStyleProvider
         self.predictionConfigurationProvider = predictionConfigurationProvider
+        self.suggestionListModeProvider = suggestionListModeProvider
     }
 
     func candidates(
@@ -75,6 +78,82 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         )
     }
 
+    func realtimeCandidates(
+        for composition: CompositionInput,
+        options: ConversionOptions
+    ) throws -> RealtimeConversionOutput {
+        let targetCount = composition.targetCount.map {
+            min(max($0, 0), composition.elements.count)
+        } ?? composition.elements.count
+        let targetElements = composition.elements.prefix(targetCount)
+        guard !targetElements.isEmpty else {
+            return RealtimeConversionOutput(
+                liveCandidate: nil,
+                candidates: [],
+                pageSize: 0
+            )
+        }
+
+        let composingText = makeComposingText(
+            from: targetElements,
+            mappedTableName: composition.mappedTableName
+        )
+        let mode = suggestionListModeProvider()
+        let configuration = predictionConfigurationProvider()
+        var requestOptions = optionsProvider(options)
+        let limit = max(configuration.limit, 1)
+        requestOptions.N_best = switch mode {
+        case .disabled:
+            1
+        case .normal, .predictive:
+            limit
+        }
+        requestOptions.requireJapanesePrediction = mode == .predictive
+            ? .manualMix
+            : .disabled
+        requestOptions.requireEnglishPrediction = .disabled
+        if !options.zenzaiEnabled {
+            requestOptions.zenzaiMode = .off
+        }
+
+        let result = converter.requestCandidates(composingText, options: requestOptions)
+        let mainCandidates = result.mainResults.map {
+            makeConverterCandidate(
+                $0,
+                in: composingText,
+                elementCount: targetElements.count
+            )
+        }
+        let liveCandidate = mainCandidates.first {
+            $0.consumingCount == targetElements.count
+        }
+
+        let candidates: [ConverterCandidate]
+        let pageSize: Int
+        switch mode {
+        case .disabled:
+            candidates = []
+            pageSize = 0
+        case .normal:
+            candidates = Array(mainCandidates.prefix(limit))
+            pageSize = min(limit, candidates.count)
+        case .predictive:
+            candidates = result.predictionResults.prefix(limit).map {
+                makePredictionCandidate(
+                    $0,
+                    in: composingText,
+                    elementCount: targetElements.count
+                )
+            }
+            pageSize = min(limit, candidates.count)
+        }
+        return RealtimeConversionOutput(
+            liveCandidate: liveCandidate,
+            candidates: candidates,
+            pageSize: pageSize
+        )
+    }
+
     func predictions(
         for composition: CompositionInput,
         options: ConversionOptions
@@ -97,22 +176,11 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         }
         let result = converter.requestCandidates(composingText, options: requestOptions)
         let candidates = result.predictionResults.prefix(configuration.limit).map { candidate in
-            let consumingCount = consumingInputCount(
-                candidate.composingCount,
-                in: composingText
+            makePredictionCandidate(
+                candidate,
+                in: composingText,
+                elementCount: composition.elements.count
             )
-            let sourceID = allocateCandidateSourceID()
-            let value = ConverterCandidate(
-                text: candidate.text,
-                annotation: "予測",
-                consumingCount: min(
-                    max(consumingCount, 1),
-                    composition.elements.count
-                ),
-                sourceID: sourceID
-            )
-            completedCandidates[sourceID] = candidate
-            return value
         }
         return ConversionOutput(
             candidates: candidates,
@@ -171,6 +239,43 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             ? 1
             : nextCandidateSourceID + 1
         return result
+    }
+
+    private func makeConverterCandidate(
+        _ candidate: Candidate,
+        in composingText: ComposingText,
+        elementCount: Int
+    ) -> ConverterCandidate {
+        let consumingCount = consumingInputCount(
+            candidate.composingCount,
+            in: composingText
+        )
+        let sourceID = allocateCandidateSourceID()
+        let value = ConverterCandidate(
+            text: candidate.text,
+            consumingCount: min(max(consumingCount, 1), elementCount),
+            sourceID: sourceID
+        )
+        completedCandidates[sourceID] = candidate
+        return value
+    }
+
+    private func makePredictionCandidate(
+        _ candidate: Candidate,
+        in composingText: ComposingText,
+        elementCount: Int
+    ) -> ConverterCandidate {
+        let value = makeConverterCandidate(
+            candidate,
+            in: composingText,
+            elementCount: elementCount
+        )
+        return ConverterCandidate(
+            text: value.text,
+            annotation: "予測",
+            consumingCount: value.consumingCount,
+            sourceID: value.sourceID
+        )
     }
 
     private func makeComposingText(

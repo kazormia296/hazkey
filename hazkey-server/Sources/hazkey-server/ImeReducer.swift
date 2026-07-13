@@ -83,7 +83,7 @@ final class ImeReducer {
             session.composingText.insert(text, keymap: session.policy.keymap)
             session.candidates = nil
             session.activeBoundary = nil
-            refreshPredictions()
+            refreshInteractiveCandidates()
             session.advanceRevision()
             result = success()
 
@@ -100,7 +100,7 @@ final class ImeReducer {
             }
             session.composingText.deleteBackward()
             normalizeAfterEditing()
-            refreshPredictions()
+            refreshInteractiveCandidates()
             session.advanceRevision()
             result = success()
 
@@ -111,7 +111,7 @@ final class ImeReducer {
             }
             session.composingText.deleteForward()
             normalizeAfterEditing()
-            refreshPredictions()
+            refreshInteractiveCandidates()
             session.advanceRevision()
             result = success()
 
@@ -125,7 +125,7 @@ final class ImeReducer {
             session.phase = .composing
             session.candidates = nil
             session.activeBoundary = nil
-            refreshPredictions()
+            refreshInteractiveCandidates()
             session.advanceRevision()
             result = success()
 
@@ -143,7 +143,7 @@ final class ImeReducer {
             session.phase = .composing
             session.candidates = nil
             session.activeBoundary = nil
-            refreshPredictions()
+            refreshInteractiveCandidates()
             session.advanceRevision()
             result = success()
 
@@ -391,6 +391,116 @@ final class ImeReducer {
         return result
     }
 
+    private func refreshInteractiveCandidates() {
+        guard session.policy.autoConvertMode != .disabled else {
+            refreshPredictions()
+            return
+        }
+        refreshRealtimeCandidates()
+    }
+
+    private func refreshRealtimeCandidates() {
+        guard session.phase == .composing, !session.composingText.isEmpty else {
+            return
+        }
+        let input = CompositionInput(
+            elements: session.composingText.elements,
+            cursor: session.composingText.cursor,
+            leftContext: session.context.leftContext,
+            mappedTableName: session.policy.inputTableName
+        )
+        let display = converter.display(for: input)
+        do {
+            let output = try converter.realtimeCandidates(
+                for: input,
+                options: ConversionOptions(
+                    allowLearning: session.policy.allowsLearning
+                        && !session.policy.secureInput,
+                    zenzaiEnabled: session.policy.zenzaiEnabled
+                        && !session.policy.secureInput,
+                    leftContext: session.context.leftContext,
+                    rightContext: session.context.rightContext
+                )
+            )
+            let liveCandidate: CandidateSnapshot? = shouldPublishLiveCandidate(
+                for: display
+            )
+                ? output.liveCandidate.map { makeSnapshot($0) }
+                : nil
+            guard !output.candidates.isEmpty || liveCandidate != nil else {
+                session.candidates = nil
+                session.activeBoundary = nil
+                return
+            }
+            let generation = session.allocateCandidateGeneration()
+            session.candidates = CandidateSet(
+                generation: generation,
+                items: output.candidates.enumerated().map { index, candidate in
+                    makeSnapshot(candidate, generation: generation, index: index)
+                },
+                selectedIndex: nil,
+                pageSize: output.candidates.isEmpty
+                    ? 0
+                    : max(1, min(output.pageSize, output.candidates.count)),
+                origin: .prediction,
+                liveCandidate: liveCandidate.map {
+                    CandidateSnapshot(
+                        id: "\(generation)-live",
+                        text: $0.text,
+                        annotation: $0.annotation,
+                        consumingCount: $0.consumingCount,
+                        sourceID: $0.sourceID
+                    )
+                }
+            )
+            session.activeBoundary = nil
+        } catch {
+            // Live conversion is opportunistic. Keep the reading editable when
+            // the converter cannot produce a realtime result.
+            session.candidates = nil
+            session.activeBoundary = nil
+        }
+    }
+
+    private func shouldPublishLiveCandidate(
+        for display: CompositionDisplay
+    ) -> Bool {
+        // A converted surface does not retain enough information to place an
+        // editing caret inside it. Keep the reading visible while editing in
+        // the middle, then resume live conversion when the caret returns to
+        // the end.
+        guard session.composingText.cursor == session.composingText.elements.count else {
+            return false
+        }
+        switch session.policy.autoConvertMode {
+        case .disabled:
+            return false
+        case .always:
+            return true
+        case .forMultipleChars:
+            // Composition elements are keystrokes. With the default Romaji
+            // table, "ka" is two elements but only one rendered kana.
+            return display.text.count > 1
+        }
+    }
+
+    private func makeSnapshot(
+        _ candidate: ConverterCandidate,
+        generation: UInt64 = 0,
+        index: Int = 0
+    ) -> CandidateSnapshot {
+        CandidateSnapshot(
+            id: generation == 0 ? "realtime-\(index)" : "\(generation)-\(index)",
+            text: candidate.text,
+            annotation: candidate.annotation,
+            consumingCount: min(
+                max(candidate.consumingCount, 1),
+                session.composingText.elements.count
+            ),
+            sourceID: candidate.sourceID
+        )
+    }
+
     private func refreshPredictions() {
         guard session.phase == .composing, !session.composingText.isEmpty else {
             return
@@ -435,7 +545,8 @@ final class ImeReducer {
                 },
                 selectedIndex: nil,
                 pageSize: max(1, min(output.pageSize, output.candidates.count)),
-                origin: .prediction
+                origin: .prediction,
+                liveCandidate: nil
             )
             session.activeBoundary = nil
         } catch {
@@ -500,7 +611,8 @@ final class ImeReducer {
                 },
                 selectedIndex: 0,
                 pageSize: max(1, min(output.pageSize, output.candidates.count)),
-                origin: .conversion
+                origin: .conversion,
+                liveCandidate: nil
             )
             session.phase = isReconversion ? .reconverting : .previewing
             if advanceRevision { session.advanceRevision() }
@@ -585,6 +697,10 @@ final class ImeReducer {
             selectedCandidate = candidates.items[index]
             let count = min(selectedCandidate?.consumingCount ?? 0, session.composingText.elements.count)
             text = (selectedCandidate?.text ?? "") + suffixDisplay(after: count).text
+        } else if let liveCandidate = session.candidates?.liveCandidate {
+            selectedCandidate = liveCandidate
+            let count = min(liveCandidate.consumingCount, session.composingText.elements.count)
+            text = liveCandidate.text + suffixDisplay(after: count).text
         }
         var effects = takeReconversionReplacementEffect()
         effects.append(.commitText(effectID: session.allocateEffectID(), text: text))
@@ -662,6 +778,9 @@ final class ImeReducer {
             session.candidates = candidates
             session.phase = .selecting
         } else {
+            converter.stopComposition()
+            session.candidates = nil
+            session.activeBoundary = nil
             session.composingText = CompositionBuffer()
             session.composingText.insert(transformed, inputStyle: .direct)
             session.phase = .composing
@@ -934,6 +1053,18 @@ final class ImeReducer {
             ].filter { !$0.text.isEmpty }
             caret = UInt32(candidates.items[selectedIndex].text.utf8.count)
             aux = nil
+        } else if let liveCandidate = session.candidates?.liveCandidate,
+                  session.phase == .composing {
+            let boundary = min(
+                max(liveCandidate.consumingCount, 1),
+                session.composingText.elements.count
+            )
+            preedit = [
+                PreeditSpan(text: liveCandidate.text, style: .active),
+                PreeditSpan(text: suffixDisplay(after: boundary).text, style: .underline),
+            ].filter { !$0.text.isEmpty }
+            caret = UInt32(liveCandidate.text.utf8.count)
+            aux = nil
         } else if session.composingText.isEmpty {
             preedit = []
             caret = nil
@@ -958,7 +1089,7 @@ final class ImeReducer {
     }
 
     private func currentDisplay() -> CompositionDisplay {
-        converter.display(for: CompositionInput(
+        return converter.display(for: CompositionInput(
             elements: session.composingText.elements,
             cursor: session.composingText.cursor,
             leftContext: session.context.leftContext,

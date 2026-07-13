@@ -11,6 +11,7 @@ struct CandidateSet: Equatable, Sendable {
     var selectedIndex: Int?
     let pageSize: Int
     let origin: CandidateSetOrigin
+    let liveCandidate: CandidateSnapshot?
 
     func snapshot() -> CandidateWindowSnapshot {
         CandidateWindowSnapshot(
