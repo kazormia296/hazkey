@@ -20,6 +20,10 @@ FCITX_CONFIGURATION(HazkeyEngineConfig,
                     Option<bool> normalSpaceFullwidth{
                         this, "normalSpaceFullwidth",
                         _("Use full-width space without Shift"), true};
+                    Option<bool> preeditCursorPositionAtBeginning{
+                        this, "PreeditCursorPositionAtBeginning",
+                        _("Fix embedded preedit cursor at the beginning of the preedit"),
+                        false};
                     ExternalOption openGrimodexSettings{
                         this, "openGrimodexSettings", _("Open Grimodex IME Settings"),
                         std::string(grimodex::ime::kSettingsExecutable)};);

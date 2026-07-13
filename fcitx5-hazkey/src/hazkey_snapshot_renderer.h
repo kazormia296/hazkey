@@ -13,9 +13,11 @@ namespace fcitx {
 
 class HazkeySnapshotRenderer {
    public:
-    static Text renderPreedit(const hazkey::SessionSnapshot& snapshot);
+    static Text renderPreedit(const hazkey::SessionSnapshot& snapshot,
+                              bool cursorAtBeginning = false);
     static void render(InputContext* inputContext,
-                       const hazkey::SessionSnapshot& snapshot);
+                       const hazkey::SessionSnapshot& snapshot,
+                       bool cursorAtBeginning = false);
     static std::size_t utf8ByteLength(const hazkey::SessionSnapshot& snapshot);
 };
 

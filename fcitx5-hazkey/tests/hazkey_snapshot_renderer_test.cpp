@@ -58,10 +58,49 @@ void clampsMalformedCaretOffsetsWithoutChangingText() {
     expect(rendered.toString() == "𠮷", "caret clamping must not alter text");
 }
 
+void canAnchorTheInputPanelAtThePreeditStart() {
+    hazkey::SessionSnapshot snapshot;
+    snapshot.add_preedit()->set_text("変換");
+    snapshot.set_caret_utf8_byte_offset(
+        static_cast<uint32_t>(std::string("変換").size()));
+
+    const auto rendered = fcitx::HazkeySnapshotRenderer::renderPreedit(
+        snapshot, true);
+    expect(rendered.cursor() == 0,
+           "the optional fixed cursor must anchor the input panel at the preedit start");
+    expect(rendered.toString() == "変換",
+           "the fixed cursor must not change the preedit text");
+}
+
+void rendersDisplayOnlyBoundaryForTheActiveSegment() {
+    hazkey::SessionSnapshot snapshot;
+    snapshot.set_phase(hazkey::SELECTING);
+    auto* active = snapshot.add_preedit();
+    active->set_text("東京");
+    active->set_style(hazkey::PreeditSpan::ACTIVE);
+    auto* remaining = snapshot.add_preedit();
+    remaining->set_text("に行く");
+    remaining->set_style(hazkey::PreeditSpan::UNDERLINE);
+    snapshot.set_caret_utf8_byte_offset(
+        static_cast<uint32_t>(active->text().size() + remaining->text().size()));
+
+    const auto rendered = fcitx::HazkeySnapshotRenderer::renderPreedit(snapshot);
+    expect(rendered.toString() == "東京│に行く",
+           "segment editing must display a visible boundary");
+    expect(rendered.toStringForCommit() == "東京に行く",
+           "the segment boundary must never be committed");
+    expect(rendered.formatAt(1).test(fcitx::TextFormatFlag::DontCommit),
+           "the segment boundary must be marked as display-only");
+    expect(rendered.cursor() == static_cast<int>(rendered.toString().size()),
+           "a caret after the boundary must account for its display-only bytes");
+}
+
 }  // namespace
 
 int main() {
     rendersUnicodeSpansAndByteCaretExactly();
     clampsMalformedCaretOffsetsWithoutChangingText();
+    canAnchorTheInputPanelAtThePreeditStart();
+    rendersDisplayOnlyBoundaryForTheActiveSegment();
     return 0;
 }

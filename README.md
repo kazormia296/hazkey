@@ -33,6 +33,14 @@ Grimodexとの共有契約は
 基本カーソル編集、候補/文節操作、部分確定、JISキー、F6–F10、再接続、
 secure inputに加え、ユーザー辞書CRUD/import/export、候補忘却、再変換、
 Unicode入力、right context、予測候補を実装しています。
+文節操作中は、選択文節と残りの読みの間を表示専用の `│` で示します。
+
+## Fcitx5 アドオン設定
+
+Fcitx5の「アドオンを設定」から Grimodex IME を開くと、
+`Fix embedded preedit cursor at the beginning of the preedit` を切り替えられます。
+既定ではオフで、実際の編集位置にキャレットを表示します。有効にするとキャレットを
+preedit先頭へ固定するため、候補ウィンドウを変換中の文字列の左端に安定して表示できます。
 
 Phase 0–11の実装対応表、自動テスト結果、リリース機で行う手動GUI確認は
 [Linux IME release evidence](docs/linux-release-evidence.md)に記録しています。

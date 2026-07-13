@@ -750,6 +750,14 @@ final class GrimodexImeReducerTests: XCTestCase {
     XCTAssertEqual(resized.snapshot.phase, .selecting)
     XCTAssertEqual(resized.snapshot.candidateWindow.items.first?.consumingCount, 1)
     XCTAssertEqual(reducer.session.activeBoundary, 1)
+    XCTAssertEqual(
+      resized.snapshot.preedit,
+      [
+        PreeditSpan(text: "変換", style: .active),
+        PreeditSpan(text: "ょう", style: .underline),
+      ],
+      "segment editing must keep the active segment distinct from the remaining reading"
+    )
   }
 
   func testCandidatePagingUsesGlobalIndicesAndClampsAtEdges() {

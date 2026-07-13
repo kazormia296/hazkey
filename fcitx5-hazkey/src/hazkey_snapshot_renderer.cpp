@@ -1,12 +1,15 @@
 #include "hazkey_snapshot_renderer.h"
 
 #include <algorithm>
+#include <string_view>
 
 #include <fcitx-utils/textformatflags.h>
 #include <fcitx/inputpanel.h>
 
 namespace fcitx {
 namespace {
+constexpr std::string_view kSegmentBoundary = "│";
+
 TextFormatFlags formatFor(hazkey::PreeditSpan::Style style) {
     switch (style) {
         case hazkey::PreeditSpan::PLAIN:
@@ -19,29 +22,65 @@ TextFormatFlags formatFor(hazkey::PreeditSpan::Style style) {
             return TextFormatFlag::Underline;
     }
 }
+
+TextFormatFlags segmentBoundaryFormat() {
+    // The marker is display-only. Text::toStringForCommit() omits spans with
+    // DontCommit, so no frontend path can include it in a committed string.
+    return TextFormatFlags{TextFormatFlag::Bold} |
+           TextFormatFlag::DontCommit;
+}
+
+bool needsSegmentBoundary(const hazkey::SessionSnapshot& snapshot, int index) {
+    if (snapshot.phase() != hazkey::SELECTING || index <= 0 ||
+        index >= snapshot.preedit_size()) {
+        return false;
+    }
+    const auto previousStyle = snapshot.preedit(index - 1).style();
+    const auto currentStyle = snapshot.preedit(index).style();
+    return (previousStyle == hazkey::PreeditSpan::ACTIVE &&
+            currentStyle == hazkey::PreeditSpan::UNDERLINE) ||
+           (previousStyle == hazkey::PreeditSpan::UNDERLINE &&
+            currentStyle == hazkey::PreeditSpan::ACTIVE);
+}
 }  // namespace
 
 Text HazkeySnapshotRenderer::renderPreedit(
-    const hazkey::SessionSnapshot& snapshot) {
+    const hazkey::SessionSnapshot& snapshot, bool cursorAtBeginning) {
     Text rendered;
-    for (const auto& span : snapshot.preedit()) {
+    const auto caret = snapshot.has_caret_utf8_byte_offset()
+        ? std::min<std::size_t>(snapshot.caret_utf8_byte_offset(),
+                                utf8ByteLength(snapshot))
+        : 0;
+    std::size_t sourceOffset = 0;
+    std::size_t renderedCaret = caret;
+    for (int index = 0; index < snapshot.preedit_size(); ++index) {
+        const auto& span = snapshot.preedit(index);
+        if (needsSegmentBoundary(snapshot, index)) {
+            rendered.append(std::string(kSegmentBoundary), segmentBoundaryFormat());
+            // A caret exactly at the document boundary stays before the marker.
+            // Carets in the following segment account for its display-only bytes.
+            if (caret > sourceOffset) {
+                renderedCaret += kSegmentBoundary.size();
+            }
+        }
         rendered.append(span.text(), formatFor(span.style()));
+        sourceOffset += span.text().size();
     }
     if (snapshot.has_caret_utf8_byte_offset()) {
-        const auto caret = std::min<std::size_t>(
-            snapshot.caret_utf8_byte_offset(), rendered.toString().size());
         // Fcitx Text's cursor is byte-based, matching the v2 snapshot unit.
-        rendered.setCursor(static_cast<int>(caret));
+        rendered.setCursor(cursorAtBeginning ? 0
+                                             : static_cast<int>(renderedCaret));
     }
     return rendered;
 }
 
 void HazkeySnapshotRenderer::render(
-    InputContext* inputContext, const hazkey::SessionSnapshot& snapshot) {
+    InputContext* inputContext, const hazkey::SessionSnapshot& snapshot,
+    bool cursorAtBeginning) {
     if (inputContext == nullptr) {
         return;
     }
-    auto rendered = renderPreedit(snapshot);
+    auto rendered = renderPreedit(snapshot, cursorAtBeginning);
     if (inputContext->capabilityFlags().test(CapabilityFlag::Preedit)) {
         inputContext->inputPanel().setClientPreedit(rendered);
     } else {

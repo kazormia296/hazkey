@@ -448,7 +448,9 @@ bool HazkeyState::applyV2Response(
 }
 
 void HazkeyState::renderV2Snapshot() {
-    HazkeySnapshotRenderer::render(ic_, snapshot_);
+    HazkeySnapshotRenderer::render(
+        ic_, snapshot_,
+        engine_->config().preeditCursorPositionAtBeginning.value());
     if (snapshot_.candidate_window().items_size() == 0) {
         ic_->inputPanel().setCandidateList(nullptr);
         return;
