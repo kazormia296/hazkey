@@ -348,6 +348,7 @@ jobs:
             fcitx5 \
             file \
             libgomp1 \
+            libqt6network6 \
             libqt6widgets6 \
             libvulkan1 \
             passwd \
