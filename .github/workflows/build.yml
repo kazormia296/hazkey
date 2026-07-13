@@ -398,7 +398,7 @@ jobs:
             printf 'Maintainer: Grimodex Project <kazormia296@users.noreply.github.com>\n'
             printf 'Section: utils\n'
             printf 'Priority: optional\n'
-            printf 'Depends: fcitx5, libgomp1, libqt6widgets6, libvulkan1\n'
+            printf 'Depends: fcitx5, libgomp1, libqt6network6, libqt6widgets6, libvulkan1\n'
             printf 'Description: test-only Grimodex canonical payload transaction package\n'
           } > "$payload_root/DEBIAN/control"
           (
