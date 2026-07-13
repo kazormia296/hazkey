@@ -17,9 +17,16 @@ private final class ReducerFixtureConverter: KanaKanjiConverting {
   func display(for composition: CompositionInput) -> CompositionDisplay {
     let raw = composition.elements.map(\.text).joined()
     let text = displayOverride ?? raw
+    let caret = if displayOverride == nil {
+      composition.elements.prefix(composition.cursor).reduce(0) {
+        $0 + $1.text.utf8.count
+      }
+    } else {
+      text.utf8.count
+    }
     return CompositionDisplay(
       text: text,
-      caretUtf8ByteOffset: UInt32(text.utf8.count)
+      caretUtf8ByteOffset: UInt32(caret)
     )
   }
 
@@ -640,6 +647,90 @@ final class GrimodexImeReducerTests: XCTestCase {
       accepted.snapshot.effects,
       [.commitText(effectID: 1, text: "かな予測")]
     )
+  }
+
+  func testAutoConversionPublishesLiveCandidateWithoutEnteringPreviewing() {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.policy.autoConvertMode = .forMultipleChars
+    let reducer = ImeReducer(session: session, converter: converter)
+
+    let first = reducer.reduce(.insertText("か"), requestID: "first")
+    XCTAssertEqual(first.snapshot.phase, .composing)
+    XCTAssertEqual(first.snapshot.preedit.first?.text, "か")
+    XCTAssertEqual(first.snapshot.preedit.first?.style, .underline)
+
+    let second = reducer.reduce(.insertText("な"), requestID: "second")
+    XCTAssertEqual(second.snapshot.phase, .composing)
+    XCTAssertEqual(second.snapshot.preedit.first?.text, "変換")
+    XCTAssertEqual(second.snapshot.preedit.first?.style, .active)
+    XCTAssertNil(second.snapshot.candidateWindow.selectedIndex)
+
+    let committed = reducer.reduce(.commitAll, requestID: "commit")
+    XCTAssertEqual(
+      committed.snapshot.effects,
+      [.commitText(effectID: 1, text: "変換")]
+    )
+    XCTAssertEqual(converter.completed, 1)
+  }
+
+  func testAutoConversionAlwaysPublishesSingleCharacterLiveCandidate() {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.policy.autoConvertMode = .always
+    let reducer = ImeReducer(session: session, converter: converter)
+
+    let result = reducer.reduce(.insertText("か"), requestID: "insert")
+    XCTAssertEqual(result.snapshot.phase, .composing)
+    XCTAssertEqual(result.snapshot.preedit.first?.text, "変換")
+    XCTAssertEqual(result.snapshot.preedit.first?.style, .active)
+  }
+
+  func testAutoConversionForMultipleCharsUsesRenderedReadingLength() {
+    let converter = ReducerFixtureConverter()
+    converter.displayOverride = "か"
+    var session = CompositionSession()
+    session.policy.autoConvertMode = .forMultipleChars
+    let reducer = ImeReducer(session: session, converter: converter)
+
+    let result = reducer.reduce(.insertText("ka"), requestID: "insert")
+
+    XCTAssertEqual(result.snapshot.preedit.first?.text, "か")
+    XCTAssertEqual(result.snapshot.preedit.first?.style, .underline)
+    XCTAssertNil(reducer.session.candidates?.liveCandidate)
+  }
+
+  func testAutoConversionShowsReadingAndCaretWhileEditingInTheMiddle() {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.policy.autoConvertMode = .always
+    let reducer = ImeReducer(session: session, converter: converter)
+    _ = reducer.reduce(.insertText("かな"), requestID: "insert")
+
+    let moved = reducer.reduce(.moveCursor(-1), requestID: "left")
+
+    XCTAssertEqual(moved.snapshot.preedit.first?.text, "かな")
+    XCTAssertEqual(moved.snapshot.preedit.first?.style, .underline)
+    XCTAssertEqual(moved.snapshot.caretUtf8ByteOffset, UInt32("か".utf8.count))
+    XCTAssertNil(reducer.session.candidates?.liveCandidate)
+  }
+
+  func testTextTransformUsesReadingInsteadOfUnselectedLiveCandidate() {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.policy.autoConvertMode = .always
+    let reducer = ImeReducer(session: session, converter: converter)
+    _ = reducer.reduce(.insertText("かな"), requestID: "insert")
+
+    let transformed = reducer.reduce(
+      .transformActiveSegment(.katakanaFullwidth),
+      requestID: "katakana"
+    )
+
+    XCTAssertEqual(transformed.snapshot.preedit.first?.text, "カナ")
+    XCTAssertEqual(transformed.snapshot.preedit.first?.style, .underline)
+    XCTAssertTrue(transformed.snapshot.candidateWindow.items.isEmpty)
+    XCTAssertEqual(reducer.session.composingText.text, "カナ")
   }
 
   func testComposingSelectionAndSegmentResizeAreSemanticActions() {

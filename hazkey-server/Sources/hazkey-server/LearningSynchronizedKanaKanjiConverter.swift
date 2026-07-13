@@ -38,6 +38,14 @@ final class LearningSynchronizedKanaKanjiConverter: KanaKanjiConverting {
         return try base.predictions(for: composition, options: options)
     }
 
+    func realtimeCandidates(
+        for composition: CompositionInput,
+        options: ConversionOptions
+    ) throws -> RealtimeConversionOutput {
+        synchronizePersistedLearningIfNeeded()
+        return try base.realtimeCandidates(for: composition, options: options)
+    }
+
     func setCompletedData(_ candidate: ConverterCandidate) {
         base.setCompletedData(candidate)
     }
