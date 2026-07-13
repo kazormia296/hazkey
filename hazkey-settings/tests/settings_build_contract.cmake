@@ -74,6 +74,27 @@ require_contains("${warning_widget_source}" "lightnessF"
                  "warning text color must adapt to the highlight background")
 require_contains("${ai_header}" "refreshGrimodexDiagnostics"
                  "settings must expose a Grimodex diagnostics presenter")
+require_contains("${ai_header}" "refreshZenzaiRuntimeDiagnostics"
+                 "settings must expose a Zenzai runtime diagnostics presenter")
+require_contains("${ai_source}" "Refresh diagnostics"
+                 "settings must expose an explicit Zenzai diagnostics refresh action")
+require_contains("${ai_source}" "context_.server->getConfig()"
+                 "Zenzai diagnostics refresh must fetch a current server snapshot")
+require_contains("${ai_source}" "mutable_zenzai_runtime_diagnostics()->CopyFrom"
+                 "Zenzai diagnostics refresh must preserve unsaved profile edits")
+require_contains("${ai_source}" "Failed to refresh Zenzai runtime diagnostics"
+                 "Zenzai diagnostics refresh failures must be visible")
+foreach(required IN ITEMS
+        "has_zenzai_runtime_diagnostics"
+        "model_load_verified"
+        "zenzai_enabled_request_count"
+        "model_load_failure_count"
+        "last_zenzai_request_unix_millis"
+        "does not expose per-candidate AI"
+        "status")
+    require_contains("${ai_source}" "${required}"
+                     "settings Zenzai diagnostics must display ${required}")
+endforeach()
 foreach(required IN ITEMS
         "has_grimodex_diagnostics"
         "watcher_active"

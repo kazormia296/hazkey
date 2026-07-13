@@ -63,6 +63,7 @@ struct GrimodexMappedDictionaryEntry: Equatable, Hashable, Sendable {
     let cid: Int
     let mid: Int
     let value: Float
+    let priority: Int
     let entryID: String
 
     var dictionaryElement: DicdataElement {
@@ -88,7 +89,31 @@ struct GrimodexIntegrationPayload: Equatable, Sendable {
     let projectID: String
     let projectName: String
     let dictionaryEntries: [GrimodexMappedDictionaryEntry]
+    let dictionaryIndex: GrimodexProjectDictionaryIndex
     let conditions: GrimodexProjectConditions
+
+    init(
+        projectID: String,
+        projectName: String,
+        dictionaryEntries: [GrimodexMappedDictionaryEntry],
+        conditions: GrimodexProjectConditions
+    ) {
+        self.projectID = projectID
+        self.projectName = projectName
+        self.dictionaryEntries = dictionaryEntries
+        dictionaryIndex = GrimodexProjectDictionaryIndex(entries: dictionaryEntries)
+        self.conditions = conditions
+    }
+
+    static func == (
+        lhs: GrimodexIntegrationPayload,
+        rhs: GrimodexIntegrationPayload
+    ) -> Bool {
+        lhs.projectID == rhs.projectID
+            && lhs.projectName == rhs.projectName
+            && lhs.dictionaryEntries == rhs.dictionaryEntries
+            && lhs.conditions == rhs.conditions
+    }
 }
 
 enum GrimodexLoadDiagnostic: String, Equatable, Sendable {
@@ -453,6 +478,7 @@ private struct GrimodexDictionaryMapper {
                 cid: cid,
                 mid: 501,
                 value: score(for: entry.category, priority: entry.priority),
+                priority: entry.priority,
                 entryID: entry.entryID
             )
             let key = Key(ruby: ruby, word: word, cid: cid)

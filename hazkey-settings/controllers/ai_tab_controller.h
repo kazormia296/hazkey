@@ -9,6 +9,7 @@
 
 class QWidget;
 class QLabel;
+class QPushButton;
 
 namespace Ui {
 class MainWindow;
@@ -29,6 +30,7 @@ class AiTabController : public QObject {
    private slots:
     void onDownloadZenzaiModel();
     void onSelectLocalZenzaiModel();
+    void onRefreshZenzaiRuntimeDiagnostics();
 
    private:
     QString calculateFileSHA256(const QString& filePath);
@@ -36,6 +38,9 @@ class AiTabController : public QObject {
     void populateDeviceList();
     void populateGrimodexScopeList();
     void updateGrimodexScopeFromProfile();
+    void refreshZenzaiRuntimeDiagnostics();
+    QString zenzaiRuntimeStatusText(
+        ::hazkey::config::ZenzaiRuntimeDiagnostics_Status status) const;
     void refreshGrimodexDiagnostics();
     QString grimodexScopeReasonText(
         ::hazkey::config::GrimodexDiagnostics_ScopeReason reason) const;
@@ -44,6 +49,8 @@ class AiTabController : public QObject {
 
     Ui::MainWindow* ui_;
     QWidget* window_;
+    QLabel* zenzaiDiagnosticsLabel_;
+    QPushButton* zenzaiDiagnosticsRefreshButton_;
     QLabel* grimodexDiagnosticsLabel_;
     TabContext context_;
     std::atomic<bool> isLoading_{false};

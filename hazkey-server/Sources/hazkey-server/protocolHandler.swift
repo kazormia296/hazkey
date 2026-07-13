@@ -146,6 +146,8 @@ class ProtocolHandler {
             var configResponse = sessionRegistry.serverConfig.getCurrentConfig()
             if configResponse.status == .success {
                 configResponse.currentConfig.grimodexDiagnostics = diagnosticsProvider().protobuf
+                configResponse.currentConfig.zenzaiRuntimeDiagnostics =
+                    sessionRegistry.zenzaiRuntimeDiagnostics().protobuf
             }
             response = configResponse
         case .setConfig(let request):

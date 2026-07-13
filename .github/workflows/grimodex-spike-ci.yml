@@ -306,6 +306,26 @@ jobs:
           path: grimodex-consumer-e2e
           submodules: false
 
+      - name: Cache pinned Zenzai test model
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/grimodex-zenzai-model/zenzai.gguf
+          key: zenzai-v3-small-q5km-v1-501f605d088f5b988791a00ae19ed46985ed7c48144f364b2f3f1f951c9b2083
+
+      - name: Fetch and verify pinned Zenzai test model
+        run: |
+          mkdir -p "$RUNNER_TEMP/grimodex-zenzai-model"
+          model="$RUNNER_TEMP/grimodex-zenzai-model/zenzai.gguf"
+          expected="501f605d088f5b988791a00ae19ed46985ed7c48144f364b2f3f1f951c9b2083"
+          if ! echo "$expected  $model" | sha256sum --check --status; then
+            curl --fail --location --retry 3 \
+              --output "$model.download" \
+              https://github.com/kazormia296/grimodex-models/releases/download/zenzai-v3-small-q5km-v1/zenzai-v3-small-Q5_K_M.gguf
+            echo "$expected  $model.download" | sha256sum --check
+            mv "$model.download" "$model"
+          fi
+          echo "$expected  $model" | sha256sum --check
+
       - name: Run consumer writer-to-reader process E2E
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/hazkey-server/build-ci/bin
@@ -323,6 +343,7 @@ jobs:
           LD_LIBRARY_PATH: ${{ github.workspace }}/hazkey-server/build-ci/bin
           GRIMODEX_PROCESS_E2E_SERVER: ${{ github.workspace }}/hazkey-server/build-ci/swift-build/release/hazkey-server
           FCITX5_GRIMODEX_DICTIONARY: ${{ github.workspace }}/hazkey-server/azooKey_dictionary_storage/Dictionary
+          FCITX5_GRIMODEX_ZENZAI_MODEL: ${{ runner.temp }}/grimodex-zenzai-model/zenzai.gguf
         run: |
           set -o pipefail
           swift test \
@@ -333,6 +354,20 @@ jobs:
             -Xlinker -L${{ github.workspace }}/hazkey-server/build-ci/bin \
             --filter Grimodex \
             2>&1 | tee "$RUNNER_TEMP/grimodex-spike.log"
+
+      - name: Run Zenzai diagnostics and same-path reload tests
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/hazkey-server/build-ci/bin
+          FCITX5_GRIMODEX_DICTIONARY: ${{ github.workspace }}/hazkey-server/azooKey_dictionary_storage/Dictionary
+          GRIMODEX_ZENZAI_RELOAD_TEST_MODEL: ${{ runner.temp }}/grimodex-zenzai-model/zenzai.gguf
+        run: |
+          swift test \
+            --package-path hazkey-server \
+            --scratch-path hazkey-server/build-ci/swift-build \
+            --configuration release \
+            --traits ZenzaiSupport \
+            -Xlinker -L${{ github.workspace }}/hazkey-server/build-ci/bin \
+            --filter Zenzai
 
       - name: Publish dynamic dictionary benchmark telemetry
         run: |

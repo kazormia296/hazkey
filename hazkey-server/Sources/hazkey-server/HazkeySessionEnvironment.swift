@@ -16,6 +16,7 @@ final class HazkeySessionEnvironment {
     var keymap: Keymap
     var currentTableName: String
     var baseConvertRequestOptions: ConvertRequestOptions
+    private(set) var grimodexProjectDictionaryIndex = GrimodexProjectDictionaryIndex.empty
     private var grimodexDynamicDictionaryEntries: [DicdataElement] = []
     private var personalDynamicDictionaryEntries: [DicdataElement] = []
     private var temporaryShortcutEntries: [DicdataElement] = []
@@ -144,8 +145,10 @@ final class HazkeySessionEnvironment {
     }
 
     func replaceGrimodexDynamicDictionary(
-        _ entries: [GrimodexMappedDictionaryEntry]
+        _ entries: [GrimodexMappedDictionaryEntry],
+        projectIndex: GrimodexProjectDictionaryIndex
     ) {
+        grimodexProjectDictionaryIndex = projectIndex
         grimodexDynamicDictionaryEntries = entries.map(\.dictionaryElement)
         applyDynamicDictionaries()
     }

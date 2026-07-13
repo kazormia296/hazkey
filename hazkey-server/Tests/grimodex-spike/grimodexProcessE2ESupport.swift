@@ -458,6 +458,18 @@ final class GrimodexProcessClient {
     )
   }
 
+  func zenzaiRuntimeDiagnostics() throws
+    -> Hazkey_Config_ZenzaiRuntimeDiagnostics
+  {
+    let config = try getConfig()
+    guard config.hasZenzaiRuntimeDiagnostics else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "Configuration does not contain Zenzai runtime diagnostics"
+      )
+    }
+    return config.zenzaiRuntimeDiagnostics
+  }
+
   private func getConfig() throws -> Hazkey_Config_CurrentConfig {
     let response = try transact(
       Hazkey_RequestEnvelope.with { $0.getConfig = .init() }

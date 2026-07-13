@@ -5,6 +5,42 @@ import SwiftProtobuf
 let KEYMAP_FILE_SIZE_LIMIT = 1024 * 1024  //1MB
 let TABLE_FILE_SIZE_LIMIT = 1024 * 1024  //1MB
 
+private let zenzaiRuntimeGenerationQueryName = "grimodex_zenzai_generation"
+
+/// Gives each model reload a distinct cache identity without changing the file
+/// that the pinned Zenzai runtime opens.
+///
+/// `KanaKanjiConverter` compares the complete `resourceURL` when deciding
+/// whether it can reuse a loaded model, while `Zenz` passes only `URL.path` to
+/// llama.cpp. A generation query therefore invalidates the former and remains
+/// invisible to the latter. This also avoids filesystem aliases that can fail
+/// to be created or outlive a crashed service.
+func makeZenzaiRuntimeModelURL(
+    modelURL: URL,
+    generation: UUID = UUID()
+) -> URL {
+    precondition(modelURL.isFileURL, "Zenzai models must use file URLs")
+    guard var components = URLComponents(
+        url: modelURL,
+        resolvingAgainstBaseURL: false
+    ) else {
+        preconditionFailure("Unable to create Zenzai runtime URL components")
+    }
+    var queryItems = components.queryItems ?? []
+    queryItems.removeAll { $0.name == zenzaiRuntimeGenerationQueryName }
+    queryItems.append(
+        URLQueryItem(
+            name: zenzaiRuntimeGenerationQueryName,
+            value: generation.uuidString.lowercased()
+        )
+    )
+    components.queryItems = queryItems
+    guard let runtimeURL = components.url, runtimeURL.path == modelURL.path else {
+        preconditionFailure("Unable to preserve the Zenzai model filesystem path")
+    }
+    return runtimeURL
+}
+
 private enum HazkeyServerConfigError: LocalizedError {
     case emptyProfiles
     case invalidProfileDocument
@@ -50,9 +86,13 @@ class HazkeyServerConfig {
     var profiles: [Hazkey_Config_Profile]
     var currentProfile: Hazkey_Config_Profile
     let dictionaryPath: URL
-    var zenzaiAvailable: Bool
-    var zenzaiModelPath: URL?
+    private(set) var zenzaiAvailable: Bool
+    private(set) var zenzaiModelPath: URL?
+    private(set) var zenzaiRuntimeModelURL: URL?
     var ggmlBackendDevices: [GGMLBackendDevice]
+    private let zenzaiModelPathProvider: () -> URL?
+    private let zenzaiRuntimeGenerationProvider: () -> UUID
+    private let zenzaiBackendAvailableOverride: Bool?
 
     var grimodexScopeMode: GrimodexScopeMode {
         switch currentProfile.grimodexScopeMode {
@@ -67,7 +107,17 @@ class HazkeyServerConfig {
         }
     }
 
-    init() {
+    init(
+        zenzaiBackendDevicesProvider: () -> [GGMLBackendDevice] = {
+            getZenzaiDevices()
+        },
+        zenzaiModelPathProvider: @escaping () -> URL? = { getZenzaiModelPath() },
+        zenzaiRuntimeGenerationProvider: @escaping () -> UUID = { UUID() },
+        zenzaiBackendAvailableOverride: Bool? = nil
+    ) {
+        self.zenzaiModelPathProvider = zenzaiModelPathProvider
+        self.zenzaiRuntimeGenerationProvider = zenzaiRuntimeGenerationProvider
+        self.zenzaiBackendAvailableOverride = zenzaiBackendAvailableOverride
         do {
             profiles = try Self.loadConfig()
         } catch {
@@ -95,9 +145,18 @@ class HazkeyServerConfig {
             }
         }()
 
-        self.ggmlBackendDevices = getZenzaiDevices()
-        zenzaiModelPath = if ggmlBackendDevices.count <= 0 { nil } else { getZenzaiModelPath() }
-        self.zenzaiAvailable = (ggmlBackendDevices.count > 0) && (zenzaiModelPath != nil)
+        self.ggmlBackendDevices = zenzaiBackendDevicesProvider()
+        let backendAvailable = zenzaiBackendAvailableOverride
+            ?? !ggmlBackendDevices.isEmpty
+        let modelPath = backendAvailable ? zenzaiModelPathProvider() : nil
+        self.zenzaiModelPath = modelPath
+        self.zenzaiRuntimeModelURL = modelPath.map {
+            makeZenzaiRuntimeModelURL(
+                modelURL: $0,
+                generation: zenzaiRuntimeGenerationProvider()
+            )
+        }
+        self.zenzaiAvailable = backendAvailable && zenzaiRuntimeModelURL != nil
     }
 
     func getCurrentConfig() -> Hazkey_ResponseEnvelope {
@@ -392,6 +451,11 @@ class HazkeyServerConfig {
     )
         -> ConvertRequestOptions.ZenzaiMode
     {
+        guard case .enabled(let zenzaiModelPath) = zenzaiRuntimeDecision(
+            zenzaiAllowed: zenzaiAllowed
+        ) else {
+            return .off
+        }
         let deviceName =
             currentProfile.zenzaiBackendDeviceName.isEmpty
             ? "CPU" : currentProfile.zenzaiBackendDeviceName
@@ -403,33 +467,39 @@ class HazkeyServerConfig {
             project: projectConditions
         )
 
-        if zenzaiAllowed,
-            zenzaiAvailable,
-            let zenzaiModelPath = zenzaiModelPath,
-            currentProfile.zenzaiEnable
-        {
-            return ConvertRequestOptions.ZenzaiMode.on(
-                weight: zenzaiModelPath,
-                inferenceLimit: Int(currentProfile.zenzaiInferLimit),
-                requestRichCandidates: currentProfile.useRichCandidates,
-                personalizationMode: nil,
-                versionDependentMode: .v3(
-                    ConvertRequestOptions.ZenzaiV3DependentMode.init(
-                        profile: resolved.profile,
-                        topic: resolved.topic,
-                        style: resolved.style,
-                        preference: resolved.preference,
-                        leftSideContext: currentProfile.zenzaiContextualMode
-                            ? Self.contextForZenzai(
-                                left: leftContext,
-                                right: rightContext
-                            ) : nil
-                    )),
-                deviceConfig: createDeviceConfig(deviceName: deviceName)
-            )
-        } else {
-            return ConvertRequestOptions.ZenzaiMode.off
+        return ConvertRequestOptions.ZenzaiMode.on(
+            weight: zenzaiModelPath,
+            inferenceLimit: Int(currentProfile.zenzaiInferLimit),
+            requestRichCandidates: currentProfile.useRichCandidates,
+            personalizationMode: nil,
+            versionDependentMode: .v3(
+                ConvertRequestOptions.ZenzaiV3DependentMode.init(
+                    profile: resolved.profile,
+                    topic: resolved.topic,
+                    style: resolved.style,
+                    preference: resolved.preference,
+                    leftSideContext: currentProfile.zenzaiContextualMode
+                        ? Self.contextForZenzai(
+                            left: leftContext,
+                            right: rightContext
+                        ) : nil
+                )),
+            deviceConfig: createDeviceConfig(deviceName: deviceName)
+        )
+    }
+
+    func zenzaiRuntimeDecision(
+        zenzaiAllowed: Bool
+    ) -> ZenzaiRuntimeDecision {
+        guard zenzaiAllowed else { return .policyDisabled }
+        guard currentProfile.zenzaiEnable else { return .profileDisabled }
+        let backendAvailable = zenzaiBackendAvailableOverride
+            ?? !ggmlBackendDevices.isEmpty
+        guard backendAvailable else { return .backendUnavailable }
+        guard zenzaiModelPath != nil, let zenzaiRuntimeModelURL else {
+            return .modelMissing
         }
+        return .enabled(modelURL: zenzaiRuntimeModelURL)
     }
 
     private static func contextForZenzai(left: String, right: String) -> String {
@@ -595,8 +665,17 @@ class HazkeyServerConfig {
     }
 
     func reloadZenzaiModel() {
-        zenzaiModelPath = if ggmlBackendDevices.count <= 0 { nil } else { getZenzaiModelPath() }
-        self.zenzaiAvailable = (ggmlBackendDevices.count > 0) && (zenzaiModelPath != nil)
+        let backendAvailable = zenzaiBackendAvailableOverride
+            ?? !ggmlBackendDevices.isEmpty
+        let modelPath = backendAvailable ? zenzaiModelPathProvider() : nil
+        zenzaiModelPath = modelPath
+        zenzaiRuntimeModelURL = modelPath.map {
+            makeZenzaiRuntimeModelURL(
+                modelURL: $0,
+                generation: zenzaiRuntimeGenerationProvider()
+            )
+        }
+        self.zenzaiAvailable = backendAvailable && zenzaiRuntimeModelURL != nil
     }
 }
 

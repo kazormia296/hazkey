@@ -54,6 +54,20 @@ final class GrimodexProcessE2ETests: XCTestCase {
       "Grimodex工程A",
       "the active Grimodex term must be the real converter's top candidate"
     )
+    if let modelPath = ProcessInfo.processInfo.environment[
+      "FCITX5_GRIMODEX_ZENZAI_MODEL"
+    ], !modelPath.isEmpty {
+      guard FileManager.default.fileExists(atPath: modelPath) else {
+        XCTFail("The configured process E2E Zenzai model does not exist")
+        return
+      }
+      let zenzaiDiagnostics = try client.zenzaiRuntimeDiagnostics()
+      XCTAssertEqual(zenzaiDiagnostics.status, .modelLoadVerified)
+      XCTAssertTrue(zenzaiDiagnostics.modelLoadVerified)
+      XCTAssertGreaterThan(zenzaiDiagnostics.zenzaiEnabledRequestCount, 0)
+      XCTAssertEqual(zenzaiDiagnostics.modelLoadFailureCount, 0)
+      XCTAssertTrue(zenzaiDiagnostics.hasLastZenzaiRequestUnixMillis)
+    }
 
     try fixture.publish(
       projectID: "project-b",

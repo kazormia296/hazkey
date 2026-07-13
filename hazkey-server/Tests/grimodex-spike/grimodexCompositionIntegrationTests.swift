@@ -11,6 +11,7 @@ private final class RecordingGrimodexDictionaryApplier: GrimodexDynamicDictionar
   }
 
   private(set) var events: [Event] = []
+  private(set) var indexEntryCounts: [Int] = []
 
   func stopComposition() {
     events.append(.stopComposition)
@@ -20,12 +21,17 @@ private final class RecordingGrimodexDictionaryApplier: GrimodexDynamicDictionar
     events.append(.abortSessionComposition)
   }
 
-  func replaceDynamicDictionary(_ entries: [GrimodexMappedDictionaryEntry]) {
+  func replaceDynamicDictionary(
+    _ entries: [GrimodexMappedDictionaryEntry],
+    projectIndex: GrimodexProjectDictionaryIndex
+  ) {
     events.append(.replace(entries))
+    indexEntryCounts.append(projectIndex.entryCount)
   }
 
   func clear() {
     events.removeAll()
+    indexEntryCounts.removeAll()
   }
 }
 
@@ -41,6 +47,7 @@ final class GrimodexCompositionIntegrationTests: XCTestCase {
       applier.events,
       [.stopComposition, .replace(revision.payload!.dictionaryEntries)]
     )
+    XCTAssertEqual(applier.indexEntryCounts, [revision.payload!.dictionaryEntries.count])
     XCTAssertTrue(controller.isComposing)
     XCTAssertEqual(controller.pinnedRevision, revision)
   }
@@ -280,6 +287,7 @@ final class GrimodexCompositionIntegrationTests: XCTestCase {
             cid: 1289,
             mid: 501,
             value: -5,
+            priority: 2,
             entryID: "entry-\(projectID)"
           )
         ],

@@ -99,7 +99,13 @@ final class GrimodexEnvironmentDictionaryApplier: GrimodexDynamicDictionaryApply
         environment.stopComposition()
     }
 
-    func replaceDynamicDictionary(_ entries: [GrimodexMappedDictionaryEntry]) {
-        environment.replaceGrimodexDynamicDictionary(entries)
+    func replaceDynamicDictionary(
+        _ entries: [GrimodexMappedDictionaryEntry],
+        projectIndex: GrimodexProjectDictionaryIndex
+    ) {
+        environment.replaceGrimodexDynamicDictionary(
+            entries,
+            projectIndex: projectIndex
+        )
     }
 }

@@ -1096,6 +1096,97 @@ struct Hazkey_Config_GrimodexDiagnostics: Sendable {
   fileprivate var _frontend: String? = nil
 }
 
+struct Hazkey_Config_ZenzaiRuntimeDiagnostics: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var status: Hazkey_Config_ZenzaiRuntimeDiagnostics.Status = .unspecified
+
+  var modelLoadVerified: Bool = false
+
+  /// Counts primary conversion requests made with a Zenzai model URL. The
+  /// pinned converter does not expose per-candidate AI evaluation outcomes.
+  var zenzaiEnabledRequestCount: UInt64 = 0
+
+  var modelLoadFailureCount: UInt64 = 0
+
+  var lastZenzaiRequestUnixMillis: UInt64 {
+    get {return _lastZenzaiRequestUnixMillis ?? 0}
+    set {_lastZenzaiRequestUnixMillis = newValue}
+  }
+  /// Returns true if `lastZenzaiRequestUnixMillis` has been explicitly set.
+  var hasLastZenzaiRequestUnixMillis: Bool {return self._lastZenzaiRequestUnixMillis != nil}
+  /// Clears the value of `lastZenzaiRequestUnixMillis`. Subsequent reads from it will return its default value.
+  mutating func clearLastZenzaiRequestUnixMillis() {self._lastZenzaiRequestUnixMillis = nil}
+
+  var detail: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  enum Status: SwiftProtobuf.Enum, Swift.CaseIterable {
+    typealias RawValue = Int
+    case unspecified // = 0
+    case ready // = 1
+    case modelLoadVerified // = 2
+    case profileDisabled // = 3
+    case policyDisabled // = 4
+    case backendUnavailable // = 5
+    case modelMissing // = 6
+    case modelLoadFailed // = 7
+    case UNRECOGNIZED(Int)
+
+    init() {
+      self = .unspecified
+    }
+
+    init?(rawValue: Int) {
+      switch rawValue {
+      case 0: self = .unspecified
+      case 1: self = .ready
+      case 2: self = .modelLoadVerified
+      case 3: self = .profileDisabled
+      case 4: self = .policyDisabled
+      case 5: self = .backendUnavailable
+      case 6: self = .modelMissing
+      case 7: self = .modelLoadFailed
+      default: self = .UNRECOGNIZED(rawValue)
+      }
+    }
+
+    var rawValue: Int {
+      switch self {
+      case .unspecified: return 0
+      case .ready: return 1
+      case .modelLoadVerified: return 2
+      case .profileDisabled: return 3
+      case .policyDisabled: return 4
+      case .backendUnavailable: return 5
+      case .modelMissing: return 6
+      case .modelLoadFailed: return 7
+      case .UNRECOGNIZED(let i): return i
+      }
+    }
+
+    // The compiler won't synthesize support with the UNRECOGNIZED case.
+    static let allCases: [Hazkey_Config_ZenzaiRuntimeDiagnostics.Status] = [
+      .unspecified,
+      .ready,
+      .modelLoadVerified,
+      .profileDisabled,
+      .policyDisabled,
+      .backendUnavailable,
+      .modelMissing,
+      .modelLoadFailed,
+    ]
+
+  }
+
+  init() {}
+
+  fileprivate var _lastZenzaiRequestUnixMillis: UInt64? = nil
+}
+
 struct Hazkey_Config_CurrentConfig: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1149,6 +1240,15 @@ struct Hazkey_Config_CurrentConfig: @unchecked Sendable {
   var hasGrimodexDiagnostics: Bool {return _storage._grimodexDiagnostics != nil}
   /// Clears the value of `grimodexDiagnostics`. Subsequent reads from it will return its default value.
   mutating func clearGrimodexDiagnostics() {_uniqueStorage()._grimodexDiagnostics = nil}
+
+  var zenzaiRuntimeDiagnostics: Hazkey_Config_ZenzaiRuntimeDiagnostics {
+    get {return _storage._zenzaiRuntimeDiagnostics ?? Hazkey_Config_ZenzaiRuntimeDiagnostics()}
+    set {_uniqueStorage()._zenzaiRuntimeDiagnostics = newValue}
+  }
+  /// Returns true if `zenzaiRuntimeDiagnostics` has been explicitly set.
+  var hasZenzaiRuntimeDiagnostics: Bool {return _storage._zenzaiRuntimeDiagnostics != nil}
+  /// Clears the value of `zenzaiRuntimeDiagnostics`. Subsequent reads from it will return its default value.
+  mutating func clearZenzaiRuntimeDiagnostics() {_uniqueStorage()._zenzaiRuntimeDiagnostics = nil}
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2392,6 +2492,85 @@ extension Hazkey_Config_GrimodexDiagnostics.ScopeReason: SwiftProtobuf._ProtoNam
   ]
 }
 
+extension Hazkey_Config_ZenzaiRuntimeDiagnostics: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ZenzaiRuntimeDiagnostics"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "status"),
+    2: .standard(proto: "model_load_verified"),
+    3: .standard(proto: "zenzai_enabled_request_count"),
+    4: .standard(proto: "model_load_failure_count"),
+    5: .standard(proto: "last_zenzai_request_unix_millis"),
+    6: .same(proto: "detail"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.status) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.modelLoadVerified) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.zenzaiEnabledRequestCount) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.modelLoadFailureCount) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self._lastZenzaiRequestUnixMillis) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.detail) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if self.status != .unspecified {
+      try visitor.visitSingularEnumField(value: self.status, fieldNumber: 1)
+    }
+    if self.modelLoadVerified != false {
+      try visitor.visitSingularBoolField(value: self.modelLoadVerified, fieldNumber: 2)
+    }
+    if self.zenzaiEnabledRequestCount != 0 {
+      try visitor.visitSingularUInt64Field(value: self.zenzaiEnabledRequestCount, fieldNumber: 3)
+    }
+    if self.modelLoadFailureCount != 0 {
+      try visitor.visitSingularUInt64Field(value: self.modelLoadFailureCount, fieldNumber: 4)
+    }
+    try { if let v = self._lastZenzaiRequestUnixMillis {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 5)
+    } }()
+    if !self.detail.isEmpty {
+      try visitor.visitSingularStringField(value: self.detail, fieldNumber: 6)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Config_ZenzaiRuntimeDiagnostics, rhs: Hazkey_Config_ZenzaiRuntimeDiagnostics) -> Bool {
+    if lhs.status != rhs.status {return false}
+    if lhs.modelLoadVerified != rhs.modelLoadVerified {return false}
+    if lhs.zenzaiEnabledRequestCount != rhs.zenzaiEnabledRequestCount {return false}
+    if lhs.modelLoadFailureCount != rhs.modelLoadFailureCount {return false}
+    if lhs._lastZenzaiRequestUnixMillis != rhs._lastZenzaiRequestUnixMillis {return false}
+    if lhs.detail != rhs.detail {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_Config_ZenzaiRuntimeDiagnostics.Status: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "STATUS_UNSPECIFIED"),
+    1: .same(proto: "READY"),
+    2: .same(proto: "MODEL_LOAD_VERIFIED"),
+    3: .same(proto: "PROFILE_DISABLED"),
+    4: .same(proto: "POLICY_DISABLED"),
+    5: .same(proto: "BACKEND_UNAVAILABLE"),
+    6: .same(proto: "MODEL_MISSING"),
+    7: .same(proto: "MODEL_LOAD_FAILED"),
+  ]
+}
+
 extension Hazkey_Config_CurrentConfig: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".CurrentConfig"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
@@ -2404,6 +2583,7 @@ extension Hazkey_Config_CurrentConfig: SwiftProtobuf.Message, SwiftProtobuf._Mes
     9: .standard(proto: "zenzai_model_path"),
     6: .standard(proto: "xdg_config_home_path"),
     20: .standard(proto: "grimodex_diagnostics"),
+    21: .standard(proto: "zenzai_runtime_diagnostics"),
   ]
 
   fileprivate class _StorageClass {
@@ -2416,6 +2596,7 @@ extension Hazkey_Config_CurrentConfig: SwiftProtobuf.Message, SwiftProtobuf._Mes
     var _zenzaiModelPath: String = String()
     var _xdgConfigHomePath: String = String()
     var _grimodexDiagnostics: Hazkey_Config_GrimodexDiagnostics? = nil
+    var _zenzaiRuntimeDiagnostics: Hazkey_Config_ZenzaiRuntimeDiagnostics? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -2435,6 +2616,7 @@ extension Hazkey_Config_CurrentConfig: SwiftProtobuf.Message, SwiftProtobuf._Mes
       _zenzaiModelPath = source._zenzaiModelPath
       _xdgConfigHomePath = source._xdgConfigHomePath
       _grimodexDiagnostics = source._grimodexDiagnostics
+      _zenzaiRuntimeDiagnostics = source._zenzaiRuntimeDiagnostics
     }
   }
 
@@ -2462,6 +2644,7 @@ extension Hazkey_Config_CurrentConfig: SwiftProtobuf.Message, SwiftProtobuf._Mes
         case 8: try { try decoder.decodeSingularBoolField(value: &_storage._zenzaiModelAvailable) }()
         case 9: try { try decoder.decodeSingularStringField(value: &_storage._zenzaiModelPath) }()
         case 20: try { try decoder.decodeSingularMessageField(value: &_storage._grimodexDiagnostics) }()
+        case 21: try { try decoder.decodeSingularMessageField(value: &_storage._zenzaiRuntimeDiagnostics) }()
         default: break
         }
       }
@@ -2501,6 +2684,9 @@ extension Hazkey_Config_CurrentConfig: SwiftProtobuf.Message, SwiftProtobuf._Mes
       try { if let v = _storage._grimodexDiagnostics {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 20)
       } }()
+      try { if let v = _storage._zenzaiRuntimeDiagnostics {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 21)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -2519,6 +2705,7 @@ extension Hazkey_Config_CurrentConfig: SwiftProtobuf.Message, SwiftProtobuf._Mes
         if _storage._zenzaiModelPath != rhs_storage._zenzaiModelPath {return false}
         if _storage._xdgConfigHomePath != rhs_storage._xdgConfigHomePath {return false}
         if _storage._grimodexDiagnostics != rhs_storage._grimodexDiagnostics {return false}
+        if _storage._zenzaiRuntimeDiagnostics != rhs_storage._zenzaiRuntimeDiagnostics {return false}
         return true
       }
       if !storagesAreEqual {return false}

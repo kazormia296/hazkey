@@ -238,6 +238,7 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
 
     XCTAssertEqual(response.status, .success)
     XCTAssertTrue(response.currentConfig.hasGrimodexDiagnostics)
+    XCTAssertTrue(response.currentConfig.hasZenzaiRuntimeDiagnostics)
     XCTAssertEqual(response.currentConfig.grimodexDiagnostics.generation, 9)
     XCTAssertEqual(
       response.currentConfig.grimodexDiagnostics.scopeReason,

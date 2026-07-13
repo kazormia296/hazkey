@@ -4,263 +4,328 @@
 <context>
     <name>AiTabController</name>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="119"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="166"/>
         <source>Select a local Zenzai model</source>
         <translation>ローカルのZenzaiモデルを選択</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="120"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="167"/>
         <source>GGUF model (*.gguf);;All files (*)</source>
         <translation>GGUFモデル (*.gguf);;すべてのファイル (*)</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="129"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="140"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="148"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="159"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="167"/>
         <location filename="controllers/ai_tab_controller.cpp" line="176"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="187"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="195"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="206"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="214"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="223"/>
         <source>Model Import Error</source>
         <translation>モデルのインポートエラー</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="130"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="177"/>
         <source>Failed to create directory: %1</source>
         <translation>ディレクトリの作成に失敗しました: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="141"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="188"/>
         <source>Failed to open model file: %1</source>
         <translation>モデルファイルを開けませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="149"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="196"/>
         <source>Failed to prepare model file: %1</source>
         <translation>モデルファイルを準備できませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="160"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="207"/>
         <source>Failed to read model file: %1</source>
         <translation>モデルファイルを読み込めませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="168"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="215"/>
         <source>Failed to write model file: %1</source>
         <translation>モデルファイルを書き込めませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="177"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="224"/>
         <source>Failed to install model file: %1</source>
         <translation>モデルファイルをインストールできませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="187"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="196"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="234"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="243"/>
         <source>Model Installed</source>
         <translation>モデルをインストールしました</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="188"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="235"/>
         <source>The local model was installed at %1, but the Grimodex IME service could not reload it. Restart the input method or select Reload after the service starts.</source>
         <translation>ローカルモデルを %1 にインストールしましたが、Grimodex IME サービスで再読み込みできませんでした。入力メソッドを再起動するか、サービスの起動後に「再読み込み」を選択してください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="197"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="244"/>
         <source>The local Zenzai model was installed at %1. Select Reload to refresh this window.</source>
         <translation>ローカルのZenzaiモデルを %1 にインストールしました。この画面を更新するには「再読み込み」を選択してください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="207"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="223"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="256"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="254"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="270"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="303"/>
         <source>Model Download Error</source>
         <translation>モデルのダウンロードエラー</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="208"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="255"/>
         <source>The Zenzai model downloader is not installed: %1</source>
         <translation>Zenzaiモデルダウンローダーがインストールされていません: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="224"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="271"/>
         <source>Failed to download the tested Zenzai model.%1</source>
         <translation>動作確認済みのZenzaiモデルのダウンロードに失敗しました。%1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="241"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="248"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="288"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="295"/>
         <source>Model Downloaded</source>
         <translation>モデルをダウンロードしました</translation>
     </message>
     <message>
-        <source>The Zenzai model was downloaded, but the IME service could not reload it. Restart the input method or select Reload.</source>
-        <translation type="vanished">Zenzaiモデルをダウンロードしましたが、IMEサービスで再読み込みできませんでした。入力メソッドを再起動するか、「再読み込み」を選択してください。</translation>
-    </message>
-    <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="249"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="296"/>
         <source>The tested Zenzai model is ready to use.</source>
         <translation>動作確認済みのZenzaiモデルを使用できます。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="257"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="304"/>
         <source>Failed to start the Zenzai model downloader: %1</source>
         <translation>Zenzaiモデルダウンローダーを起動できませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="262"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="309"/>
         <source>Downloading Zenzai Model</source>
         <translation>Zenzaiモデルをダウンロード中</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="263"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="310"/>
         <source>The tested Zenzai model is being downloaded. This window will show the result when it finishes.</source>
         <translation>動作確認済みのZenzaiモデルをダウンロードしています。完了すると結果が表示されます。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="320"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="367"/>
         <source>&lt;b&gt;Warning:&lt;/b&gt; Zenzai support not installed.</source>
         <translation>&lt;b&gt;警告:&lt;/b&gt; Zenzaiサポートがインストールされていません。</translation>
     </message>
     <message>
-        <source>&lt;b&gt;Warning:&lt;/b&gt; Zenzai model not found. Place a compatible GGUF file at &lt;code&gt;%1&lt;/code&gt;, or select a local file.</source>
-        <translation type="vanished">&lt;b&gt;警告:&lt;/b&gt; Zenzaiモデルが見つかりません。互換性のあるGGUFファイルを &lt;code&gt;%1&lt;/code&gt; に配置するか、ローカルファイルを選択してください。</translation>
-    </message>
-    <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="242"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="289"/>
         <source>The Zenzai model was downloaded, but the IME service or settings window could not reload it. Restart the input method or select Reload.</source>
         <translation>Zenzaiモデルをダウンロードしましたが、IMEサービスまたは設定画面を再読み込みできませんでした。入力メソッドを再起動するか、「再読み込み」を選択してください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="330"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="377"/>
         <source>&lt;b&gt;Warning:&lt;/b&gt; Zenzai model not found. Place a compatible GGUF file at &lt;code&gt;%1&lt;/code&gt;, download the tested model, or select a local file.</source>
         <translation>&lt;b&gt;警告:&lt;/b&gt; Zenzaiモデルが見つかりません。互換性のあるGGUFファイルを &lt;code&gt;%1&lt;/code&gt; に配置するか、動作確認済みモデルをダウンロードするか、ローカルファイルを選択してください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="334"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="381"/>
         <source>Download Tested Model</source>
         <translation>確認済みモデルをダウンロード</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="336"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="358"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="383"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="405"/>
         <source>Select Local Model</source>
         <translation>ローカルモデルを選択</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="356"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="403"/>
         <source>The current model differs from the tested Zenzai model.</source>
         <translation>現在のモデルは動作確認済みのZenzaiモデルと異なります。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="386"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="433"/>
         <source>Grimodex only (recommended)</source>
         <translation>Grimodexのみ（推奨）</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="389"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="436"/>
         <source>Off</source>
         <translation>オフ</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="391"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="438"/>
         <source>All applications</source>
         <translation>すべてのアプリケーション</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="407"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="454"/>
+        <source>Ready; no Zenzai-enabled conversion request has been observed yet</source>
+        <translation>準備完了（Zenzaiを有効にした変換要求はまだ確認されていません）</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="456"/>
+        <source>Model loaded; the latest Zenzai-enabled request reached the converter</source>
+        <translation>モデル読込確認済み（直近のZenzai有効変換要求が変換器に到達しました）</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="466"/>
+        <source>Model loading failed for the latest request</source>
+        <translation>直近の要求でモデルの読み込みに失敗しました</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="502"/>
+        <source>&lt;b&gt;Zenzai runtime diagnostics&lt;/b&gt;&lt;br/&gt;Status: %1&lt;br/&gt;Model load verified: %2 / Zenzai-enabled requests: %3 / Model-load failures: %4&lt;br/&gt;Last Zenzai-enabled request: %5&lt;br/&gt;Detail: %6&lt;br/&gt;Note: the converter does not expose per-candidate AI evaluation results.</source>
+        <translation>&lt;b&gt;Zenzai実行時診断&lt;/b&gt;&lt;br/&gt;状態: %1&lt;br/&gt;モデル読込確認: %2 / Zenzai有効変換要求: %3 / モデル読込失敗: %4&lt;br/&gt;最終Zenzai有効変換要求: %5&lt;br/&gt;詳細: %6&lt;br/&gt;注: 変換器は候補ごとのAI評価結果を公開していません。</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="523"/>
         <source>Allowed: current application is Grimodex</source>
         <translation>許可: 現在のアプリケーションはGrimodexです</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="409"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="525"/>
         <source>Allowed: all-applications mode is enabled</source>
         <translation>許可: すべてのアプリケーションで有効です</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="411"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="527"/>
         <source>Blocked: Grimodex integration is off</source>
         <translation>ブロック: Grimodex連携がオフです</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="413"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="529"/>
         <source>Blocked: secure input is active</source>
         <translation>ブロック: セキュア入力が有効です</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="415"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="531"/>
         <source>Blocked: application identity is unavailable</source>
         <translation>ブロック: アプリケーションを識別できません</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="417"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="533"/>
         <source>Blocked: current application is not Grimodex</source>
         <translation>ブロック: 現在のアプリケーションはGrimodexではありません</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="420"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="536"/>
         <source>No active input context</source>
         <translation>有効な入力コンテキストがありません</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="428"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="544"/>
         <source>&lt;b&gt;Diagnostics unavailable.&lt;/b&gt; Restart the Grimodex IME service after updating it.</source>
         <translation>&lt;b&gt;診断情報を取得できません。&lt;/b&gt; Grimodex IMEを更新したあと、サービスを再起動してください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="435"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="551"/>
         <source>active</source>
         <translation>稼働中</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="435"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="551"/>
         <source>stopped</source>
         <translation>停止中</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="437"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="553"/>
         <source>registered</source>
         <translation>登録済み</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="438"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="554"/>
         <source>not registered</source>
         <translation>未登録</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="441"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="499"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="557"/>
         <source>none</source>
         <translation>なし</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="444"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="447"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="560"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="563"/>
         <source>unknown</source>
         <translation>不明</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="451"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="567"/>
         <source>enabled for current context</source>
         <translation>現在の入力コンテキストで有効</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="452"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="568"/>
         <source>disabled for current context</source>
         <translation>現在の入力コンテキストで無効</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="453"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="487"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="569"/>
         <source>yes</source>
         <translation>はい</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="453"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="487"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="569"/>
         <source>no</source>
         <translation>いいえ</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="457"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="573"/>
         <source>&lt;b&gt;Runtime diagnostics&lt;/b&gt;&lt;br/&gt;Watcher: %1 / Consumer: %2&lt;br/&gt;Snapshot: %3 / Generation: %4 / Project: %5&lt;br/&gt;Sessions: %6 / Program: %7 / Frontend: %8 / Secure: %9&lt;br/&gt;Integration: %10&lt;br/&gt;Reason: %11</source>
         <translation>&lt;b&gt;実行時診断&lt;/b&gt;&lt;br/&gt;監視: %1 / コンシューマー: %2&lt;br/&gt;スナップショット: %3 / 世代: %4 / プロジェクト: %5&lt;br/&gt;セッション: %6 / プログラム: %7 / フロントエンド: %8 / セキュア入力: %9&lt;br/&gt;連携: %10&lt;br/&gt;理由: %11</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="37"/>
+        <source>Refresh diagnostics</source>
+        <translation>診断を更新</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="86"/>
+        <source>&lt;b&gt;Failed to refresh Zenzai runtime diagnostics.&lt;/b&gt; The settings connection is unavailable.</source>
+        <translation>&lt;b&gt;Zenzai実行時診断を更新できませんでした。&lt;/b&gt; 設定用の接続を利用できません。</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="94"/>
+        <source>&lt;b&gt;Failed to refresh Zenzai runtime diagnostics.&lt;/b&gt; Check the connection to the Grimodex IME service and try again.</source>
+        <translation>&lt;b&gt;Zenzai実行時診断を更新できませんでした。&lt;/b&gt; Grimodex IMEサービスへの接続を確認して、もう一度お試しください。</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="458"/>
+        <source>Disabled in the current profile</source>
+        <translation>現在のプロファイルで無効です</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="460"/>
+        <source>Disabled by input security policy</source>
+        <translation>入力セキュリティポリシーにより無効です</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="462"/>
+        <source>Zenzai backend is unavailable</source>
+        <translation>Zenzaiバックエンドを利用できません</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="464"/>
+        <source>Zenzai model file is missing</source>
+        <translation>Zenzaiモデルファイルがありません</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="469"/>
+        <source>Unknown</source>
+        <translation>不明</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="497"/>
+        <source>never</source>
+        <translation>未実行</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="477"/>
+        <source>&lt;b&gt;Zenzai runtime diagnostics unavailable.&lt;/b&gt; Restart the Grimodex IME service after updating it.</source>
+        <translation>&lt;b&gt;Zenzai実行時診断を取得できません。&lt;/b&gt; Grimodex IMEを更新したあと、サービスを再起動してください。</translation>
     </message>
 </context>
 <context>
@@ -817,10 +882,6 @@
         <translation>辞書</translation>
     </message>
     <message>
-        <source>This feature is not yet implemented</source>
-        <translation type="vanished">この機能は未実装です</translation>
-    </message>
-    <message>
         <location filename="mainwindow.ui" line="1437"/>
         <source>Use user dictionary</source>
         <translation>ユーザー辞書を使用</translation>
@@ -939,30 +1000,6 @@
         <location filename="mainwindow.ui" line="1773"/>
         <source>About</source>
         <translation>情報</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:36pt;&quot;&gt;Hazkey&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:36pt;&quot;&gt;Hazkey&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Conversion engine provided by &lt;a href=&quot;https://azookey.com/&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;azooKey&lt;/span&gt;&lt;/a&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;変換エンジンは &lt;a href=&quot;https://azookey.com/&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;azooKey&lt;/span&gt;&lt;/a&gt; によって提供されています。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://hazkey.hiira.dev/&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;Website&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://hazkey.hiira.dev/&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;ウェブサイト&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://hazkey.hiira.dev/docs&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;Document&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://hazkey.hiira.dev/docs&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;ドキュメント&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://github.com/7ka-Hiira/fcitx5-hazkey&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;Source code&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://github.com/7ka-Hiira/fcitx5-hazkey&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;ソースコード&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://github.com/7ka-Hiira/fcitx5-hazkey/issues&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;Issue report&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;a href=&quot;https://github.com/7ka-Hiira/fcitx5-hazkey/issues&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2980b9;&quot;&gt;不具合報告&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <location filename="mainwindow.cpp" line="47"/>

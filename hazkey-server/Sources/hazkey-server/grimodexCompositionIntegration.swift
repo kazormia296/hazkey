@@ -3,7 +3,10 @@ import Foundation
 protocol GrimodexDynamicDictionaryApplying: AnyObject {
     func stopComposition()
     func abortSessionComposition()
-    func replaceDynamicDictionary(_ entries: [GrimodexMappedDictionaryEntry])
+    func replaceDynamicDictionary(
+        _ entries: [GrimodexMappedDictionaryEntry],
+        projectIndex: GrimodexProjectDictionaryIndex
+    )
 }
 
 final class GrimodexCompositionIntegrationController {
@@ -72,7 +75,11 @@ final class GrimodexCompositionIntegrationController {
     }
 
     private func apply(_ revision: GrimodexIntegrationRevision) {
-        applier.replaceDynamicDictionary(revision.payload?.dictionaryEntries ?? [])
+        let payload = revision.payload
+        applier.replaceDynamicDictionary(
+            payload?.dictionaryEntries ?? [],
+            projectIndex: payload?.dictionaryIndex ?? .empty
+        )
         activeConditions = revision.payload?.conditions ?? .empty
         allowsLearning = revision.allowsLearning
         secureInput = revision.secureInput

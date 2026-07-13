@@ -108,6 +108,7 @@ final class HazkeySessionRegistry {
     private let dicdataStoreFactory: DicdataStoreFactory
     private let userDictionaryStore: UserDictionaryStore
     private let learningRevisionStore = HazkeyLearningRevisionStore()
+    private let zenzaiRuntimeDiagnosticsStore = ZenzaiRuntimeDiagnosticsStore()
     private let maximumSessions: Int
     private let maximumSessionsPerOwner: Int
     private let idleTimeout: TimeInterval
@@ -153,6 +154,9 @@ final class HazkeySessionRegistry {
             let environment = HazkeySessionEnvironment(serverConfig: serverConfig)
             environment.clearProfileLearningData()
         }
+        zenzaiRuntimeDiagnosticsStore.reset(
+            decision: serverConfig.zenzaiRuntimeDecision(zenzaiAllowed: true)
+        )
     }
 
     @discardableResult
@@ -221,6 +225,7 @@ final class HazkeySessionRegistry {
                 keymap: pinnedKeymap(environment.keymap)
             )
         )
+        let zenzaiRuntimeDiagnosticsStore = self.zenzaiRuntimeDiagnosticsStore
         let productionConverter = HazkeyKanaKanjiConverterAdapter(
             converter: converter,
             boundaryConverter: environment.boundaryConverter,
@@ -247,6 +252,17 @@ final class HazkeySessionRegistry {
             },
             suggestionListModeProvider: { [environment] in
                 environment.grimodexSuggestionListMode
+            },
+            projectDictionaryIndexProvider: { [environment] in
+                environment.grimodexProjectDictionaryIndex
+            },
+            zenzaiDiagnosticsReporter: { [environment] options, status in
+                zenzaiRuntimeDiagnosticsStore.record(
+                    decision: environment.serverConfig.zenzaiRuntimeDecision(
+                        zenzaiAllowed: options.zenzaiEnabled
+                    ),
+                    converterStatus: status
+                )
             }
         )
         let semanticController = ImeV2SessionController(
@@ -340,6 +356,9 @@ final class HazkeySessionRegistry {
     }
 
     func reinitializeAll() {
+        zenzaiRuntimeDiagnosticsStore.reset(
+            decision: serverConfig.zenzaiRuntimeDecision(zenzaiAllowed: true)
+        )
         for session in sessions.values {
             session.environment.reinitializeConfiguration()
         }
@@ -411,6 +430,11 @@ final class HazkeySessionRegistry {
             clientContext: latest?.clientContext,
             scopeDecision: decision
         )
+    }
+
+    func zenzaiRuntimeDiagnostics() -> ZenzaiRuntimeDiagnosticsSnapshot {
+        pruneExpiredSessions()
+        return zenzaiRuntimeDiagnosticsStore.snapshot()
     }
 
     private func pruneExpiredSessions() {

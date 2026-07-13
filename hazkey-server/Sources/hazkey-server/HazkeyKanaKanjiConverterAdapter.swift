@@ -1,6 +1,235 @@
 import Foundation
 import KanaKanjiConverterModule
 
+/// Immutable lookup tables built when a Grimodex project dictionary snapshot
+/// is applied. Candidate requests must not scan the entire project dictionary:
+/// production snapshots may contain tens of thousands of entries and ranking
+/// runs on every key press.
+struct GrimodexProjectDictionaryIndex: Sendable {
+    struct IndexedEntry: Sendable {
+        let entry: GrimodexMappedDictionaryEntry
+        let order: Int
+    }
+
+    private struct SurfaceKey: Hashable, Sendable {
+        let ruby: String
+        let word: String
+    }
+
+    private struct NodeKey: Hashable, Sendable {
+        let ruby: String
+        let word: String
+        let cid: Int
+    }
+
+    static let empty = GrimodexProjectDictionaryIndex(entries: [])
+
+    private let entries: [GrimodexMappedDictionaryEntry]
+    private let entryOrdersByRuby: [String: [Int]]
+    private let entryOrdersBySurface: [SurfaceKey: [Int]]
+    private let entryOrdersByNode: [NodeKey: [Int]]
+    let entryCount: Int
+
+    init(entries: [GrimodexMappedDictionaryEntry]) {
+        var entryOrdersByRuby: [String: [Int]] = [:]
+        var entryOrdersBySurface: [SurfaceKey: [Int]] = [:]
+        var entryOrdersByNode: [NodeKey: [Int]] = [:]
+        for (order, entry) in entries.enumerated() {
+            entryOrdersByRuby[entry.ruby, default: []].append(order)
+            entryOrdersBySurface[
+                SurfaceKey(ruby: entry.ruby, word: entry.word),
+                default: []
+            ].append(order)
+            entryOrdersByNode[
+                NodeKey(ruby: entry.ruby, word: entry.word, cid: entry.cid),
+                default: []
+            ].append(order)
+        }
+        self.entries = entries
+        self.entryOrdersByRuby = entryOrdersByRuby
+        self.entryOrdersBySurface = entryOrdersBySurface
+        self.entryOrdersByNode = entryOrdersByNode
+        entryCount = entries.count
+    }
+
+    var isEmpty: Bool { entryCount == 0 }
+
+    func entries(forRuby ruby: String) -> [IndexedEntry] {
+        indexedEntries(entryOrdersByRuby[ruby])
+    }
+
+    func entries(ruby: String, word: String) -> [IndexedEntry] {
+        indexedEntries(entryOrdersBySurface[SurfaceKey(ruby: ruby, word: word)])
+    }
+
+    func entries(matching data: DicdataElement) -> [IndexedEntry] {
+        guard data.lcid == data.rcid else { return [] }
+        return indexedEntries(entryOrdersByNode[
+            NodeKey(ruby: data.ruby, word: data.word, cid: data.lcid)
+        ])
+    }
+
+    private func indexedEntries(_ orders: [Int]?) -> [IndexedEntry] {
+        orders?.map { order in
+            IndexedEntry(entry: entries[order], order: order)
+        } ?? []
+    }
+}
+
+/// Keeps the active Grimodex project dictionary authoritative after Zenzai
+/// reranks (and can omit) AzooKey's user-dictionary candidates.
+///
+/// The sidecar entries are intentionally matched by their full dictionary
+/// identity. AzooKey rewrites every dynamic entry's metadata to
+/// `isFromUserDictionary`, so metadata alone cannot distinguish project terms
+/// from the user's personal dictionary.
+enum GrimodexProjectCandidateRanker {
+    private struct RankedCandidate {
+        let candidate: Candidate
+        let priority: Int
+        let exactInputMatch: Bool
+        let stableOrder: Int
+    }
+
+    static func rank(
+        _ candidates: [Candidate],
+        for composingText: ComposingText,
+        elementCount: Int,
+        projectEntries: [GrimodexMappedDictionaryEntry]
+    ) -> [Candidate] {
+        rank(
+            candidates,
+            for: composingText,
+            elementCount: elementCount,
+            projectIndex: GrimodexProjectDictionaryIndex(entries: projectEntries)
+        )
+    }
+
+    static func rank(
+        _ candidates: [Candidate],
+        for composingText: ComposingText,
+        elementCount: Int,
+        projectIndex: GrimodexProjectDictionaryIndex
+    ) -> [Candidate] {
+        guard !projectIndex.isEmpty else { return candidates }
+
+        let inputRuby = composingText.convertTarget.toKatakana()
+        var ranked: [RankedCandidate] = []
+        var rankedIndices = Set<Int>()
+        var representedExactEntryOrders = Set<Int>()
+
+        for (index, candidate) in candidates.enumerated() {
+            var matchingEntries: [Int: GrimodexProjectDictionaryIndex.IndexedEntry] = [:]
+            for entry in projectIndex.entries(
+                ruby: inputRuby,
+                word: candidate.text
+            ) {
+                matchingEntries[entry.order] = entry
+            }
+            for data in candidate.data {
+                for entry in projectIndex.entries(matching: data) {
+                    matchingEntries[entry.order] = entry
+                }
+            }
+            guard let priority = matchingEntries.values
+                .map({ $0.entry.priority }).max() else {
+                continue
+            }
+            let exactMatches = matchingEntries.values.filter { indexed in
+                guard indexed.entry.priority == priority,
+                      indexed.entry.ruby == inputRuby else {
+                    return false
+                }
+                if indexed.entry.word == candidate.text {
+                    return true
+                }
+                return candidate.data.count == 1
+                    && candidate.data.contains { data in
+                        data.word == indexed.entry.word
+                            && data.ruby == indexed.entry.ruby
+                            && data.lcid == indexed.entry.cid
+                            && data.rcid == indexed.entry.cid
+                    }
+            }
+            let exactInputMatch = !exactMatches.isEmpty
+            representedExactEntryOrders.formUnion(exactMatches.map(\.order))
+
+            var promotedCandidate = candidate
+            if let canonical = exactMatches.min(by: { $0.order < $1.order }) {
+                // A generic dictionary node can have the same surface and
+                // reading as a project entry. Keep the displayed candidate in
+                // Zenzai's position, but learn the authoritative project node.
+                var data = canonical.entry.dictionaryElement
+                data.metadata = .isFromUserDictionary
+                promotedCandidate.value = data.value()
+                promotedCandidate.lastMid = data.mid
+                promotedCandidate.data = [data]
+            }
+            ranked.append(RankedCandidate(
+                candidate: promotedCandidate,
+                priority: priority,
+                exactInputMatch: exactInputMatch,
+                // Existing candidates retain Zenzai's contextual order when
+                // project priorities tie.
+                stableOrder: index
+            ))
+            rankedIndices.insert(index)
+        }
+
+        // Zenzai can remove a rejected user-dictionary candidate altogether.
+        // Recreate exact project entries so their priority remains a hard
+        // contract rather than a hint to the language model.
+        for indexed in projectIndex.entries(forRuby: inputRuby)
+        where !representedExactEntryOrders.contains(indexed.order)
+        {
+            let entry = indexed.entry
+            var data = entry.dictionaryElement
+            data.metadata = .isFromUserDictionary
+            var candidate = Candidate(
+                text: entry.word,
+                value: data.value(),
+                composingCount: .inputCount(elementCount),
+                lastMid: data.mid,
+                data: [data]
+            )
+            // Converter results normally pass through processResult(), which
+            // expands date/random templates and disables learning for them.
+            candidate.parseTemplate()
+            ranked.append(RankedCandidate(
+                candidate: candidate,
+                priority: entry.priority,
+                exactInputMatch: true,
+                // Existing same-priority candidates stay ahead of candidates
+                // that had to be restored after Zenzai omitted them.
+                stableOrder: candidates.count + indexed.order
+            ))
+        }
+
+        ranked.sort { left, right in
+            if left.priority != right.priority {
+                return left.priority > right.priority
+            }
+            if left.exactInputMatch != right.exactInputMatch {
+                return left.exactInputMatch
+            }
+            return left.stableOrder < right.stableOrder
+        }
+
+        var result: [Candidate] = []
+        var promotedTexts = Set<String>()
+        for item in ranked where promotedTexts.insert(item.candidate.text).inserted {
+            result.append(item.candidate)
+        }
+        for (index, candidate) in candidates.enumerated()
+        where !rankedIndices.contains(index)
+            && !promotedTexts.contains(candidate.text)
+        {
+            result.append(candidate)
+        }
+        return result
+    }
+}
+
 /// Bridges the production AzooKey converter to the protocol-v2 reducer.
 ///
 /// The reducer intentionally deals in a small, stable candidate value instead
@@ -16,6 +245,8 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
     private let mappedInputStyleProvider: () -> InputStyle
     private let predictionConfigurationProvider: () -> (enabled: Bool, limit: Int)
     private let suggestionListModeProvider: () -> ImeSuggestionListMode
+    private let projectDictionaryIndexProvider: () -> GrimodexProjectDictionaryIndex
+    private let zenzaiDiagnosticsReporter: (ConversionOptions, String) -> Void
     private var completedCandidates: [String: Candidate] = [:]
     private var nextCandidateSourceID: UInt64 = 1
 
@@ -27,7 +258,13 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         predictionConfigurationProvider: @escaping () -> (enabled: Bool, limit: Int) = {
             (false, 0)
         },
-        suggestionListModeProvider: @escaping () -> ImeSuggestionListMode = { .predictive }
+        suggestionListModeProvider: @escaping () -> ImeSuggestionListMode = { .predictive },
+        projectDictionaryIndexProvider: @escaping () -> GrimodexProjectDictionaryIndex = {
+            .empty
+        },
+        zenzaiDiagnosticsReporter: @escaping (ConversionOptions, String) -> Void = {
+            _, _ in
+        }
     ) {
         precondition(
             converter !== boundaryConverter,
@@ -39,6 +276,8 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         self.mappedInputStyleProvider = mappedInputStyleProvider
         self.predictionConfigurationProvider = predictionConfigurationProvider
         self.suggestionListModeProvider = suggestionListModeProvider
+        self.projectDictionaryIndexProvider = projectDictionaryIndexProvider
+        self.zenzaiDiagnosticsReporter = zenzaiDiagnosticsReporter
     }
 
     func candidates(
@@ -66,8 +305,18 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             requestOptions.zenzaiMode = .off
         }
 
-        let result = converter.requestCandidates(composingText, options: requestOptions)
-        let candidates = result.mainResults.map {
+        let result = requestPrimaryCandidates(
+            composingText,
+            requestOptions: requestOptions,
+            conversionOptions: options
+        )
+        let rankedCandidates = GrimodexProjectCandidateRanker.rank(
+            result.mainResults,
+            for: composingText,
+            elementCount: targetElements.count,
+            projectIndex: projectDictionaryIndexProvider()
+        )
+        let candidates = rankedCandidates.map {
             makeConverterCandidate(
                 $0,
                 in: composingText,
@@ -198,11 +447,19 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         if !options.zenzaiEnabled {
             requestOptions.zenzaiMode = .off
         }
-        let primaryResult = converter.requestCandidates(
+        let primaryResult = requestPrimaryCandidates(
             composingText,
-            options: requestOptions
+            requestOptions: requestOptions,
+            conversionOptions: options
         )
-        let primaryClauses = primaryResult.mainResults.compactMap { candidate in
+        let projectIndex = projectDictionaryIndexProvider()
+        let rankedPrimaryResults = GrimodexProjectCandidateRanker.rank(
+            primaryResult.mainResults,
+            for: composingText,
+            elementCount: inputCount,
+            projectIndex: projectIndex
+        )
+        let unrankedPrimaryClauses = rankedPrimaryResults.compactMap { candidate in
             guard !candidate.data.isEmpty,
                   consumedInputCount(candidate) == inputCount else {
                 return nil
@@ -215,6 +472,17 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             consumedInputCount(candidate) == segmentCount
         }
 
+        let prefixComposingText = makeComposingText(
+            from: composition.elements.prefix(segmentCount)[...],
+            mappedTableName: composition.mappedTableName
+        )
+        let primaryClauses = GrimodexProjectCandidateRanker.rank(
+            unrankedPrimaryClauses,
+            for: prefixComposingText,
+            elementCount: segmentCount,
+            projectIndex: projectIndex
+        )
+
         var seenTexts = Set<String>()
         var candidates: [ConverterCandidate] = primaryClauses.compactMap { candidate in
             guard !candidate.text.isEmpty,
@@ -223,8 +491,8 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             }
             return makeConverterCandidate(
                 candidate,
-                in: composingText,
-                elementCount: composition.elements.count
+                in: prefixComposingText,
+                elementCount: segmentCount
             )
         }
 
@@ -308,8 +576,18 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             requestOptions.zenzaiMode = .off
         }
 
-        let result = converter.requestCandidates(composingText, options: requestOptions)
-        let mainCandidates = result.mainResults.map {
+        let result = requestPrimaryCandidates(
+            composingText,
+            requestOptions: requestOptions,
+            conversionOptions: options
+        )
+        let rankedMainResults = GrimodexProjectCandidateRanker.rank(
+            result.mainResults,
+            for: composingText,
+            elementCount: targetElements.count,
+            projectIndex: projectDictionaryIndexProvider()
+        )
+        let mainCandidates = rankedMainResults.map {
             makeConverterCandidate(
                 $0,
                 in: composingText,
@@ -366,7 +644,11 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         if !options.zenzaiEnabled {
             requestOptions.zenzaiMode = .off
         }
-        let result = converter.requestCandidates(composingText, options: requestOptions)
+        let result = requestPrimaryCandidates(
+            composingText,
+            requestOptions: requestOptions,
+            conversionOptions: options
+        )
         let candidates = result.predictionResults.prefix(configuration.limit).map { candidate in
             makePredictionCandidate(
                 candidate,
@@ -471,6 +753,19 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         nextCandidateSourceID = nextCandidateSourceID == UInt64.max
             ? 1
             : nextCandidateSourceID + 1
+        return result
+    }
+
+    private func requestPrimaryCandidates(
+        _ composingText: ComposingText,
+        requestOptions: ConvertRequestOptions,
+        conversionOptions: ConversionOptions
+    ) -> ConversionResult {
+        let result = converter.requestCandidates(
+            composingText,
+            options: requestOptions
+        )
+        zenzaiDiagnosticsReporter(conversionOptions, converter.zenzStatus)
         return result
     }
 

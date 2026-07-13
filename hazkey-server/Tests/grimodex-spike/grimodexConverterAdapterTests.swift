@@ -17,6 +17,219 @@ private func makeDefaultConverterPair() -> (
 }
 
 final class GrimodexConverterAdapterTests: XCTestCase {
+  func testProjectRankerSynthesizesMissingEntriesInPriorityOrder() {
+    var composingText = ComposingText()
+    composingText.insertAtCursorPosition("せつな", inputStyle: .direct)
+    let generic = makeCandidate(text: "せつ菜", ruby: "セツナ")
+    let entries = [
+      makeProjectEntry(word: "Grimodex工程B", priority: 2),
+      makeProjectEntry(word: "Grimodex工程A", priority: 3),
+    ]
+
+    let ranked = GrimodexProjectCandidateRanker.rank(
+      [generic],
+      for: composingText,
+      elementCount: 3,
+      projectEntries: entries
+    )
+
+    XCTAssertEqual(
+      ranked.map(\.text),
+      ["Grimodex工程A", "Grimodex工程B", "せつ菜"]
+    )
+    XCTAssertTrue(
+      ranked[0].data[0].metadata.contains(.isFromUserDictionary)
+    )
+  }
+
+  func testProjectRankerPromotesAndDeduplicatesAnExistingExactCandidate() {
+    var composingText = ComposingText()
+    composingText.insertAtCursorPosition("せつな", inputStyle: .direct)
+    let generic = makeCandidate(text: "せつ菜", ruby: "セツナ")
+    let project = makeCandidate(text: "Grimodex工程A", ruby: "セツナ")
+    let duplicate = makeCandidate(text: "Grimodex工程A", ruby: "セツナ")
+
+    let ranked = GrimodexProjectCandidateRanker.rank(
+      [generic, project, duplicate],
+      for: composingText,
+      elementCount: 3,
+      projectEntries: [makeProjectEntry(word: "Grimodex工程A", priority: 3)]
+    )
+
+    XCTAssertEqual(ranked.first?.text, "Grimodex工程A")
+    XCTAssertEqual(ranked.filter { $0.text == "Grimodex工程A" }.count, 1)
+    XCTAssertEqual(ranked.last?.text, "せつ菜")
+  }
+
+  func testProjectRankerKeepsZenzaiOrderBeforeRestoredEntriesAtEqualPriority() {
+    var composingText = ComposingText()
+    composingText.insertAtCursorPosition("せつな", inputStyle: .direct)
+    let genericA = makeCandidate(text: "せつ菜", ruby: "セツナ")
+    let genericB = makeCandidate(text: "節名", ruby: "セツナ")
+    let projectA = makeCandidate(text: "Grimodex工程A", ruby: "セツナ")
+    let projectB = makeCandidate(text: "Grimodex工程B", ruby: "セツナ")
+    let entries = [
+      makeProjectEntry(word: "Grimodex工程A", priority: 3),
+      makeProjectEntry(word: "Grimodex工程B", priority: 3),
+      makeProjectEntry(word: "Grimodex工程C", priority: 3),
+    ]
+
+    let ranked = GrimodexProjectCandidateRanker.rank(
+      [genericA, projectB, genericB, projectA],
+      for: composingText,
+      elementCount: 3,
+      projectEntries: entries
+    )
+
+    XCTAssertEqual(
+      ranked.map(\.text),
+      [
+        "Grimodex工程B", "Grimodex工程A", "Grimodex工程C", "せつ菜",
+        "節名",
+      ]
+    )
+  }
+
+  func testProjectRankerRestoresAnExactProjectCandidateForASegmentPrefix() {
+    var prefixText = ComposingText()
+    prefixText.insertAtCursorPosition("せつな", inputStyle: .direct)
+    let generic = makeCandidate(text: "せつ菜", ruby: "セツナ")
+    let index = GrimodexProjectDictionaryIndex(entries: [
+      makeProjectEntry(word: "Grimodex工程A", priority: 3)
+    ])
+
+    let ranked = GrimodexProjectCandidateRanker.rank(
+      [generic],
+      for: prefixText,
+      elementCount: 3,
+      projectIndex: index
+    )
+
+    XCTAssertEqual(ranked.map(\.text), ["Grimodex工程A", "せつ菜"])
+    XCTAssertEqual(ranked.first?.composingCount, .inputCount(3))
+  }
+
+  func testProjectRankerUsesCanonicalProjectDataForASurfaceMatch() {
+    var composingText = ComposingText()
+    composingText.insertAtCursorPosition("せつな", inputStyle: .direct)
+    let generic = makeCandidate(text: "同じ表記", ruby: "セツナ", cid: 1288)
+    let project = makeProjectEntry(word: "同じ表記", priority: 3)
+
+    let ranked = GrimodexProjectCandidateRanker.rank(
+      [generic],
+      for: composingText,
+      elementCount: 3,
+      projectEntries: [project]
+    )
+
+    XCTAssertEqual(ranked.count, 1)
+    XCTAssertEqual(ranked[0].data.map(\.lcid), [project.cid])
+    XCTAssertTrue(ranked[0].data[0].metadata.contains(.isFromUserDictionary))
+  }
+
+  func testProjectRankerParsesRestoredTemplatesAndDisablesLearning() {
+    var composingText = ComposingText()
+    composingText.insertAtCursorPosition("せつな", inputStyle: .direct)
+    let template = #"<random type="int" value="1,1">"#
+    let entry = makeProjectEntry(word: template, priority: 3)
+
+    let ranked = GrimodexProjectCandidateRanker.rank(
+      [],
+      for: composingText,
+      elementCount: 3,
+      projectEntries: [entry]
+    )
+
+    XCTAssertEqual(ranked.first?.text, "1")
+    XCTAssertEqual(ranked.first?.data.first?.word, template)
+    XCTAssertEqual(ranked.first?.isLearningTarget, false)
+  }
+
+  func testProjectIndexLookupCostDoesNotDependOnUnrelatedEntries() {
+    var composingText = ComposingText()
+    composingText.insertAtCursorPosition("せつな", inputStyle: .direct)
+    let unrelated = (0..<20_000).map { index in
+      GrimodexMappedDictionaryEntry(
+        ruby: "ヨミ\(index)",
+        word: "語\(index)",
+        cid: 1289,
+        mid: 501,
+        value: -5,
+        priority: 1,
+        entryID: "unrelated-\(index)"
+      )
+    }
+    let target = makeProjectEntry(word: "Grimodex工程A", priority: 3)
+    let index = GrimodexProjectDictionaryIndex(entries: unrelated + [target])
+
+    let ranked = GrimodexProjectCandidateRanker.rank(
+      [makeCandidate(text: "せつ菜", ruby: "セツナ")],
+      for: composingText,
+      elementCount: 3,
+      projectIndex: index
+    )
+
+    XCTAssertEqual(index.entryCount, 20_001)
+    XCTAssertEqual(ranked.prefix(2).map(\.text), ["Grimodex工程A", "せつ菜"])
+  }
+
+  func testProjectRankerPromotesEmbeddedProjectNodesButLeavesMismatchesAlone() {
+    var composingText = ComposingText()
+    composingText.insertAtCursorPosition("こうていえーです", inputStyle: .direct)
+    let generic = makeCandidate(
+      text: "工程Aです",
+      ruby: "コウテイエーデス",
+      cid: 1288
+    )
+    let projectData = DicdataElement(
+      word: "Grimodex工程A",
+      ruby: "コウテイエー",
+      cid: 1289,
+      mid: 501,
+      value: -4,
+      metadata: .isFromUserDictionary
+    )
+    let suffixData = DicdataElement(
+      word: "です",
+      ruby: "デス",
+      cid: 1288,
+      mid: 501,
+      value: -10
+    )
+    let embedded = Candidate(
+      text: "Grimodex工程Aです",
+      value: projectData.value() + suffixData.value(),
+      composingCount: .inputCount(8),
+      lastMid: suffixData.mid,
+      data: [projectData, suffixData]
+    )
+    let entry = GrimodexMappedDictionaryEntry(
+      ruby: "コウテイエー",
+      word: "Grimodex工程A",
+      cid: 1289,
+      mid: 501,
+      value: -4,
+      priority: 3,
+      entryID: "project-a"
+    )
+
+    let ranked = GrimodexProjectCandidateRanker.rank(
+      [generic, embedded],
+      for: composingText,
+      elementCount: 8,
+      projectEntries: [entry]
+    )
+    XCTAssertEqual(ranked.map(\.text), ["Grimodex工程Aです", "工程Aです"])
+
+    let unchanged = GrimodexProjectCandidateRanker.rank(
+      [generic, embedded],
+      for: composingText,
+      elementCount: 8,
+      projectEntries: [makeProjectEntry(word: "別候補", priority: 3)]
+    )
+    XCTAssertEqual(unchanged.map(\.text), ["工程Aです", "Grimodex工程Aです"])
+  }
+
   func testRomanizedCursorMovesOnlyAcrossVisibleKanaBoundaries() {
     let converters = makeDefaultConverterPair()
     let adapter = HazkeyKanaKanjiConverterAdapter(
@@ -334,6 +547,42 @@ final class GrimodexConverterAdapterTests: XCTestCase {
       reducer.session.segments.map(\.inputCount),
       [4, 6],
       "committing the segmented result must not collapse the next conversion"
+    )
+  }
+
+  private func makeCandidate(
+    text: String,
+    ruby: String,
+    cid: Int = 1288
+  ) -> Candidate {
+    let data = DicdataElement(
+      word: text,
+      ruby: ruby,
+      cid: cid,
+      mid: 501,
+      value: -10
+    )
+    return Candidate(
+      text: text,
+      value: data.value(),
+      composingCount: .inputCount(ruby.count),
+      lastMid: data.mid,
+      data: [data]
+    )
+  }
+
+  private func makeProjectEntry(
+    word: String,
+    priority: Int
+  ) -> GrimodexMappedDictionaryEntry {
+    GrimodexMappedDictionaryEntry(
+      ruby: "セツナ",
+      word: word,
+      cid: 1289,
+      mid: 501,
+      value: priority == 3 ? -4 : -5,
+      priority: priority,
+      entryID: "entry-\(priority)-\(word)"
     )
   }
 }

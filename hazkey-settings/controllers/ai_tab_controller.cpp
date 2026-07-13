@@ -6,6 +6,7 @@
 
 #include <QComboBox>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -14,6 +15,7 @@
 #include <QLayoutItem>
 #include <QMessageBox>
 #include <QProcess>
+#include <QPushButton>
 #include <QSaveFile>
 #include <QSignalBlocker>
 
@@ -30,9 +32,22 @@ AiTabController::AiTabController(Ui::MainWindow* ui, QWidget* window,
     : QObject(parent),
       ui_(ui),
       window_(window),
+      zenzaiDiagnosticsLabel_(new QLabel(window)),
+      zenzaiDiagnosticsRefreshButton_(
+          new QPushButton(tr("Refresh diagnostics"), window)),
       grimodexDiagnosticsLabel_(new QLabel(window)),
       context_(),
       isLoading_(false) {
+    zenzaiDiagnosticsLabel_->setWordWrap(true);
+    zenzaiDiagnosticsLabel_->setTextFormat(Qt::RichText);
+    zenzaiDiagnosticsLabel_->setTextInteractionFlags(
+        Qt::TextSelectableByMouse);
+    zenzaiDiagnosticsLabel_->setObjectName("zenzaiRuntimeDiagnostics");
+    ui_->zenzaiGrid->addWidget(zenzaiDiagnosticsLabel_, 5, 0, 1, 2);
+    zenzaiDiagnosticsRefreshButton_->setObjectName(
+        "refreshZenzaiRuntimeDiagnostics");
+    ui_->zenzaiGrid->addWidget(zenzaiDiagnosticsRefreshButton_, 6, 0, 1, 2);
+
     grimodexDiagnosticsLabel_->setWordWrap(true);
     grimodexDiagnosticsLabel_->setTextFormat(Qt::RichText);
     grimodexDiagnosticsLabel_->setTextInteractionFlags(
@@ -47,6 +62,8 @@ void AiTabController::setContext(const TabContext& context) {
 }
 
 void AiTabController::connectSignals() {
+    connect(zenzaiDiagnosticsRefreshButton_, &QPushButton::clicked, this,
+            &AiTabController::onRefreshZenzaiRuntimeDiagnostics);
     connect(ui_->grimodexScope, &QComboBox::currentIndexChanged, this,
             [this](int) {
                 if (isLoading_.load()) {
@@ -63,6 +80,35 @@ void AiTabController::connectSignals() {
             });
 }
 
+void AiTabController::onRefreshZenzaiRuntimeDiagnostics() {
+    if (!context_.server || !context_.currentConfig) {
+        zenzaiDiagnosticsLabel_->setText(
+            tr("<b>Failed to refresh Zenzai runtime diagnostics.</b> "
+               "The settings connection is unavailable."));
+        return;
+    }
+
+    const auto latestConfig = context_.server->getConfig();
+    if (!latestConfig.has_value()) {
+        zenzaiDiagnosticsLabel_->setText(
+            tr("<b>Failed to refresh Zenzai runtime diagnostics.</b> "
+               "Check the connection to the Grimodex IME service and try "
+               "again."));
+        return;
+    }
+
+    // Update only the runtime diagnostic snapshot. In particular, keep the
+    // profiles owned by the settings window intact so unsaved edits survive a
+    // diagnostic refresh.
+    if (latestConfig->has_zenzai_runtime_diagnostics()) {
+        context_.currentConfig->mutable_zenzai_runtime_diagnostics()->CopyFrom(
+            latestConfig->zenzai_runtime_diagnostics());
+    } else {
+        context_.currentConfig->clear_zenzai_runtime_diagnostics();
+    }
+    refreshZenzaiRuntimeDiagnostics();
+}
+
 void AiTabController::loadFromConfig() {
     if (!context_.currentProfile || !context_.currentConfig) return;
 
@@ -71,6 +117,7 @@ void AiTabController::loadFromConfig() {
     const QSignalBlocker scopeBlocker(ui_->grimodexScope);
 
     refreshWarnings();
+    refreshZenzaiRuntimeDiagnostics();
     populateGrimodexScopeList();
     updateGrimodexScopeFromProfile();
     refreshGrimodexDiagnostics();
@@ -397,6 +444,75 @@ void AiTabController::updateGrimodexScopeFromProfile() {
     const int index = ui_->grimodexScope->findData(
         context_.currentProfile->grimodex_scope_mode());
     ui_->grimodexScope->setCurrentIndex(index >= 0 ? index : 0);
+}
+
+QString AiTabController::zenzaiRuntimeStatusText(
+    ::hazkey::config::ZenzaiRuntimeDiagnostics_Status status) const {
+    using Diagnostics = ::hazkey::config::ZenzaiRuntimeDiagnostics;
+    switch (status) {
+        case Diagnostics::READY:
+            return tr("Ready; no Zenzai-enabled conversion request has been observed yet");
+        case Diagnostics::MODEL_LOAD_VERIFIED:
+            return tr("Model loaded; the latest Zenzai-enabled request reached the converter");
+        case Diagnostics::PROFILE_DISABLED:
+            return tr("Disabled in the current profile");
+        case Diagnostics::POLICY_DISABLED:
+            return tr("Disabled by input security policy");
+        case Diagnostics::BACKEND_UNAVAILABLE:
+            return tr("Zenzai backend is unavailable");
+        case Diagnostics::MODEL_MISSING:
+            return tr("Zenzai model file is missing");
+        case Diagnostics::MODEL_LOAD_FAILED:
+            return tr("Model loading failed for the latest request");
+        case Diagnostics::STATUS_UNSPECIFIED:
+        default:
+            return tr("Unknown");
+    }
+}
+
+void AiTabController::refreshZenzaiRuntimeDiagnostics() {
+    if (!context_.currentConfig ||
+        !context_.currentConfig->has_zenzai_runtime_diagnostics()) {
+        zenzaiDiagnosticsLabel_->setText(
+            tr("<b>Zenzai runtime diagnostics unavailable.</b> Restart the "
+               "Grimodex IME service after updating it."));
+        return;
+    }
+
+    const auto& diagnostics =
+        context_.currentConfig->zenzai_runtime_diagnostics();
+    const QString status =
+        zenzaiRuntimeStatusText(diagnostics.status()).toHtmlEscaped();
+    const QString loaded =
+        diagnostics.model_load_verified() ? tr("yes") : tr("no");
+    const QString requests = QString::number(
+        static_cast<qulonglong>(diagnostics.zenzai_enabled_request_count()));
+    const QString loadFailures = QString::number(
+        static_cast<qulonglong>(diagnostics.model_load_failure_count()));
+    const QString last = diagnostics.has_last_zenzai_request_unix_millis()
+        ? QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(
+              diagnostics.last_zenzai_request_unix_millis()))
+              .toLocalTime()
+              .toString(Qt::ISODate)
+        : tr("never");
+    const QString detail = diagnostics.detail().empty()
+        ? tr("none")
+        : QString::fromStdString(diagnostics.detail()).toHtmlEscaped();
+
+    QString text = tr("<b>Zenzai runtime diagnostics</b><br/>"
+                      "Status: %1<br/>"
+                      "Model load verified: %2 / Zenzai-enabled requests: %3 / "
+                      "Model-load failures: %4<br/>"
+                      "Last Zenzai-enabled request: %5<br/>Detail: %6<br/>"
+                      "Note: the converter does not expose per-candidate AI "
+                      "evaluation results.");
+    text = text.arg(status)
+               .arg(loaded.toHtmlEscaped())
+               .arg(requests)
+               .arg(loadFailures)
+               .arg(last.toHtmlEscaped())
+               .arg(detail);
+    zenzaiDiagnosticsLabel_->setText(text);
 }
 
 QString AiTabController::grimodexScopeReasonText(

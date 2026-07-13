@@ -102,6 +102,7 @@ final class GrimodexSnapshotManagerTests: XCTestCase {
           cid: 1289,
           mid: 501,
           value: -5,
+          priority: 2,
           entryID: "entry-setsuna"
         )
       ]

@@ -212,6 +212,28 @@ message GrimodexDiagnostics {
     ScopeReason scope_reason = 11;
 }
 
+message ZenzaiRuntimeDiagnostics {
+    enum Status {
+        STATUS_UNSPECIFIED = 0;
+        READY = 1;
+        MODEL_LOAD_VERIFIED = 2;
+        PROFILE_DISABLED = 3;
+        POLICY_DISABLED = 4;
+        BACKEND_UNAVAILABLE = 5;
+        MODEL_MISSING = 6;
+        MODEL_LOAD_FAILED = 7;
+    }
+
+    Status status = 1;
+    bool model_load_verified = 2;
+    // Counts primary conversion requests made with a Zenzai model URL. The
+    // pinned converter does not expose per-candidate AI evaluation outcomes.
+    uint64 zenzai_enabled_request_count = 3;
+    uint64 model_load_failure_count = 4;
+    optional uint64 last_zenzai_request_unix_millis = 5;
+    string detail = 6;
+}
+
 message CurrentConfig {
     repeated FileHash file_hashes = 1;
     repeated Profile profiles = 2;
@@ -222,6 +244,7 @@ message CurrentConfig {
     string zenzai_model_path = 9;
     string xdg_config_home_path = 6;
     GrimodexDiagnostics grimodex_diagnostics = 20;
+    ZenzaiRuntimeDiagnostics zenzai_runtime_diagnostics = 21;
 }
 
 message UserDictionaryResult {
