@@ -27,6 +27,7 @@ class AiTabController : public QObject {
     void saveToConfig();
 
    private slots:
+    void onDownloadZenzaiModel();
     void onSelectLocalZenzaiModel();
 
    private:

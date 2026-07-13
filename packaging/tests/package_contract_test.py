@@ -96,6 +96,7 @@ REQUIRED_PACKAGED_PATHS = (
     "/usr/lib/{,*/}fcitx5/fcitx5-grimodex.so",
     "/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-server",
     "/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-settings",
+    "/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-model",
     "/usr/lib/{,*/}fcitx5-grimodex/AzooKeyKanaKanjiConverter_EfficientNGram.resources/tokenizer/tokenizer.json",
     "/usr/lib/{,*/}fcitx5-grimodex/swift-transformers_Hub.resources/gpt2_tokenizer_config.json",
     "/usr/share/applications/fcitx5-grimodex-settings.desktop",
@@ -276,7 +277,15 @@ def validate_staged_root(root: Path, entries: list[tuple[str, str]]) -> None:
 
     auditor = load_product_network_auditor()
     try:
-        auditor.audit_tree(root, require_elf=False)
+        auditor.audit_tree(
+            root,
+            require_elf=False,
+            allow_network_artifacts={
+                path
+                for path in root.rglob("fcitx5-grimodex-model")
+                if path.is_file()
+            },
+        )
     except auditor.ProductNetworkAuditError as error:
         raise AssertionError(str(error)) from error
 

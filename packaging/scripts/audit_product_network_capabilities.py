@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject concrete network capabilities in packaged Grimodex executables.
+"""Reject unexpected network capabilities in packaged Grimodex executables.
 
 Raw byte searches are not capability checks: compiler metadata, tokenizer data,
 and license notices may legitimately name an API without making it callable.
@@ -140,14 +140,14 @@ def _readelf(path: Path, *arguments: str) -> str:
     return result.stdout
 
 
-def audit_elf(path: Path) -> None:
+def audit_elf(path: Path, *, allow_network: bool = False) -> None:
     metadata = "\n".join(
         (
             _readelf(path, "-dW"),
             _readelf(path, "-sW"),
         )
     ).casefold()
-    present = sorted(
+    present = [] if allow_network else sorted(
         marker
         for marker in FORBIDDEN_ELF_METADATA_MARKERS
         if marker in metadata
@@ -158,7 +158,7 @@ def audit_elf(path: Path) -> None:
             + ", ".join(present)
         )
     content = _read_all_bytes(path).lower()
-    rodata_markers = sorted(
+    rodata_markers = [] if allow_network else sorted(
         marker
         for marker in FORBIDDEN_ELF_RODATA_MARKERS
         if marker.encode("ascii") in content
@@ -198,11 +198,13 @@ def audit_script(path: Path) -> None:
         )
 
 
-def audit_source_file(path: Path) -> None:
+def audit_source_file(path: Path, *, allow_network: bool = False) -> None:
     try:
         contents = path.read_text(encoding="utf-8", errors="replace")
     except OSError as error:
         raise ProductNetworkAuditError(f"cannot read product source {path}: {error}") from error
+    if allow_network:
+        return
     for capability, pattern in FORBIDDEN_SOURCE_PATTERNS:
         match = pattern.search(contents)
         if match is None:
@@ -224,21 +226,25 @@ def _is_product_source(path: Path, root: Path) -> bool:
     return path.suffix.casefold() in SOURCE_SUFFIXES or path.name.endswith(".sh.in")
 
 
-def audit_source_tree(root: Path) -> int:
+def audit_source_tree(
+    root: Path, *, allow_network_files: set[Path] | None = None
+) -> int:
     if not root.is_dir():
         raise ProductNetworkAuditError(f"product source tree is missing: {root}")
     count = 0
     for path in sorted(root.rglob("*")):
         if not path.is_file() or not _is_product_source(path, root):
             continue
-        audit_source_file(path)
+        audit_source_file(
+            path, allow_network=path.resolve() in (allow_network_files or set())
+        )
         count += 1
     if count == 0:
         raise ProductNetworkAuditError(f"product source tree has no auditable sources: {root}")
     return count
 
 
-def audit_artifact(path: Path) -> str:
+def audit_artifact(path: Path, *, allow_network: bool = False) -> str:
     """Audit one regular file and return ``elf``, ``script``, or ``data``."""
     if path.is_symlink():
         raise ProductNetworkAuditError(
@@ -249,7 +255,7 @@ def audit_artifact(path: Path) -> str:
 
     prefix = _read_prefix(path, 4)
     if prefix == ELF_MAGIC:
-        audit_elf(path)
+        audit_elf(path, allow_network=allow_network)
         return "elf"
     if prefix.startswith(b"#!"):
         if not _is_executable(path):
@@ -300,19 +306,25 @@ def resolve_packaged_symlink(path: Path, package_root: Path) -> Path:
     return candidate
 
 
-def audit_tree(root: Path, *, require_elf: bool = True) -> dict[str, int]:
+def audit_tree(
+    root: Path,
+    *,
+    require_elf: bool = True,
+    allow_network_artifacts: set[Path] | None = None,
+) -> dict[str, int]:
     if not root.is_dir():
         raise ProductNetworkAuditError(f"product tree is missing: {root}")
     counts = {"elf": 0, "script": 0, "data": 0, "symlink": 0}
+    allowed = {path.resolve() for path in (allow_network_artifacts or set())}
     for path in sorted(root.rglob("*")):
         if path.is_symlink():
             target = resolve_packaged_symlink(path, root)
-            audit_artifact(target)
+            audit_artifact(target, allow_network=target.resolve() in allowed)
             counts["symlink"] += 1
             continue
         if not path.is_file():
             continue
-        kind = audit_artifact(path)
+        kind = audit_artifact(path, allow_network=path.resolve() in allowed)
         counts[kind] += 1
     if require_elf and counts["elf"] == 0:
         raise ProductNetworkAuditError(f"product tree contains no auditable ELF artifacts: {root}")
@@ -325,6 +337,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--artifact", action="append", default=[], type=Path)
     parser.add_argument("--source-root", action="append", default=[], type=Path)
     parser.add_argument("--source-file", action="append", default=[], type=Path)
+    parser.add_argument(
+        "--allow-network-artifact", action="append", default=[], type=Path
+    )
+    parser.add_argument(
+        "--allow-network-source-file", action="append", default=[], type=Path
+    )
     arguments = parser.parse_args()
     if not any(
         (
@@ -345,7 +363,12 @@ def main() -> int:
     try:
         summaries: list[str] = []
         for root in arguments.root:
-            counts = audit_tree(root)
+            counts = audit_tree(
+                root,
+                allow_network_artifacts={
+                    path.resolve() for path in arguments.allow_network_artifact
+                },
+            )
             summaries.append(
                 f"{root}: {counts['elf']} ELF, {counts['script']} script, "
                 f"{counts['data']} data, {counts['symlink']} symlink"
@@ -353,9 +376,15 @@ def main() -> int:
         for artifact in arguments.artifact:
             summaries.append(f"{artifact}: {audit_artifact(artifact)}")
         for root in arguments.source_root:
-            summaries.append(f"{root}: {audit_source_tree(root)} source files")
+            summaries.append(
+                f"{root}: {audit_source_tree(root, allow_network_files={path.resolve() for path in arguments.allow_network_source_file})} source files"
+            )
         for source in arguments.source_file:
-            audit_source_file(source)
+            audit_source_file(
+                source,
+                allow_network=source.resolve()
+                in {path.resolve() for path in arguments.allow_network_source_file},
+            )
             summaries.append(f"{source}: source file")
     except ProductNetworkAuditError as error:
         print(f"product network audit failed: {error}", file=sys.stderr)

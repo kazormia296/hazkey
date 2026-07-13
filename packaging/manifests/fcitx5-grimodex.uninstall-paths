@@ -4,6 +4,7 @@ required:/usr/bin/fcitx5-grimodex-settings
 required:/usr/lib/{,*/}fcitx5/fcitx5-grimodex.so
 required:/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-server
 required:/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-settings
+required:/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-model
 required:/usr/lib/{,*/}fcitx5-grimodex/AzooKeyKanaKanjiConverter_EfficientNGram.resources/tokenizer/tokenizer.json
 optional:/usr/lib/{,*/}fcitx5-grimodex/AzooKeyKanaKanjiConverter_EfficientNGram.resources/**
 required:/usr/lib/{,*/}fcitx5-grimodex/swift-transformers_Hub.resources/gpt2_tokenizer_config.json

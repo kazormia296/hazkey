@@ -4,200 +4,261 @@
 <context>
     <name>AiTabController</name>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="122"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="119"/>
         <source>Select a local Zenzai model</source>
         <translation>ローカルのZenzaiモデルを選択</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="123"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="120"/>
         <source>GGUF model (*.gguf);;All files (*)</source>
         <translation>GGUFモデル (*.gguf);;すべてのファイル (*)</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="132"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="143"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="151"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="162"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="170"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="179"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="129"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="140"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="148"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="159"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="167"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="176"/>
         <source>Model Import Error</source>
         <translation>モデルのインポートエラー</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="133"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="130"/>
         <source>Failed to create directory: %1</source>
         <translation>ディレクトリの作成に失敗しました: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="144"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="141"/>
         <source>Failed to open model file: %1</source>
         <translation>モデルファイルを開けませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="152"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="149"/>
         <source>Failed to prepare model file: %1</source>
         <translation>モデルファイルを準備できませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="163"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="160"/>
         <source>Failed to read model file: %1</source>
         <translation>モデルファイルを読み込めませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="171"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="168"/>
         <source>Failed to write model file: %1</source>
         <translation>モデルファイルを書き込めませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="180"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="177"/>
         <source>Failed to install model file: %1</source>
         <translation>モデルファイルをインストールできませんでした: %1</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="190"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="199"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="187"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="196"/>
         <source>Model Installed</source>
         <translation>モデルをインストールしました</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="191"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="188"/>
         <source>The local model was installed at %1, but the Grimodex IME service could not reload it. Restart the input method or select Reload after the service starts.</source>
         <translation>ローカルモデルを %1 にインストールしましたが、Grimodex IME サービスで再読み込みできませんでした。入力メソッドを再起動するか、サービスの起動後に「再読み込み」を選択してください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="200"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="197"/>
         <source>The local Zenzai model was installed at %1. Select Reload to refresh this window.</source>
         <translation>ローカルのZenzaiモデルを %1 にインストールしました。この画面を更新するには「再読み込み」を選択してください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="258"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="207"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="223"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="256"/>
+        <source>Model Download Error</source>
+        <translation>モデルのダウンロードエラー</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="208"/>
+        <source>The Zenzai model downloader is not installed: %1</source>
+        <translation>Zenzaiモデルダウンローダーがインストールされていません: %1</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="224"/>
+        <source>Failed to download the tested Zenzai model.%1</source>
+        <translation>動作確認済みのZenzaiモデルのダウンロードに失敗しました。%1</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="241"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="248"/>
+        <source>Model Downloaded</source>
+        <translation>モデルをダウンロードしました</translation>
+    </message>
+    <message>
+        <source>The Zenzai model was downloaded, but the IME service could not reload it. Restart the input method or select Reload.</source>
+        <translation type="vanished">Zenzaiモデルをダウンロードしましたが、IMEサービスで再読み込みできませんでした。入力メソッドを再起動するか、「再読み込み」を選択してください。</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="249"/>
+        <source>The tested Zenzai model is ready to use.</source>
+        <translation>動作確認済みのZenzaiモデルを使用できます。</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="257"/>
+        <source>Failed to start the Zenzai model downloader: %1</source>
+        <translation>Zenzaiモデルダウンローダーを起動できませんでした: %1</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="262"/>
+        <source>Downloading Zenzai Model</source>
+        <translation>Zenzaiモデルをダウンロード中</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="263"/>
+        <source>The tested Zenzai model is being downloaded. This window will show the result when it finishes.</source>
+        <translation>動作確認済みのZenzaiモデルをダウンロードしています。完了すると結果が表示されます。</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="320"/>
         <source>&lt;b&gt;Warning:&lt;/b&gt; Zenzai support not installed.</source>
         <translation>&lt;b&gt;警告:&lt;/b&gt; Zenzaiサポートがインストールされていません。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="268"/>
         <source>&lt;b&gt;Warning:&lt;/b&gt; Zenzai model not found. Place a compatible GGUF file at &lt;code&gt;%1&lt;/code&gt;, or select a local file.</source>
-        <translation>&lt;b&gt;警告:&lt;/b&gt; Zenzaiモデルが見つかりません。互換性のあるGGUFファイルを &lt;code&gt;%1&lt;/code&gt; に配置するか、ローカルファイルを選択してください。</translation>
+        <translation type="vanished">&lt;b&gt;警告:&lt;/b&gt; Zenzaiモデルが見つかりません。互換性のあるGGUFファイルを &lt;code&gt;%1&lt;/code&gt; に配置するか、ローカルファイルを選択してください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="271"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="292"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="242"/>
+        <source>The Zenzai model was downloaded, but the IME service or settings window could not reload it. Restart the input method or select Reload.</source>
+        <translation>Zenzaiモデルをダウンロードしましたが、IMEサービスまたは設定画面を再読み込みできませんでした。入力メソッドを再起動するか、「再読み込み」を選択してください。</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="330"/>
+        <source>&lt;b&gt;Warning:&lt;/b&gt; Zenzai model not found. Place a compatible GGUF file at &lt;code&gt;%1&lt;/code&gt;, download the tested model, or select a local file.</source>
+        <translation>&lt;b&gt;警告:&lt;/b&gt; Zenzaiモデルが見つかりません。互換性のあるGGUFファイルを &lt;code&gt;%1&lt;/code&gt; に配置するか、動作確認済みモデルをダウンロードするか、ローカルファイルを選択してください。</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="334"/>
+        <source>Download Tested Model</source>
+        <translation>確認済みモデルをダウンロード</translation>
+    </message>
+    <message>
+        <location filename="controllers/ai_tab_controller.cpp" line="336"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="358"/>
         <source>Select Local Model</source>
         <translation>ローカルモデルを選択</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="290"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="356"/>
         <source>The current model differs from the tested Zenzai model.</source>
         <translation>現在のモデルは動作確認済みのZenzaiモデルと異なります。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="320"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="386"/>
         <source>Grimodex only (recommended)</source>
         <translation>Grimodexのみ（推奨）</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="323"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="389"/>
         <source>Off</source>
         <translation>オフ</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="325"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="391"/>
         <source>All applications</source>
         <translation>すべてのアプリケーション</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="341"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="407"/>
         <source>Allowed: current application is Grimodex</source>
         <translation>許可: 現在のアプリケーションはGrimodexです</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="343"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="409"/>
         <source>Allowed: all-applications mode is enabled</source>
         <translation>許可: すべてのアプリケーションで有効です</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="345"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="411"/>
         <source>Blocked: Grimodex integration is off</source>
         <translation>ブロック: Grimodex連携がオフです</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="347"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="413"/>
         <source>Blocked: secure input is active</source>
         <translation>ブロック: セキュア入力が有効です</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="349"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="415"/>
         <source>Blocked: application identity is unavailable</source>
         <translation>ブロック: アプリケーションを識別できません</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="351"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="417"/>
         <source>Blocked: current application is not Grimodex</source>
         <translation>ブロック: 現在のアプリケーションはGrimodexではありません</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="354"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="420"/>
         <source>No active input context</source>
         <translation>有効な入力コンテキストがありません</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="362"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="428"/>
         <source>&lt;b&gt;Diagnostics unavailable.&lt;/b&gt; Restart the Grimodex IME service after updating it.</source>
         <translation>&lt;b&gt;診断情報を取得できません。&lt;/b&gt; Grimodex IMEを更新したあと、サービスを再起動してください。</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="369"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="435"/>
         <source>active</source>
         <translation>稼働中</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="369"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="435"/>
         <source>stopped</source>
         <translation>停止中</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="371"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="437"/>
         <source>registered</source>
         <translation>登録済み</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="372"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="438"/>
         <source>not registered</source>
         <translation>未登録</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="375"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="441"/>
         <source>none</source>
         <translation>なし</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="378"/>
-        <location filename="controllers/ai_tab_controller.cpp" line="381"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="444"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="447"/>
         <source>unknown</source>
         <translation>不明</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="385"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="451"/>
         <source>enabled for current context</source>
         <translation>現在の入力コンテキストで有効</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="386"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="452"/>
         <source>disabled for current context</source>
         <translation>現在の入力コンテキストで無効</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="387"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="453"/>
         <source>yes</source>
         <translation>はい</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="387"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="453"/>
         <source>no</source>
         <translation>いいえ</translation>
     </message>
     <message>
-        <location filename="controllers/ai_tab_controller.cpp" line="391"/>
+        <location filename="controllers/ai_tab_controller.cpp" line="457"/>
         <source>&lt;b&gt;Runtime diagnostics&lt;/b&gt;&lt;br/&gt;Watcher: %1 / Consumer: %2&lt;br/&gt;Snapshot: %3 / Generation: %4 / Project: %5&lt;br/&gt;Sessions: %6 / Program: %7 / Frontend: %8 / Secure: %9&lt;br/&gt;Integration: %10&lt;br/&gt;Reason: %11</source>
         <translation>&lt;b&gt;実行時診断&lt;/b&gt;&lt;br/&gt;監視: %1 / コンシューマー: %2&lt;br/&gt;スナップショット: %3 / 世代: %4 / プロジェクト: %5&lt;br/&gt;セッション: %6 / プログラム: %7 / フロントエンド: %8 / セキュア入力: %9&lt;br/&gt;連携: %10&lt;br/&gt;理由: %11</translation>
     </message>
@@ -905,10 +966,10 @@
     </message>
     <message>
         <location filename="mainwindow.cpp" line="47"/>
-        <location filename="mainwindow.cpp" line="205"/>
-        <location filename="mainwindow.cpp" line="212"/>
-        <location filename="mainwindow.cpp" line="219"/>
-        <location filename="mainwindow.cpp" line="225"/>
+        <location filename="mainwindow.cpp" line="207"/>
+        <location filename="mainwindow.cpp" line="214"/>
+        <location filename="mainwindow.cpp" line="221"/>
+        <location filename="mainwindow.cpp" line="227"/>
         <source>Configuration Error</source>
         <translation>設定エラー</translation>
     </message>
@@ -918,28 +979,28 @@
         <translation>設定の読み込みに失敗しました。Grimodex IME サービスへの接続を確認してください。</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="153"/>
+        <location filename="mainwindow.cpp" line="155"/>
         <source>Error</source>
         <translation>エラー</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="154"/>
+        <location filename="mainwindow.cpp" line="156"/>
         <source>No configuration profile loaded.</source>
         <translation>設定プロファイルが読み込まれていません。</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="169"/>
-        <location filename="mainwindow.cpp" line="174"/>
+        <location filename="mainwindow.cpp" line="171"/>
+        <location filename="mainwindow.cpp" line="176"/>
         <source>Save Error</source>
         <translation>保存エラー</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="170"/>
+        <location filename="mainwindow.cpp" line="172"/>
         <source>Failed to save configuration: %1</source>
         <translation>設定の保存に失敗しました: %1</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="175"/>
+        <location filename="mainwindow.cpp" line="177"/>
         <source>An unknown error occurred while saving configuration.</source>
         <translation>設定の保存中に不明なエラーが発生しました。</translation>
     </message>
@@ -949,52 +1010,52 @@
         <translation>再読み込み</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="182"/>
+        <location filename="mainwindow.cpp" line="184"/>
         <source>Reload Configuration</source>
         <translation>設定を再読み込み</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="183"/>
+        <location filename="mainwindow.cpp" line="185"/>
         <source>Reloading will discard any unsaved changes. Continue?</source>
         <translation>再読み込みすると、保存されていない変更は失われます。続行しますか？</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="191"/>
+        <location filename="mainwindow.cpp" line="193"/>
         <source>Connection Error</source>
         <translation>接続エラー</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="192"/>
+        <location filename="mainwindow.cpp" line="194"/>
         <source>Failed to connect to server.</source>
         <translation>サーバーへの接続に失敗しました。</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="206"/>
+        <location filename="mainwindow.cpp" line="208"/>
         <source>Failed to load configuration from server.</source>
         <translation>サーバーから設定を読み込めませんでした。</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="213"/>
+        <location filename="mainwindow.cpp" line="215"/>
         <source>No profile found in configuration.</source>
         <translation>設定にプロファイルが見つかりません。</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="220"/>
+        <location filename="mainwindow.cpp" line="222"/>
         <source>Failed to access profile.</source>
         <translation>プロファイルへのアクセスに失敗しました。</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="226"/>
+        <location filename="mainwindow.cpp" line="228"/>
         <source>Failed to update UI.</source>
         <translation>UIの更新に失敗しました。</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="232"/>
+        <location filename="mainwindow.cpp" line="234"/>
         <source>Reload Complete</source>
         <translation>再読み込み完了</translation>
     </message>
     <message>
-        <location filename="mainwindow.cpp" line="233"/>
+        <location filename="mainwindow.cpp" line="235"/>
         <source>Configuration has been reloaded successfully.</source>
         <translation>設定が正常に再読み込みされました。</translation>
     </message>

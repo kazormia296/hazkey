@@ -1,0 +1,42 @@
+#!/bin/sh
+set -u
+
+find_model_helper() {
+    for helper in \
+        /usr/lib/fcitx5-grimodex/fcitx5-grimodex-model \
+        /usr/lib/*/fcitx5-grimodex/fcitx5-grimodex-model; do
+        if [ -x "$helper" ]; then
+            printf '%s\n' "$helper"
+            return 0
+        fi
+    done
+    return 1
+}
+
+download_for_invoking_user() {
+    user=${SUDO_USER:-}
+    if [ -z "$user" ] || [ "$user" = root ]; then
+        echo "fcitx5-grimodex: Zenzai model download deferred; open IME Settings to download it."
+        return 0
+    fi
+
+    home=$(getent passwd "$user" | cut -d: -f6)
+    helper=$(find_model_helper 2>/dev/null || true)
+    if [ -z "$home" ] || [ -z "$helper" ]; then
+        echo "fcitx5-grimodex: could not start the automatic Zenzai model download; open IME Settings instead."
+        return 0
+    fi
+
+    if ! runuser -u "$user" -- env \
+        HOME="$home" \
+        XDG_DATA_HOME="$home/.local/share" \
+        "$helper"; then
+        echo "fcitx5-grimodex: automatic Zenzai model download failed; open IME Settings to retry."
+    fi
+}
+
+if [ "${1:-}" = configure ]; then
+    download_for_invoking_user
+fi
+
+exit 0

@@ -11,7 +11,10 @@ class WarningWidgetFactory {
     static QWidget* create(const QString& message,
                            const QString& backgroundColor,
                            const QString& buttonText = QString(),
-                           std::function<void()> buttonCallback = nullptr);
+                           std::function<void()> buttonCallback = nullptr,
+                           const QString& secondaryButtonText = QString(),
+                           std::function<void()> secondaryButtonCallback =
+                               nullptr);
 };
 
 }  // namespace hazkey::settings

@@ -13,20 +13,17 @@
 #include <QLabel>
 #include <QLayoutItem>
 #include <QMessageBox>
+#include <QProcess>
 #include <QSaveFile>
 #include <QSignalBlocker>
 
 #include "config_macros.h"
+#include "constants.h"
 #include "controllers/warning_widget_factory.h"
 #include "settings_product_paths.h"
 #include "ui_mainwindow.h"
 
 namespace hazkey::settings {
-
-namespace {
-constexpr char kZenzaiExpectedChecksum[] =
-    "4de930c06bef8c263aa1aa40684af206db4ce1b96375b3b8ed0ea508e0b14f6c";
-}  // namespace
 
 AiTabController::AiTabController(Ui::MainWindow* ui, QWidget* window,
                                  QObject* parent)
@@ -202,6 +199,71 @@ void AiTabController::onSelectLocalZenzaiModel() {
             .arg(targetPath));
 }
 
+void AiTabController::onDownloadZenzaiModel() {
+    const QString helperPath = QString::fromLatin1(
+        GRIMODEX_ZENZAI_MODEL_HELPER_PATH);
+    if (!QFileInfo::exists(helperPath)) {
+        QMessageBox::critical(
+            window_, tr("Model Download Error"),
+            tr("The Zenzai model downloader is not installed: %1")
+                .arg(helperPath));
+        return;
+    }
+
+    auto* process = new QProcess(this);
+    connect(process,
+            qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+            [this, process](int exitCode, QProcess::ExitStatus) {
+                const QString details = QString::fromLocal8Bit(
+                    process->readAllStandardError());
+                process->deleteLater();
+
+                if (exitCode != 0) {
+                    QMessageBox::critical(
+                        window_, tr("Model Download Error"),
+                        tr("Failed to download the tested Zenzai model.%1")
+                            .arg(details.isEmpty() ? QString()
+                                                   : "\n" + details));
+                    return;
+                }
+
+                const bool serviceReloaded =
+                    context_.server != nullptr &&
+                    context_.server->reloadZenzaiModel();
+                bool configurationReloaded = false;
+                if (serviceReloaded) {
+                    configurationReloaded = context_.reloadConfiguration
+                                                ? context_.reloadConfiguration()
+                                                : (loadFromConfig(), true);
+                }
+                if (!serviceReloaded || !configurationReloaded) {
+                    QMessageBox::warning(
+                        window_, tr("Model Downloaded"),
+                        tr("The Zenzai model was downloaded, but the IME "
+                           "service or settings window could not reload it. "
+                           "Restart the input method or select Reload."));
+                    return;
+                }
+                QMessageBox::information(
+                    window_, tr("Model Downloaded"),
+                    tr("The tested Zenzai model is ready to use."));
+            });
+    process->start(helperPath);
+    if (!process->waitForStarted(1000)) {
+        const QString error = process->errorString();
+        process->deleteLater();
+        QMessageBox::critical(
+            window_, tr("Model Download Error"),
+            tr("Failed to start the Zenzai model downloader: %1").arg(error));
+        return;
+    }
+
+    QMessageBox::information(
+        window_, tr("Downloading Zenzai Model"),
+        tr("The tested Zenzai model is being downloaded. This window will "
+           "show the result when it finishes."));
+}
+
 QString AiTabController::calculateFileSHA256(const QString& filePath) {
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {
@@ -266,9 +328,12 @@ void AiTabController::refreshWarnings() {
 
         QWidget* warningWidget = WarningWidgetFactory::create(
             tr("<b>Warning:</b> Zenzai model not found. Place a compatible "
-               "GGUF file at <code>%1</code>, or select a local file.")
+               "GGUF file at <code>%1</code>, download the tested model, or "
+               "select a local file.")
                 .arg(managedZenzaiModelPath()),
-            "yellow", tr("Select Local Model"),
+            "yellow", tr("Download Tested Model"),
+            [this]() { onDownloadZenzaiModel(); },
+            tr("Select Local Model"),
             [this]() { onSelectLocalZenzaiModel(); });
         ui_->aiTabScrollContentsLayout->insertWidget(1, warningWidget);
     } else {
@@ -282,7 +347,8 @@ void AiTabController::refreshWarnings() {
             QString::fromStdString(context_.currentConfig->zenzai_model_path());
         if (!modelPath.isEmpty()) {
             QString currentChecksum = calculateFileSHA256(modelPath);
-            QString expectedChecksum = kZenzaiExpectedChecksum;
+            const QString expectedChecksum =
+                QString::fromLatin1(GRIMODEX_ZENZAI_MODEL_SHA256);
 
             if (!currentChecksum.isEmpty() &&
                 currentChecksum != expectedChecksum) {

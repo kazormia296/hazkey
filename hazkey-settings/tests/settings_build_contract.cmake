@@ -28,27 +28,32 @@ require_contains("${cmake_source}" "qt_add_executable(fcitx5-grimodex-settings"
                  "settings executable identity must be independent")
 require_contains("${cmake_source}" "install(TARGETS fcitx5-grimodex-settings"
                  "installed settings executable must be independent")
-require_absent("${cmake_source}" "Qt6::Network"
-               "settings must not link the network stack")
-require_absent("${cmake_source}" "LinguistTools Network"
-               "settings must not require the Qt network component")
+require_contains("${cmake_source}" "Qt6::Network"
+                 "the packaged model downloader must link the Qt network component")
+require_contains("${cmake_source}" "fcitx5-grimodex-model"
+                 "the packaged model downloader must be installed")
 
 read_settings_file(mainwindow_header "mainwindow.h")
 read_settings_file(mainwindow_source "mainwindow.cpp")
 read_settings_file(server_connector_source "serverconnector.cpp")
 read_settings_file(ai_header "controllers/ai_tab_controller.h")
 read_settings_file(ai_source "controllers/ai_tab_controller.cpp")
+read_settings_file(tab_context_header "controllers/tab_context.h")
+read_settings_file(warning_widget_source "controllers/warning_widget_factory.cpp")
 set(product_sources
     "${mainwindow_header}\n${mainwindow_source}\n${ai_header}\n${ai_source}")
 foreach(forbidden IN ITEMS
         "QNetworkAccessManager"
         "QNetworkReply"
         "QNetworkRequest"
-        "huggingface.co"
-        "onDownloadZenzaiModel")
+        "huggingface.co")
     require_absent("${product_sources}" "${forbidden}"
                    "settings product must not contain a downloader")
 endforeach()
+require_contains("${product_sources}" "onDownloadZenzaiModel"
+                 "settings must expose a model download fallback")
+require_contains("${product_sources}" "QProcess"
+                 "settings must launch the isolated model downloader")
 require_contains("${server_connector_source}" "throw std::runtime_error"
                  "settings save failures must reach the UI layer")
 require_contains("${mainwindow_source}" "if (saveCurrentConfig())"
@@ -59,6 +64,14 @@ require_contains("${ai_source}" "QFileDialog"
                  "settings must support selecting a local model")
 require_contains("${ai_source}" "zenzaiModel"
                  "local model selection must use the isolated product path")
+require_contains("${ai_source}" "context_.reloadConfiguration"
+                 "model download completion must refresh the settings UI")
+require_contains("${tab_context_header}" "reloadConfiguration"
+                 "tab context must expose settings refresh callback")
+require_contains("${warning_widget_source}" "QPalette::WindowText"
+                 "warning text must set an explicit readable palette color")
+require_contains("${warning_widget_source}" "lightnessF"
+                 "warning text color must adapt to the highlight background")
 require_contains("${ai_header}" "refreshGrimodexDiagnostics"
                  "settings must expose a Grimodex diagnostics presenter")
 foreach(required IN ITEMS

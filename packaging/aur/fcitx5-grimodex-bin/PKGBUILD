@@ -93,6 +93,10 @@ package() {
       artifact="${target}"
     fi
     magic="$(od -An -tx1 -N4 "${artifact}" | tr -d '[:space:]')"
+    network_allowed=false
+    if [[ "${artifact}" == "${pkgdir}/usr/lib/fcitx5-grimodex/fcitx5-grimodex-model" ]]; then
+      network_allowed=true
+    fi
     if [[ "${magic}" == "7f454c46" ]]; then
       if ! metadata="$(
         readelf -dW "${artifact}" &&
@@ -101,13 +105,17 @@ package() {
         printf 'Cannot inspect ELF metadata for %s\n' "${artifact}" >&2
         return 1
       fi
-      if grep -Eqi 'Qt6Network|QNetwork(AccessManager|Request|Reply)|FoundationNetworking|URLSession|NSURLConnection|AsyncHTTPClient|NIOHTTP(Client|1)|curl_(easy|multi|share|url)_|libcurl\.so' <<<"${metadata}"; then
-        printf 'Release archive exposes forbidden network capability metadata in %s\n' "${artifact}" >&2
-        return 1
+      if [[ "${network_allowed}" != true ]]; then
+        if grep -Eqi 'Qt6Network|QNetwork(AccessManager|Request|Reply)|FoundationNetworking|URLSession|NSURLConnection|AsyncHTTPClient|NIOHTTP(Client|1)|curl_(easy|multi|share|url)_|libcurl\.so' <<<"${metadata}"; then
+          printf 'Release archive exposes forbidden network capability metadata in %s\n' "${artifact}" >&2
+          return 1
+        fi
       fi
-      if grep -aEqi 'libcurl\.so|curl_(easy|multi|share|url)_' "${artifact}"; then
-        printf 'Release archive embeds a forbidden network capability identifier in %s\n' "${artifact}" >&2
-        return 1
+      if [[ "${network_allowed}" != true ]]; then
+        if grep -aEqi 'libcurl\.so|curl_(easy|multi|share|url)_' "${artifact}"; then
+          printf 'Release archive embeds a forbidden network capability identifier in %s\n' "${artifact}" >&2
+          return 1
+        fi
       fi
     elif [[ -x "${artifact}" ]]; then
       if [[ "$(head -c 2 "${artifact}")" != '#!' ]]; then
