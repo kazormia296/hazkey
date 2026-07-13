@@ -8,6 +8,7 @@
 // For information on using the generated types, please see the documentation:
 //   https://github.com/apple/swift-protobuf/
 
+import Foundation
 import SwiftProtobuf
 
 // If the compiler emits an error on this type, it is because this file
@@ -20,31 +21,9 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
   typealias Version = _2
 }
 
-struct Hazkey_Commands_NewComposingText: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  init() {}
-}
-
-struct Hazkey_Commands_SetContext: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  var context: String = String()
-
-  var anchor: Int32 = 0
-
-  var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  init() {}
-}
-
-struct Hazkey_Commands_InputChar: Sendable {
+/// Protocol v2 semantic actions. Protocol v1 procedural commands have been
+/// removed; their RequestEnvelope field numbers remain reserved in base.proto.
+struct Hazkey_Commands_InsertText: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -56,88 +35,22 @@ struct Hazkey_Commands_InputChar: Sendable {
   init() {}
 }
 
-struct Hazkey_Commands_ModifierEvent: Sendable {
+struct Hazkey_Commands_DeleteBackward: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var modType: Hazkey_Commands_ModifierEvent.ModifierType = .unspecified
-
-  var eventType: Hazkey_Commands_ModifierEvent.EventType = .unspecified
-
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  enum ModifierType: SwiftProtobuf.Enum, Swift.CaseIterable {
-    typealias RawValue = Int
-    case unspecified // = 0
-    case shift // = 1
-    case UNRECOGNIZED(Int)
+  init() {}
+}
 
-    init() {
-      self = .unspecified
-    }
+struct Hazkey_Commands_DeleteForward: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-    init?(rawValue: Int) {
-      switch rawValue {
-      case 0: self = .unspecified
-      case 1: self = .shift
-      default: self = .UNRECOGNIZED(rawValue)
-      }
-    }
-
-    var rawValue: Int {
-      switch self {
-      case .unspecified: return 0
-      case .shift: return 1
-      case .UNRECOGNIZED(let i): return i
-      }
-    }
-
-    // The compiler won't synthesize support with the UNRECOGNIZED case.
-    static let allCases: [Hazkey_Commands_ModifierEvent.ModifierType] = [
-      .unspecified,
-      .shift,
-    ]
-
-  }
-
-  enum EventType: SwiftProtobuf.Enum, Swift.CaseIterable {
-    typealias RawValue = Int
-    case unspecified // = 0
-    case press // = 1
-    case release // = 2
-    case UNRECOGNIZED(Int)
-
-    init() {
-      self = .unspecified
-    }
-
-    init?(rawValue: Int) {
-      switch rawValue {
-      case 0: self = .unspecified
-      case 1: self = .press
-      case 2: self = .release
-      default: self = .UNRECOGNIZED(rawValue)
-      }
-    }
-
-    var rawValue: Int {
-      switch self {
-      case .unspecified: return 0
-      case .press: return 1
-      case .release: return 2
-      case .UNRECOGNIZED(let i): return i
-      }
-    }
-
-    // The compiler won't synthesize support with the UNRECOGNIZED case.
-    static let allCases: [Hazkey_Commands_ModifierEvent.EventType] = [
-      .unspecified,
-      .press,
-      .release,
-    ]
-
-  }
+  var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
 }
@@ -154,91 +67,49 @@ struct Hazkey_Commands_MoveCursor: Sendable {
   init() {}
 }
 
-struct Hazkey_Commands_PrefixComplete: Sendable {
+struct Hazkey_Commands_MoveCursorToEdge: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var index: Int32 = 0
+  var edge: Hazkey_Commands_MoveCursorToEdge.Edge = .unspecified
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  init() {}
-}
-
-struct Hazkey_Commands_DeleteLeft: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  init() {}
-}
-
-struct Hazkey_Commands_DeleteRight: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  init() {}
-}
-
-struct Hazkey_Commands_GetComposingString: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  var charType: Hazkey_Commands_GetComposingString.CharType = .hiragana
-
-  var currentPreedit: String = String()
-
-  var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  enum CharType: SwiftProtobuf.Enum, Swift.CaseIterable {
+  enum Edge: SwiftProtobuf.Enum, Swift.CaseIterable {
     typealias RawValue = Int
-    case hiragana // = 0
-    case katakanaFull // = 1
-    case katakanaHalf // = 2
-    case alphabetFull // = 3
-    case alphabetHalf // = 4
+    case unspecified // = 0
+    case start // = 1
+    case end // = 2
     case UNRECOGNIZED(Int)
 
     init() {
-      self = .hiragana
+      self = .unspecified
     }
 
     init?(rawValue: Int) {
       switch rawValue {
-      case 0: self = .hiragana
-      case 1: self = .katakanaFull
-      case 2: self = .katakanaHalf
-      case 3: self = .alphabetFull
-      case 4: self = .alphabetHalf
+      case 0: self = .unspecified
+      case 1: self = .start
+      case 2: self = .end
       default: self = .UNRECOGNIZED(rawValue)
       }
     }
 
     var rawValue: Int {
       switch self {
-      case .hiragana: return 0
-      case .katakanaFull: return 1
-      case .katakanaHalf: return 2
-      case .alphabetFull: return 3
-      case .alphabetHalf: return 4
+      case .unspecified: return 0
+      case .start: return 1
+      case .end: return 2
       case .UNRECOGNIZED(let i): return i
       }
     }
 
     // The compiler won't synthesize support with the UNRECOGNIZED case.
-    static let allCases: [Hazkey_Commands_GetComposingString.CharType] = [
-      .hiragana,
-      .katakanaFull,
-      .katakanaHalf,
-      .alphabetFull,
-      .alphabetHalf,
+    static let allCases: [Hazkey_Commands_MoveCursorToEdge.Edge] = [
+      .unspecified,
+      .start,
+      .end,
     ]
 
   }
@@ -246,7 +117,7 @@ struct Hazkey_Commands_GetComposingString: Sendable {
   init() {}
 }
 
-struct Hazkey_Commands_GetHiraganaWithCursor: Sendable {
+struct Hazkey_Commands_StartConversion: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -256,19 +127,43 @@ struct Hazkey_Commands_GetHiraganaWithCursor: Sendable {
   init() {}
 }
 
-struct Hazkey_Commands_GetCandidates: Sendable {
+struct Hazkey_Commands_NavigateCandidate: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var isSuggest: Bool = false
+  var delta: Int32 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
 }
 
-struct Hazkey_Commands_GetCurrentInputModeInfo: Sendable {
+struct Hazkey_Commands_NavigateCandidatePage: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var delta: Int32 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Hazkey_Commands_ResizeSegment: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var delta: Int32 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Hazkey_Commands_CommitSelected: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -278,7 +173,7 @@ struct Hazkey_Commands_GetCurrentInputModeInfo: Sendable {
   init() {}
 }
 
-struct Hazkey_Commands_SaveLearningData: Sendable {
+struct Hazkey_Commands_CommitAll: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -288,106 +183,482 @@ struct Hazkey_Commands_SaveLearningData: Sendable {
   init() {}
 }
 
-struct Hazkey_Commands_Text: Sendable {
+struct Hazkey_Commands_Cancel: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Hazkey_Commands_SelectCandidate: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var candidateID: String = String()
+
+  var generation: UInt64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Hazkey_Commands_TransformActiveSegment: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var transform: Hazkey_Commands_TransformActiveSegment.Transform = .unspecified
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  enum Transform: SwiftProtobuf.Enum, Swift.CaseIterable {
+    typealias RawValue = Int
+    case unspecified // = 0
+    case hiragana // = 1
+    case katakanaFullwidth // = 2
+    case katakanaHalfwidth // = 3
+    case alphabetFullwidth // = 4
+    case alphabetHalfwidth // = 5
+    case UNRECOGNIZED(Int)
+
+    init() {
+      self = .unspecified
+    }
+
+    init?(rawValue: Int) {
+      switch rawValue {
+      case 0: self = .unspecified
+      case 1: self = .hiragana
+      case 2: self = .katakanaFullwidth
+      case 3: self = .katakanaHalfwidth
+      case 4: self = .alphabetFullwidth
+      case 5: self = .alphabetHalfwidth
+      default: self = .UNRECOGNIZED(rawValue)
+      }
+    }
+
+    var rawValue: Int {
+      switch self {
+      case .unspecified: return 0
+      case .hiragana: return 1
+      case .katakanaFullwidth: return 2
+      case .katakanaHalfwidth: return 3
+      case .alphabetFullwidth: return 4
+      case .alphabetHalfwidth: return 5
+      case .UNRECOGNIZED(let i): return i
+      }
+    }
+
+    // The compiler won't synthesize support with the UNRECOGNIZED case.
+    static let allCases: [Hazkey_Commands_TransformActiveSegment.Transform] = [
+      .unspecified,
+      .hiragana,
+      .katakanaFullwidth,
+      .katakanaHalfwidth,
+      .alphabetFullwidth,
+      .alphabetHalfwidth,
+    ]
+
+  }
+
+  init() {}
+}
+
+struct Hazkey_Commands_LifecycleEvent: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var event: Hazkey_Commands_LifecycleEvent.Event = .unspecified
+
+  var clientPreedit: Bool {
+    get {return _clientPreedit ?? false}
+    set {_clientPreedit = newValue}
+  }
+  /// Returns true if `clientPreedit` has been explicitly set.
+  var hasClientPreedit: Bool {return self._clientPreedit != nil}
+  /// Clears the value of `clientPreedit`. Subsequent reads from it will return its default value.
+  mutating func clearClientPreedit() {self._clientPreedit = nil}
+
+  var secureInput: Bool {
+    get {return _secureInput ?? false}
+    set {_secureInput = newValue}
+  }
+  /// Returns true if `secureInput` has been explicitly set.
+  var hasSecureInput: Bool {return self._secureInput != nil}
+  /// Clears the value of `secureInput`. Subsequent reads from it will return its default value.
+  mutating func clearSecureInput() {self._secureInput = nil}
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  enum Event: SwiftProtobuf.Enum, Swift.CaseIterable {
+    typealias RawValue = Int
+    case unspecified // = 0
+    case deactivate // = 1
+    case focusChanged // = 2
+    case capabilityChanged // = 3
+    case secureInputChanged // = 4
+    case serverRestarted // = 5
+    case UNRECOGNIZED(Int)
+
+    init() {
+      self = .unspecified
+    }
+
+    init?(rawValue: Int) {
+      switch rawValue {
+      case 0: self = .unspecified
+      case 1: self = .deactivate
+      case 2: self = .focusChanged
+      case 3: self = .capabilityChanged
+      case 4: self = .secureInputChanged
+      case 5: self = .serverRestarted
+      default: self = .UNRECOGNIZED(rawValue)
+      }
+    }
+
+    var rawValue: Int {
+      switch self {
+      case .unspecified: return 0
+      case .deactivate: return 1
+      case .focusChanged: return 2
+      case .capabilityChanged: return 3
+      case .secureInputChanged: return 4
+      case .serverRestarted: return 5
+      case .UNRECOGNIZED(let i): return i
+      }
+    }
+
+    // The compiler won't synthesize support with the UNRECOGNIZED case.
+    static let allCases: [Hazkey_Commands_LifecycleEvent.Event] = [
+      .unspecified,
+      .deactivate,
+      .focusChanged,
+      .capabilityChanged,
+      .secureInputChanged,
+      .serverRestarted,
+    ]
+
+  }
+
+  init() {}
+
+  fileprivate var _clientPreedit: Bool? = nil
+  fileprivate var _secureInput: Bool? = nil
+}
+
+struct Hazkey_Commands_ForgetCandidate: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var candidateID: String = String()
+
+  var generation: UInt64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Hazkey_Commands_Reconvert: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var text: String = String()
 
-  var unknownFields = SwiftProtobuf.UnknownStorage()
+  var leftContext: String = String()
 
-  init() {}
-}
+  var rightContext: String = String()
 
-struct Hazkey_Commands_TextWithCursor: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
+  /// Character counts relative to the frontend cursor. Their sum must match
+  /// the selected text length when replacement is requested.
+  var deleteBefore: UInt32 = 0
 
-  var beforeCursosr: String = String()
-
-  var onCursor: String = String()
-
-  var afterCursor: String = String()
+  var deleteAfter: UInt32 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
 }
 
-struct Hazkey_Commands_CandidatesResult: Sendable {
+struct Hazkey_Commands_BeginUnicodeInput: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var candidates: [Hazkey_Commands_CandidatesResult.Candidate] = []
+  var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  var liveText: String = String()
+  init() {}
+}
 
-  var liveTextIndex: Int32 = 0
+struct Hazkey_Commands_AppendUnicodeDigit: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-  var pageSize: Int32 = 0
+  var digit: String = String()
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  struct Candidate: Sendable {
-    // SwiftProtobuf.Message conformance is added in an extension below. See the
-    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-    // methods supported on all messages.
+  init() {}
+}
 
-    var text: String = String()
+struct Hazkey_Commands_CommitUnicodeInput: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-    var subHiragana: String = String()
+  var unknownFields = SwiftProtobuf.UnknownStorage()
 
-    var unknownFields = SwiftProtobuf.UnknownStorage()
+  init() {}
+}
 
-    init() {}
+struct Hazkey_Commands_UpdateSurroundingContext: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var text: String = String()
+
+  /// Unicode-scalar offset, matching the existing SetContext contract.
+  var anchor: UInt32 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Hazkey_Commands_RestoreCheckpoint: @unchecked Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var opaqueState: Data = Data()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Hazkey_Commands_HandleImeAction: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var requestID: String = String()
+
+  var expectedRevision: UInt64 = 0
+
+  var action: Hazkey_Commands_HandleImeAction.OneOf_Action? = nil
+
+  var insertText: Hazkey_Commands_InsertText {
+    get {
+      if case .insertText(let v)? = action {return v}
+      return Hazkey_Commands_InsertText()
+    }
+    set {action = .insertText(newValue)}
   }
 
-  init() {}
-}
+  var deleteBackward: Hazkey_Commands_DeleteBackward {
+    get {
+      if case .deleteBackward(let v)? = action {return v}
+      return Hazkey_Commands_DeleteBackward()
+    }
+    set {action = .deleteBackward(newValue)}
+  }
 
-struct Hazkey_Commands_CurrentInputModeInfo: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
+  var deleteForward: Hazkey_Commands_DeleteForward {
+    get {
+      if case .deleteForward(let v)? = action {return v}
+      return Hazkey_Commands_DeleteForward()
+    }
+    set {action = .deleteForward(newValue)}
+  }
 
-  var inputMode: Hazkey_Commands_CurrentInputModeInfo.InputMode = .normal
+  var moveCursorV2: Hazkey_Commands_MoveCursor {
+    get {
+      if case .moveCursorV2(let v)? = action {return v}
+      return Hazkey_Commands_MoveCursor()
+    }
+    set {action = .moveCursorV2(newValue)}
+  }
+
+  var moveCursorToEdge: Hazkey_Commands_MoveCursorToEdge {
+    get {
+      if case .moveCursorToEdge(let v)? = action {return v}
+      return Hazkey_Commands_MoveCursorToEdge()
+    }
+    set {action = .moveCursorToEdge(newValue)}
+  }
+
+  var startConversion: Hazkey_Commands_StartConversion {
+    get {
+      if case .startConversion(let v)? = action {return v}
+      return Hazkey_Commands_StartConversion()
+    }
+    set {action = .startConversion(newValue)}
+  }
+
+  var navigateCandidate: Hazkey_Commands_NavigateCandidate {
+    get {
+      if case .navigateCandidate(let v)? = action {return v}
+      return Hazkey_Commands_NavigateCandidate()
+    }
+    set {action = .navigateCandidate(newValue)}
+  }
+
+  var navigateCandidatePage: Hazkey_Commands_NavigateCandidatePage {
+    get {
+      if case .navigateCandidatePage(let v)? = action {return v}
+      return Hazkey_Commands_NavigateCandidatePage()
+    }
+    set {action = .navigateCandidatePage(newValue)}
+  }
+
+  var resizeSegment: Hazkey_Commands_ResizeSegment {
+    get {
+      if case .resizeSegment(let v)? = action {return v}
+      return Hazkey_Commands_ResizeSegment()
+    }
+    set {action = .resizeSegment(newValue)}
+  }
+
+  var commitSelected: Hazkey_Commands_CommitSelected {
+    get {
+      if case .commitSelected(let v)? = action {return v}
+      return Hazkey_Commands_CommitSelected()
+    }
+    set {action = .commitSelected(newValue)}
+  }
+
+  var commitAll: Hazkey_Commands_CommitAll {
+    get {
+      if case .commitAll(let v)? = action {return v}
+      return Hazkey_Commands_CommitAll()
+    }
+    set {action = .commitAll(newValue)}
+  }
+
+  var cancel: Hazkey_Commands_Cancel {
+    get {
+      if case .cancel(let v)? = action {return v}
+      return Hazkey_Commands_Cancel()
+    }
+    set {action = .cancel(newValue)}
+  }
+
+  var selectCandidate: Hazkey_Commands_SelectCandidate {
+    get {
+      if case .selectCandidate(let v)? = action {return v}
+      return Hazkey_Commands_SelectCandidate()
+    }
+    set {action = .selectCandidate(newValue)}
+  }
+
+  var transformActiveSegment: Hazkey_Commands_TransformActiveSegment {
+    get {
+      if case .transformActiveSegment(let v)? = action {return v}
+      return Hazkey_Commands_TransformActiveSegment()
+    }
+    set {action = .transformActiveSegment(newValue)}
+  }
+
+  var lifecycleEvent: Hazkey_Commands_LifecycleEvent {
+    get {
+      if case .lifecycleEvent(let v)? = action {return v}
+      return Hazkey_Commands_LifecycleEvent()
+    }
+    set {action = .lifecycleEvent(newValue)}
+  }
+
+  var forgetCandidate: Hazkey_Commands_ForgetCandidate {
+    get {
+      if case .forgetCandidate(let v)? = action {return v}
+      return Hazkey_Commands_ForgetCandidate()
+    }
+    set {action = .forgetCandidate(newValue)}
+  }
+
+  var reconvert: Hazkey_Commands_Reconvert {
+    get {
+      if case .reconvert(let v)? = action {return v}
+      return Hazkey_Commands_Reconvert()
+    }
+    set {action = .reconvert(newValue)}
+  }
+
+  var updateSurroundingContext: Hazkey_Commands_UpdateSurroundingContext {
+    get {
+      if case .updateSurroundingContext(let v)? = action {return v}
+      return Hazkey_Commands_UpdateSurroundingContext()
+    }
+    set {action = .updateSurroundingContext(newValue)}
+  }
+
+  var restoreCheckpoint: Hazkey_Commands_RestoreCheckpoint {
+    get {
+      if case .restoreCheckpoint(let v)? = action {return v}
+      return Hazkey_Commands_RestoreCheckpoint()
+    }
+    set {action = .restoreCheckpoint(newValue)}
+  }
+
+  var beginUnicodeInput: Hazkey_Commands_BeginUnicodeInput {
+    get {
+      if case .beginUnicodeInput(let v)? = action {return v}
+      return Hazkey_Commands_BeginUnicodeInput()
+    }
+    set {action = .beginUnicodeInput(newValue)}
+  }
+
+  var appendUnicodeDigit: Hazkey_Commands_AppendUnicodeDigit {
+    get {
+      if case .appendUnicodeDigit(let v)? = action {return v}
+      return Hazkey_Commands_AppendUnicodeDigit()
+    }
+    set {action = .appendUnicodeDigit(newValue)}
+  }
+
+  var commitUnicodeInput: Hazkey_Commands_CommitUnicodeInput {
+    get {
+      if case .commitUnicodeInput(let v)? = action {return v}
+      return Hazkey_Commands_CommitUnicodeInput()
+    }
+    set {action = .commitUnicodeInput(newValue)}
+  }
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  enum InputMode: SwiftProtobuf.Enum, Swift.CaseIterable {
-    typealias RawValue = Int
-    case normal // = 0
-    case direct // = 1
-    case UNRECOGNIZED(Int)
-
-    init() {
-      self = .normal
-    }
-
-    init?(rawValue: Int) {
-      switch rawValue {
-      case 0: self = .normal
-      case 1: self = .direct
-      default: self = .UNRECOGNIZED(rawValue)
-      }
-    }
-
-    var rawValue: Int {
-      switch self {
-      case .normal: return 0
-      case .direct: return 1
-      case .UNRECOGNIZED(let i): return i
-      }
-    }
-
-    // The compiler won't synthesize support with the UNRECOGNIZED case.
-    static let allCases: [Hazkey_Commands_CurrentInputModeInfo.InputMode] = [
-      .normal,
-      .direct,
-    ]
+  enum OneOf_Action: Equatable, Sendable {
+    case insertText(Hazkey_Commands_InsertText)
+    case deleteBackward(Hazkey_Commands_DeleteBackward)
+    case deleteForward(Hazkey_Commands_DeleteForward)
+    case moveCursorV2(Hazkey_Commands_MoveCursor)
+    case moveCursorToEdge(Hazkey_Commands_MoveCursorToEdge)
+    case startConversion(Hazkey_Commands_StartConversion)
+    case navigateCandidate(Hazkey_Commands_NavigateCandidate)
+    case navigateCandidatePage(Hazkey_Commands_NavigateCandidatePage)
+    case resizeSegment(Hazkey_Commands_ResizeSegment)
+    case commitSelected(Hazkey_Commands_CommitSelected)
+    case commitAll(Hazkey_Commands_CommitAll)
+    case cancel(Hazkey_Commands_Cancel)
+    case selectCandidate(Hazkey_Commands_SelectCandidate)
+    case transformActiveSegment(Hazkey_Commands_TransformActiveSegment)
+    case lifecycleEvent(Hazkey_Commands_LifecycleEvent)
+    case forgetCandidate(Hazkey_Commands_ForgetCandidate)
+    case reconvert(Hazkey_Commands_Reconvert)
+    case updateSurroundingContext(Hazkey_Commands_UpdateSurroundingContext)
+    case restoreCheckpoint(Hazkey_Commands_RestoreCheckpoint)
+    case beginUnicodeInput(Hazkey_Commands_BeginUnicodeInput)
+    case appendUnicodeDigit(Hazkey_Commands_AppendUnicodeDigit)
+    case commitUnicodeInput(Hazkey_Commands_CommitUnicodeInput)
 
   }
 
@@ -398,65 +669,8 @@ struct Hazkey_Commands_CurrentInputModeInfo: Sendable {
 
 fileprivate let _protobuf_package = "hazkey.commands"
 
-extension Hazkey_Commands_NewComposingText: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".NewComposingText"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
-
-  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    // Load everything into unknown fields
-    while try decoder.nextFieldNumber() != nil {}
-  }
-
-  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  static func ==(lhs: Hazkey_Commands_NewComposingText, rhs: Hazkey_Commands_NewComposingText) -> Bool {
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Hazkey_Commands_SetContext: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".SetContext"
-  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "context"),
-    2: .same(proto: "anchor"),
-  ]
-
-  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.context) }()
-      case 2: try { try decoder.decodeSingularInt32Field(value: &self.anchor) }()
-      default: break
-      }
-    }
-  }
-
-  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.context.isEmpty {
-      try visitor.visitSingularStringField(value: self.context, fieldNumber: 1)
-    }
-    if self.anchor != 0 {
-      try visitor.visitSingularInt32Field(value: self.anchor, fieldNumber: 2)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  static func ==(lhs: Hazkey_Commands_SetContext, rhs: Hazkey_Commands_SetContext) -> Bool {
-    if lhs.context != rhs.context {return false}
-    if lhs.anchor != rhs.anchor {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Hazkey_Commands_InputChar: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".InputChar"
+extension Hazkey_Commands_InsertText: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".InsertText"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "text"),
   ]
@@ -480,64 +694,49 @@ extension Hazkey_Commands_InputChar: SwiftProtobuf.Message, SwiftProtobuf._Messa
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Hazkey_Commands_InputChar, rhs: Hazkey_Commands_InputChar) -> Bool {
+  static func ==(lhs: Hazkey_Commands_InsertText, rhs: Hazkey_Commands_InsertText) -> Bool {
     if lhs.text != rhs.text {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Hazkey_Commands_ModifierEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".ModifierEvent"
-  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "mod_type"),
-    2: .standard(proto: "event_type"),
-  ]
+extension Hazkey_Commands_DeleteBackward: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".DeleteBackward"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularEnumField(value: &self.modType) }()
-      case 2: try { try decoder.decodeSingularEnumField(value: &self.eventType) }()
-      default: break
-      }
-    }
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if self.modType != .unspecified {
-      try visitor.visitSingularEnumField(value: self.modType, fieldNumber: 1)
-    }
-    if self.eventType != .unspecified {
-      try visitor.visitSingularEnumField(value: self.eventType, fieldNumber: 2)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Hazkey_Commands_ModifierEvent, rhs: Hazkey_Commands_ModifierEvent) -> Bool {
-    if lhs.modType != rhs.modType {return false}
-    if lhs.eventType != rhs.eventType {return false}
+  static func ==(lhs: Hazkey_Commands_DeleteBackward, rhs: Hazkey_Commands_DeleteBackward) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Hazkey_Commands_ModifierEvent.ModifierType: SwiftProtobuf._ProtoNameProviding {
-  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    0: .same(proto: "MODIFIER_TYPE_UNSPECIFIED"),
-    1: .same(proto: "SHIFT"),
-  ]
-}
+extension Hazkey_Commands_DeleteForward: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".DeleteForward"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
-extension Hazkey_Commands_ModifierEvent.EventType: SwiftProtobuf._ProtoNameProviding {
-  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    0: .same(proto: "EVENT_TYPE_UNSPECIFIED"),
-    1: .same(proto: "PRESS"),
-    2: .same(proto: "RELEASE"),
-  ]
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Commands_DeleteForward, rhs: Hazkey_Commands_DeleteForward) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Hazkey_Commands_MoveCursor: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
@@ -572,10 +771,10 @@ extension Hazkey_Commands_MoveCursor: SwiftProtobuf.Message, SwiftProtobuf._Mess
   }
 }
 
-extension Hazkey_Commands_PrefixComplete: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".PrefixComplete"
+extension Hazkey_Commands_MoveCursorToEdge: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".MoveCursorToEdge"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "index"),
+    1: .same(proto: "edge"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -584,69 +783,57 @@ extension Hazkey_Commands_PrefixComplete: SwiftProtobuf.Message, SwiftProtobuf._
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularInt32Field(value: &self.index) }()
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.edge) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if self.index != 0 {
-      try visitor.visitSingularInt32Field(value: self.index, fieldNumber: 1)
+    if self.edge != .unspecified {
+      try visitor.visitSingularEnumField(value: self.edge, fieldNumber: 1)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Hazkey_Commands_PrefixComplete, rhs: Hazkey_Commands_PrefixComplete) -> Bool {
-    if lhs.index != rhs.index {return false}
+  static func ==(lhs: Hazkey_Commands_MoveCursorToEdge, rhs: Hazkey_Commands_MoveCursorToEdge) -> Bool {
+    if lhs.edge != rhs.edge {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Hazkey_Commands_DeleteLeft: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".DeleteLeft"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
-
-  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    // Load everything into unknown fields
-    while try decoder.nextFieldNumber() != nil {}
-  }
-
-  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  static func ==(lhs: Hazkey_Commands_DeleteLeft, rhs: Hazkey_Commands_DeleteLeft) -> Bool {
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Hazkey_Commands_DeleteRight: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".DeleteRight"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
-
-  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    // Load everything into unknown fields
-    while try decoder.nextFieldNumber() != nil {}
-  }
-
-  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  static func ==(lhs: Hazkey_Commands_DeleteRight, rhs: Hazkey_Commands_DeleteRight) -> Bool {
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Hazkey_Commands_GetComposingString: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".GetComposingString"
+extension Hazkey_Commands_MoveCursorToEdge.Edge: SwiftProtobuf._ProtoNameProviding {
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "char_type"),
-    2: .standard(proto: "current_preedit"),
+    0: .same(proto: "EDGE_UNSPECIFIED"),
+    1: .same(proto: "START"),
+    2: .same(proto: "END"),
+  ]
+}
+
+extension Hazkey_Commands_StartConversion: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".StartConversion"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Commands_StartConversion, rhs: Hazkey_Commands_StartConversion) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_Commands_NavigateCandidate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".NavigateCandidate"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "delta"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -655,64 +842,30 @@ extension Hazkey_Commands_GetComposingString: SwiftProtobuf.Message, SwiftProtob
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularEnumField(value: &self.charType) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.currentPreedit) }()
+      case 1: try { try decoder.decodeSingularInt32Field(value: &self.delta) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if self.charType != .hiragana {
-      try visitor.visitSingularEnumField(value: self.charType, fieldNumber: 1)
-    }
-    if !self.currentPreedit.isEmpty {
-      try visitor.visitSingularStringField(value: self.currentPreedit, fieldNumber: 2)
+    if self.delta != 0 {
+      try visitor.visitSingularInt32Field(value: self.delta, fieldNumber: 1)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Hazkey_Commands_GetComposingString, rhs: Hazkey_Commands_GetComposingString) -> Bool {
-    if lhs.charType != rhs.charType {return false}
-    if lhs.currentPreedit != rhs.currentPreedit {return false}
+  static func ==(lhs: Hazkey_Commands_NavigateCandidate, rhs: Hazkey_Commands_NavigateCandidate) -> Bool {
+    if lhs.delta != rhs.delta {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Hazkey_Commands_GetComposingString.CharType: SwiftProtobuf._ProtoNameProviding {
+extension Hazkey_Commands_NavigateCandidatePage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".NavigateCandidatePage"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    0: .same(proto: "HIRAGANA"),
-    1: .same(proto: "KATAKANA_FULL"),
-    2: .same(proto: "KATAKANA_HALF"),
-    3: .same(proto: "ALPHABET_FULL"),
-    4: .same(proto: "ALPHABET_HALF"),
-  ]
-}
-
-extension Hazkey_Commands_GetHiraganaWithCursor: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".GetHiraganaWithCursor"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
-
-  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    // Load everything into unknown fields
-    while try decoder.nextFieldNumber() != nil {}
-  }
-
-  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  static func ==(lhs: Hazkey_Commands_GetHiraganaWithCursor, rhs: Hazkey_Commands_GetHiraganaWithCursor) -> Bool {
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Hazkey_Commands_GetCandidates: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".GetCandidates"
-  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "is_suggest"),
+    1: .same(proto: "delta"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -721,28 +874,60 @@ extension Hazkey_Commands_GetCandidates: SwiftProtobuf.Message, SwiftProtobuf._M
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularBoolField(value: &self.isSuggest) }()
+      case 1: try { try decoder.decodeSingularInt32Field(value: &self.delta) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if self.isSuggest != false {
-      try visitor.visitSingularBoolField(value: self.isSuggest, fieldNumber: 1)
+    if self.delta != 0 {
+      try visitor.visitSingularInt32Field(value: self.delta, fieldNumber: 1)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Hazkey_Commands_GetCandidates, rhs: Hazkey_Commands_GetCandidates) -> Bool {
-    if lhs.isSuggest != rhs.isSuggest {return false}
+  static func ==(lhs: Hazkey_Commands_NavigateCandidatePage, rhs: Hazkey_Commands_NavigateCandidatePage) -> Bool {
+    if lhs.delta != rhs.delta {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Hazkey_Commands_GetCurrentInputModeInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".GetCurrentInputModeInfo"
+extension Hazkey_Commands_ResizeSegment: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ResizeSegment"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "delta"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt32Field(value: &self.delta) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.delta != 0 {
+      try visitor.visitSingularInt32Field(value: self.delta, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Commands_ResizeSegment, rhs: Hazkey_Commands_ResizeSegment) -> Bool {
+    if lhs.delta != rhs.delta {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_Commands_CommitSelected: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".CommitSelected"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -754,14 +939,14 @@ extension Hazkey_Commands_GetCurrentInputModeInfo: SwiftProtobuf.Message, SwiftP
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Hazkey_Commands_GetCurrentInputModeInfo, rhs: Hazkey_Commands_GetCurrentInputModeInfo) -> Bool {
+  static func ==(lhs: Hazkey_Commands_CommitSelected, rhs: Hazkey_Commands_CommitSelected) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Hazkey_Commands_SaveLearningData: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".SaveLearningData"
+extension Hazkey_Commands_CommitAll: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".CommitAll"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -773,16 +958,217 @@ extension Hazkey_Commands_SaveLearningData: SwiftProtobuf.Message, SwiftProtobuf
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Hazkey_Commands_SaveLearningData, rhs: Hazkey_Commands_SaveLearningData) -> Bool {
+  static func ==(lhs: Hazkey_Commands_CommitAll, rhs: Hazkey_Commands_CommitAll) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Hazkey_Commands_Text: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".Text"
+extension Hazkey_Commands_Cancel: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".Cancel"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Commands_Cancel, rhs: Hazkey_Commands_Cancel) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_Commands_SelectCandidate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SelectCandidate"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "candidate_id"),
+    2: .same(proto: "generation"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.candidateID) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.generation) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.candidateID.isEmpty {
+      try visitor.visitSingularStringField(value: self.candidateID, fieldNumber: 1)
+    }
+    if self.generation != 0 {
+      try visitor.visitSingularUInt64Field(value: self.generation, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Commands_SelectCandidate, rhs: Hazkey_Commands_SelectCandidate) -> Bool {
+    if lhs.candidateID != rhs.candidateID {return false}
+    if lhs.generation != rhs.generation {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_Commands_TransformActiveSegment: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".TransformActiveSegment"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "transform"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.transform) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.transform != .unspecified {
+      try visitor.visitSingularEnumField(value: self.transform, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Commands_TransformActiveSegment, rhs: Hazkey_Commands_TransformActiveSegment) -> Bool {
+    if lhs.transform != rhs.transform {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_Commands_TransformActiveSegment.Transform: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "TRANSFORM_UNSPECIFIED"),
+    1: .same(proto: "HIRAGANA"),
+    2: .same(proto: "KATAKANA_FULLWIDTH"),
+    3: .same(proto: "KATAKANA_HALFWIDTH"),
+    4: .same(proto: "ALPHABET_FULLWIDTH"),
+    5: .same(proto: "ALPHABET_HALFWIDTH"),
+  ]
+}
+
+extension Hazkey_Commands_LifecycleEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".LifecycleEvent"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "event"),
+    2: .standard(proto: "client_preedit"),
+    3: .standard(proto: "secure_input"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.event) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self._clientPreedit) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self._secureInput) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if self.event != .unspecified {
+      try visitor.visitSingularEnumField(value: self.event, fieldNumber: 1)
+    }
+    try { if let v = self._clientPreedit {
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._secureInput {
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Commands_LifecycleEvent, rhs: Hazkey_Commands_LifecycleEvent) -> Bool {
+    if lhs.event != rhs.event {return false}
+    if lhs._clientPreedit != rhs._clientPreedit {return false}
+    if lhs._secureInput != rhs._secureInput {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_Commands_LifecycleEvent.Event: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "EVENT_UNSPECIFIED"),
+    1: .same(proto: "DEACTIVATE"),
+    2: .same(proto: "FOCUS_CHANGED"),
+    3: .same(proto: "CAPABILITY_CHANGED"),
+    4: .same(proto: "SECURE_INPUT_CHANGED"),
+    5: .same(proto: "SERVER_RESTARTED"),
+  ]
+}
+
+extension Hazkey_Commands_ForgetCandidate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ForgetCandidate"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "candidate_id"),
+    2: .same(proto: "generation"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.candidateID) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.generation) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.candidateID.isEmpty {
+      try visitor.visitSingularStringField(value: self.candidateID, fieldNumber: 1)
+    }
+    if self.generation != 0 {
+      try visitor.visitSingularUInt64Field(value: self.generation, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Commands_ForgetCandidate, rhs: Hazkey_Commands_ForgetCandidate) -> Bool {
+    if lhs.candidateID != rhs.candidateID {return false}
+    if lhs.generation != rhs.generation {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_Commands_Reconvert: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".Reconvert"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "text"),
+    2: .standard(proto: "left_context"),
+    3: .standard(proto: "right_context"),
+    4: .standard(proto: "delete_before"),
+    5: .standard(proto: "delete_after"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -792,6 +1178,10 @@ extension Hazkey_Commands_Text: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.text) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.leftContext) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.rightContext) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.deleteBefore) }()
+      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.deleteAfter) }()
       default: break
       }
     }
@@ -801,22 +1191,55 @@ extension Hazkey_Commands_Text: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
     if !self.text.isEmpty {
       try visitor.visitSingularStringField(value: self.text, fieldNumber: 1)
     }
+    if !self.leftContext.isEmpty {
+      try visitor.visitSingularStringField(value: self.leftContext, fieldNumber: 2)
+    }
+    if !self.rightContext.isEmpty {
+      try visitor.visitSingularStringField(value: self.rightContext, fieldNumber: 3)
+    }
+    if self.deleteBefore != 0 {
+      try visitor.visitSingularUInt32Field(value: self.deleteBefore, fieldNumber: 4)
+    }
+    if self.deleteAfter != 0 {
+      try visitor.visitSingularUInt32Field(value: self.deleteAfter, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Hazkey_Commands_Text, rhs: Hazkey_Commands_Text) -> Bool {
+  static func ==(lhs: Hazkey_Commands_Reconvert, rhs: Hazkey_Commands_Reconvert) -> Bool {
     if lhs.text != rhs.text {return false}
+    if lhs.leftContext != rhs.leftContext {return false}
+    if lhs.rightContext != rhs.rightContext {return false}
+    if lhs.deleteBefore != rhs.deleteBefore {return false}
+    if lhs.deleteAfter != rhs.deleteAfter {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Hazkey_Commands_TextWithCursor: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".TextWithCursor"
+extension Hazkey_Commands_BeginUnicodeInput: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".BeginUnicodeInput"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Commands_BeginUnicodeInput, rhs: Hazkey_Commands_BeginUnicodeInput) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Hazkey_Commands_AppendUnicodeDigit: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".AppendUnicodeDigit"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "beforeCursosr"),
-    2: .same(proto: "onCursor"),
-    3: .same(proto: "afterCursor"),
+    1: .same(proto: "digit"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -825,91 +1248,50 @@ extension Hazkey_Commands_TextWithCursor: SwiftProtobuf.Message, SwiftProtobuf._
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.beforeCursosr) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.onCursor) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.afterCursor) }()
+      case 1: try { try decoder.decodeSingularStringField(value: &self.digit) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.beforeCursosr.isEmpty {
-      try visitor.visitSingularStringField(value: self.beforeCursosr, fieldNumber: 1)
-    }
-    if !self.onCursor.isEmpty {
-      try visitor.visitSingularStringField(value: self.onCursor, fieldNumber: 2)
-    }
-    if !self.afterCursor.isEmpty {
-      try visitor.visitSingularStringField(value: self.afterCursor, fieldNumber: 3)
+    if !self.digit.isEmpty {
+      try visitor.visitSingularStringField(value: self.digit, fieldNumber: 1)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Hazkey_Commands_TextWithCursor, rhs: Hazkey_Commands_TextWithCursor) -> Bool {
-    if lhs.beforeCursosr != rhs.beforeCursosr {return false}
-    if lhs.onCursor != rhs.onCursor {return false}
-    if lhs.afterCursor != rhs.afterCursor {return false}
+  static func ==(lhs: Hazkey_Commands_AppendUnicodeDigit, rhs: Hazkey_Commands_AppendUnicodeDigit) -> Bool {
+    if lhs.digit != rhs.digit {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Hazkey_Commands_CandidatesResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".CandidatesResult"
-  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "candidates"),
-    2: .standard(proto: "live_text"),
-    3: .standard(proto: "live_text_index"),
-    4: .standard(proto: "page_size"),
-  ]
+extension Hazkey_Commands_CommitUnicodeInput: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".CommitUnicodeInput"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.candidates) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.liveText) }()
-      case 3: try { try decoder.decodeSingularInt32Field(value: &self.liveTextIndex) }()
-      case 4: try { try decoder.decodeSingularInt32Field(value: &self.pageSize) }()
-      default: break
-      }
-    }
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.candidates.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.candidates, fieldNumber: 1)
-    }
-    if !self.liveText.isEmpty {
-      try visitor.visitSingularStringField(value: self.liveText, fieldNumber: 2)
-    }
-    if self.liveTextIndex != 0 {
-      try visitor.visitSingularInt32Field(value: self.liveTextIndex, fieldNumber: 3)
-    }
-    if self.pageSize != 0 {
-      try visitor.visitSingularInt32Field(value: self.pageSize, fieldNumber: 4)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Hazkey_Commands_CandidatesResult, rhs: Hazkey_Commands_CandidatesResult) -> Bool {
-    if lhs.candidates != rhs.candidates {return false}
-    if lhs.liveText != rhs.liveText {return false}
-    if lhs.liveTextIndex != rhs.liveTextIndex {return false}
-    if lhs.pageSize != rhs.pageSize {return false}
+  static func ==(lhs: Hazkey_Commands_CommitUnicodeInput, rhs: Hazkey_Commands_CommitUnicodeInput) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Hazkey_Commands_CandidatesResult.Candidate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = Hazkey_Commands_CandidatesResult.protoMessageName + ".Candidate"
+extension Hazkey_Commands_UpdateSurroundingContext: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".UpdateSurroundingContext"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "text"),
-    2: .standard(proto: "sub_hiragana"),
+    2: .same(proto: "anchor"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -919,7 +1301,7 @@ extension Hazkey_Commands_CandidatesResult.Candidate: SwiftProtobuf.Message, Swi
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.text) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.subHiragana) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.anchor) }()
       default: break
       }
     }
@@ -929,24 +1311,24 @@ extension Hazkey_Commands_CandidatesResult.Candidate: SwiftProtobuf.Message, Swi
     if !self.text.isEmpty {
       try visitor.visitSingularStringField(value: self.text, fieldNumber: 1)
     }
-    if !self.subHiragana.isEmpty {
-      try visitor.visitSingularStringField(value: self.subHiragana, fieldNumber: 2)
+    if self.anchor != 0 {
+      try visitor.visitSingularUInt32Field(value: self.anchor, fieldNumber: 2)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Hazkey_Commands_CandidatesResult.Candidate, rhs: Hazkey_Commands_CandidatesResult.Candidate) -> Bool {
+  static func ==(lhs: Hazkey_Commands_UpdateSurroundingContext, rhs: Hazkey_Commands_UpdateSurroundingContext) -> Bool {
     if lhs.text != rhs.text {return false}
-    if lhs.subHiragana != rhs.subHiragana {return false}
+    if lhs.anchor != rhs.anchor {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Hazkey_Commands_CurrentInputModeInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".CurrentInputModeInfo"
+extension Hazkey_Commands_RestoreCheckpoint: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".RestoreCheckpoint"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "input_mode"),
+    1: .standard(proto: "opaque_state"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -955,29 +1337,464 @@ extension Hazkey_Commands_CurrentInputModeInfo: SwiftProtobuf.Message, SwiftProt
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularEnumField(value: &self.inputMode) }()
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.opaqueState) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if self.inputMode != .normal {
-      try visitor.visitSingularEnumField(value: self.inputMode, fieldNumber: 1)
+    if !self.opaqueState.isEmpty {
+      try visitor.visitSingularBytesField(value: self.opaqueState, fieldNumber: 1)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Hazkey_Commands_CurrentInputModeInfo, rhs: Hazkey_Commands_CurrentInputModeInfo) -> Bool {
-    if lhs.inputMode != rhs.inputMode {return false}
+  static func ==(lhs: Hazkey_Commands_RestoreCheckpoint, rhs: Hazkey_Commands_RestoreCheckpoint) -> Bool {
+    if lhs.opaqueState != rhs.opaqueState {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Hazkey_Commands_CurrentInputModeInfo.InputMode: SwiftProtobuf._ProtoNameProviding {
+extension Hazkey_Commands_HandleImeAction: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".HandleImeAction"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    0: .same(proto: "NORMAL"),
-    1: .same(proto: "DIRECT"),
+    1: .standard(proto: "request_id"),
+    2: .standard(proto: "expected_revision"),
+    10: .standard(proto: "insert_text"),
+    11: .standard(proto: "delete_backward"),
+    12: .standard(proto: "delete_forward"),
+    13: .standard(proto: "move_cursor_v2"),
+    14: .standard(proto: "move_cursor_to_edge"),
+    15: .standard(proto: "start_conversion"),
+    16: .standard(proto: "navigate_candidate"),
+    17: .standard(proto: "navigate_candidate_page"),
+    18: .standard(proto: "resize_segment"),
+    19: .standard(proto: "commit_selected"),
+    20: .standard(proto: "commit_all"),
+    21: .same(proto: "cancel"),
+    22: .standard(proto: "select_candidate"),
+    23: .standard(proto: "transform_active_segment"),
+    24: .standard(proto: "lifecycle_event"),
+    25: .standard(proto: "forget_candidate"),
+    26: .same(proto: "reconvert"),
+    27: .standard(proto: "update_surrounding_context"),
+    28: .standard(proto: "restore_checkpoint"),
+    29: .standard(proto: "begin_unicode_input"),
+    30: .standard(proto: "append_unicode_digit"),
+    31: .standard(proto: "commit_unicode_input"),
   ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.expectedRevision) }()
+      case 10: try {
+        var v: Hazkey_Commands_InsertText?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .insertText(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .insertText(v)
+        }
+      }()
+      case 11: try {
+        var v: Hazkey_Commands_DeleteBackward?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .deleteBackward(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .deleteBackward(v)
+        }
+      }()
+      case 12: try {
+        var v: Hazkey_Commands_DeleteForward?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .deleteForward(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .deleteForward(v)
+        }
+      }()
+      case 13: try {
+        var v: Hazkey_Commands_MoveCursor?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .moveCursorV2(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .moveCursorV2(v)
+        }
+      }()
+      case 14: try {
+        var v: Hazkey_Commands_MoveCursorToEdge?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .moveCursorToEdge(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .moveCursorToEdge(v)
+        }
+      }()
+      case 15: try {
+        var v: Hazkey_Commands_StartConversion?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .startConversion(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .startConversion(v)
+        }
+      }()
+      case 16: try {
+        var v: Hazkey_Commands_NavigateCandidate?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .navigateCandidate(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .navigateCandidate(v)
+        }
+      }()
+      case 17: try {
+        var v: Hazkey_Commands_NavigateCandidatePage?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .navigateCandidatePage(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .navigateCandidatePage(v)
+        }
+      }()
+      case 18: try {
+        var v: Hazkey_Commands_ResizeSegment?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .resizeSegment(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .resizeSegment(v)
+        }
+      }()
+      case 19: try {
+        var v: Hazkey_Commands_CommitSelected?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .commitSelected(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .commitSelected(v)
+        }
+      }()
+      case 20: try {
+        var v: Hazkey_Commands_CommitAll?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .commitAll(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .commitAll(v)
+        }
+      }()
+      case 21: try {
+        var v: Hazkey_Commands_Cancel?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .cancel(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .cancel(v)
+        }
+      }()
+      case 22: try {
+        var v: Hazkey_Commands_SelectCandidate?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .selectCandidate(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .selectCandidate(v)
+        }
+      }()
+      case 23: try {
+        var v: Hazkey_Commands_TransformActiveSegment?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .transformActiveSegment(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .transformActiveSegment(v)
+        }
+      }()
+      case 24: try {
+        var v: Hazkey_Commands_LifecycleEvent?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .lifecycleEvent(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .lifecycleEvent(v)
+        }
+      }()
+      case 25: try {
+        var v: Hazkey_Commands_ForgetCandidate?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .forgetCandidate(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .forgetCandidate(v)
+        }
+      }()
+      case 26: try {
+        var v: Hazkey_Commands_Reconvert?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .reconvert(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .reconvert(v)
+        }
+      }()
+      case 27: try {
+        var v: Hazkey_Commands_UpdateSurroundingContext?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .updateSurroundingContext(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .updateSurroundingContext(v)
+        }
+      }()
+      case 28: try {
+        var v: Hazkey_Commands_RestoreCheckpoint?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .restoreCheckpoint(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .restoreCheckpoint(v)
+        }
+      }()
+      case 29: try {
+        var v: Hazkey_Commands_BeginUnicodeInput?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .beginUnicodeInput(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .beginUnicodeInput(v)
+        }
+      }()
+      case 30: try {
+        var v: Hazkey_Commands_AppendUnicodeDigit?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .appendUnicodeDigit(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .appendUnicodeDigit(v)
+        }
+      }()
+      case 31: try {
+        var v: Hazkey_Commands_CommitUnicodeInput?
+        var hadOneofValue = false
+        if let current = self.action {
+          hadOneofValue = true
+          if case .commitUnicodeInput(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.action = .commitUnicodeInput(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.requestID.isEmpty {
+      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
+    }
+    if self.expectedRevision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.expectedRevision, fieldNumber: 2)
+    }
+    switch self.action {
+    case .insertText?: try {
+      guard case .insertText(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
+    }()
+    case .deleteBackward?: try {
+      guard case .deleteBackward(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 11)
+    }()
+    case .deleteForward?: try {
+      guard case .deleteForward(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 12)
+    }()
+    case .moveCursorV2?: try {
+      guard case .moveCursorV2(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 13)
+    }()
+    case .moveCursorToEdge?: try {
+      guard case .moveCursorToEdge(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 14)
+    }()
+    case .startConversion?: try {
+      guard case .startConversion(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 15)
+    }()
+    case .navigateCandidate?: try {
+      guard case .navigateCandidate(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 16)
+    }()
+    case .navigateCandidatePage?: try {
+      guard case .navigateCandidatePage(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 17)
+    }()
+    case .resizeSegment?: try {
+      guard case .resizeSegment(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 18)
+    }()
+    case .commitSelected?: try {
+      guard case .commitSelected(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 19)
+    }()
+    case .commitAll?: try {
+      guard case .commitAll(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 20)
+    }()
+    case .cancel?: try {
+      guard case .cancel(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 21)
+    }()
+    case .selectCandidate?: try {
+      guard case .selectCandidate(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 22)
+    }()
+    case .transformActiveSegment?: try {
+      guard case .transformActiveSegment(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 23)
+    }()
+    case .lifecycleEvent?: try {
+      guard case .lifecycleEvent(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 24)
+    }()
+    case .forgetCandidate?: try {
+      guard case .forgetCandidate(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 25)
+    }()
+    case .reconvert?: try {
+      guard case .reconvert(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 26)
+    }()
+    case .updateSurroundingContext?: try {
+      guard case .updateSurroundingContext(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 27)
+    }()
+    case .restoreCheckpoint?: try {
+      guard case .restoreCheckpoint(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 28)
+    }()
+    case .beginUnicodeInput?: try {
+      guard case .beginUnicodeInput(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 29)
+    }()
+    case .appendUnicodeDigit?: try {
+      guard case .appendUnicodeDigit(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 30)
+    }()
+    case .commitUnicodeInput?: try {
+      guard case .commitUnicodeInput(let v)? = self.action else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 31)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Hazkey_Commands_HandleImeAction, rhs: Hazkey_Commands_HandleImeAction) -> Bool {
+    if lhs.requestID != rhs.requestID {return false}
+    if lhs.expectedRevision != rhs.expectedRevision {return false}
+    if lhs.action != rhs.action {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }

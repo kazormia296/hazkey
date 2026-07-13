@@ -122,11 +122,25 @@ class ProcessManager {
                 throw ProcessManagerError.anotherInstanceRunning
             }
 
-            // retry lock
+            // Retry briefly: the terminated process can disappear from /proc
+            // just before the kernel releases its final flock reference.
             close(lockFd)
             self.lockFd = open(lockFilePath, O_CREAT | O_RDWR, 0o600)
-            if flock(self.lockFd, LOCK_EX | LOCK_NB) != 0 {
+            guard self.lockFd != -1 else {
+                throw ProcessManagerError.lockCreationFailed
+            }
+            var acquired = false
+            for _ in 0..<20 {
+                if flock(self.lockFd, LOCK_EX | LOCK_NB) == 0 {
+                    acquired = true
+                    break
+                }
+                usleep(50_000)
+            }
+            if !acquired {
                 NSLog("Failed to acquire lock after terminating existing process.")
+                close(self.lockFd)
+                self.lockFd = -1
                 throw ProcessManagerError.anotherInstanceRunning
             }
         }

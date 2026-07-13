@@ -15,10 +15,14 @@ set(CMAKE_CXX_STANDARD 20)
 add_definitions(-DFCITX_GETTEXT_DOMAIN=\"fcitx5-grimodex\")
 
 find_package(Protobuf REQUIRED)
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(PROTOBUF_PKG QUIET IMPORTED_TARGET protobuf)
+endif()
 
-find_package(Fcitx5Core REQUIRED)
-find_package(Fcitx5Utils REQUIRED)
-find_package(Fcitx5Config REQUIRED)
+find_package(Fcitx5Core 5.0.4 REQUIRED)
+find_package(Fcitx5Utils 5.0.4 REQUIRED)
+find_package(Fcitx5Config 5.0.4 REQUIRED)
 
 set(GRIMODEX_FCITX_ADDON_INSTALL_DIR
     "${FCITX_INSTALL_LIBDIR}/fcitx5"

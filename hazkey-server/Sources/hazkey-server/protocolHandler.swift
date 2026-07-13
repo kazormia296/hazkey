@@ -50,6 +50,12 @@ class ProtocolHandler {
                     $0.status = .success
                     $0.openSessionResult = Hazkey_OpenSessionResult.with {
                         $0.sessionID = sessionID
+                        $0.protocolVersion = ImeV2Negotiation.protocolVersion
+                        $0.featureBits = ImeV2Negotiation.current.featureBits
+                        $0.maxSnapshotVersion = ImeV2Negotiation.snapshotVersion
+                        $0.recoverySupport = ImeV2Negotiation.current.recoverySupport
+                        $0.idempotentRequestSupport =
+                            ImeV2Negotiation.current.idempotentRequestSupport
                     }
                 }
             case .failure(.resourceExhausted):
@@ -63,6 +69,78 @@ class ProtocolHandler {
                 response = successResponse()
             } else {
                 response = sessionNotFoundResponse()
+            }
+        case .handleImeAction(let request):
+            guard let controller = sessionRegistry.semanticController(
+                for: query.sessionID,
+                ownerFd: clientFd
+            ) else {
+                response = sessionNotFoundResponse()
+                break
+            }
+            response = controller.handle(request)
+        case .listUserDictionary:
+            response = userDictionaryResponse(
+                entries: sessionRegistry.userDictionaryEntries()
+            )
+        case .addUserDictionaryEntry(let request):
+            guard request.hasEntry else {
+                response = invalidRequestResponse("User dictionary entry is required")
+                break
+            }
+            do {
+                let entry = try userDictionaryEntry(request.entry)
+                _ = try sessionRegistry.addUserDictionaryEntry(entry)
+                response = userDictionaryResponse(
+                    entries: sessionRegistry.userDictionaryEntries()
+                )
+            } catch {
+                response = userDictionaryFailure(error)
+            }
+        case .updateUserDictionaryEntry(let request):
+            guard request.hasEntry else {
+                response = invalidRequestResponse("User dictionary entry is required")
+                break
+            }
+            do {
+                try sessionRegistry.updateUserDictionaryEntry(
+                    userDictionaryEntry(request.entry)
+                )
+                response = userDictionaryResponse(
+                    entries: sessionRegistry.userDictionaryEntries()
+                )
+            } catch {
+                response = userDictionaryFailure(error)
+            }
+        case .removeUserDictionaryEntry(let request):
+            do {
+                try sessionRegistry.removeUserDictionaryEntry(id: request.id)
+                response = userDictionaryResponse(
+                    entries: sessionRegistry.userDictionaryEntries()
+                )
+            } catch {
+                response = userDictionaryFailure(error)
+            }
+        case .importUserDictionary(let request):
+            do {
+                try sessionRegistry.importUserDictionary(
+                    request.json,
+                    merge: request.merge
+                )
+                response = userDictionaryResponse(
+                    entries: sessionRegistry.userDictionaryEntries()
+                )
+            } catch {
+                response = userDictionaryFailure(error)
+            }
+        case .exportUserDictionary:
+            do {
+                response = userDictionaryResponse(
+                    entries: sessionRegistry.userDictionaryEntries(),
+                    exportedJSON: try sessionRegistry.exportUserDictionary()
+                )
+            } catch {
+                response = userDictionaryFailure(error)
             }
         case .getConfig:
             var configResponse = sessionRegistry.serverConfig.getCurrentConfig()
@@ -102,66 +180,8 @@ class ProtocolHandler {
                 $0.status = .failed
                 $0.errorMessage = "Payload not specified"
             }
-        default:
-            guard let state = sessionRegistry.state(for: query.sessionID, ownerFd: clientFd) else {
-                return serializeResult(unserialized: sessionNotFoundResponse())
-            }
-            response = processSessionPayload(query.payload, state: state)
         }
         return serializeResult(unserialized: response)
-    }
-
-    private func processSessionPayload(
-        _ payload: Hazkey_RequestEnvelope.OneOf_Payload?,
-        state: HazkeyServerState
-    ) -> Hazkey_ResponseEnvelope {
-        let response: Hazkey_ResponseEnvelope
-        switch payload {
-        case .setContext(let req):
-            let anchorIndex = Int(req.anchor)
-            if anchorIndex < 0 || anchorIndex > req.context.unicodeScalars.count {
-                response = invalidRequestResponse("Context anchor is out of range")
-            } else {
-                response = state.setContext(
-                    surroundingText: req.context, anchorIndex: anchorIndex)
-            }
-        case .newComposingText:
-            response = state.createComposingTextInstanse()
-        case .inputChar(let req):
-            response = state.inputChar(inputString: req.text)
-        case .modifierEvent(let req):
-            response = state.processModifierEvent(modifier: req.modType, event: req.eventType)
-        case .deleteLeft:
-            response = state.deleteLeft()
-        case .deleteRight:
-            response = state.deleteRight()
-        case .prefixComplete(let req):
-            if req.index < 0 {
-                response = invalidRequestResponse("Candidate index is out of range")
-            } else {
-                response = state.completePrefix(candidateIndex: Int(req.index))
-            }
-        case .moveCursor(let req):
-            response = state.moveCursor(offset: Int(req.offset))
-        case .getHiraganaWithCursor:
-            response = state.getHiraganaWithCursor()
-        case .getComposingString(let req):
-            response = state.getComposingString(
-                charType: req.charType, currentPreedit: req.currentPreedit)
-        case .getCandidates(let req):
-            response = state.getCandidates(is_suggest: req.isSuggest)
-        case .getCurrentInputMode:
-            response = state.getCurrentInputMode()
-        case .saveLearningData:
-            response = state.saveLearningData()
-        case .openSession, .closeSession, .getConfig, .setConfig, .getDefaultProfile,
-            .clearAllHistory_p, .reloadZenzaiModel, .none:
-            response = Hazkey_ResponseEnvelope.with {
-                $0.status = .failed
-                $0.errorMessage = "Command is not valid for a conversion session"
-            }
-        }
-        return response
     }
 
     private func successResponse() -> Hazkey_ResponseEnvelope {
@@ -179,6 +199,60 @@ class ProtocolHandler {
         Hazkey_ResponseEnvelope.with {
             $0.status = .failed
             $0.errorMessage = message
+        }
+    }
+
+    private func userDictionaryEntry(
+        _ value: Hazkey_Config_UserDictionaryEntry
+    ) throws -> UserDictionaryEntry {
+        let layer: UserDictionaryLayer
+        switch value.layer {
+        case .unspecified, .personal:
+            layer = .personal
+        case .temporary:
+            layer = .temporary
+        case .system, .project, .UNRECOGNIZED:
+            throw UserDictionaryError.invalidField
+        }
+        return UserDictionaryEntry(
+            id: value.id.isEmpty ? UUID().uuidString.lowercased() : value.id,
+            reading: value.reading,
+            surface: value.surface,
+            partOfSpeech: value.partOfSpeech,
+            layer: layer
+        )
+    }
+
+    private func userDictionaryResponse(
+        entries: [UserDictionaryEntry],
+        exportedJSON: Data = Data()
+    ) -> Hazkey_ResponseEnvelope {
+        Hazkey_ResponseEnvelope.with {
+            $0.status = .success
+            $0.userDictionaryResult = Hazkey_Config_UserDictionaryResult.with {
+                $0.entries = entries.map { entry in
+                    Hazkey_Config_UserDictionaryEntry.with {
+                        $0.id = entry.id
+                        $0.reading = entry.reading
+                        $0.surface = entry.surface
+                        $0.partOfSpeech = entry.partOfSpeech
+                        $0.layer = switch entry.layer {
+                        case .system: .system
+                        case .personal: .personal
+                        case .project: .project
+                        case .temporary: .temporary
+                        }
+                    }
+                }
+                $0.exportedJson = exportedJSON
+            }
+        }
+    }
+
+    private func userDictionaryFailure(_ error: Error) -> Hazkey_ResponseEnvelope {
+        Hazkey_ResponseEnvelope.with {
+            $0.status = .failed
+            $0.errorMessage = "User dictionary operation failed: \(error)"
         }
     }
 

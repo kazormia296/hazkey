@@ -1,0 +1,17 @@
+{
+  "contract_version": "composition-behavior-v1",
+  "scenario_id": "partial-commit",
+  "initial": { "phase": "composing", "composition": "きょうはいしゃ", "revision": 0 },
+  "actions": [
+    { "type": "start_conversion" },
+    { "type": "commit_selected" },
+    { "type": "cancel" }
+  ],
+  "statuses": ["success", "success", "success"],
+  "snapshots": [
+    { "revision": 1, "phase": "previewing", "preedit": [{ "text": "変換", "style": "active" }, { "text": "うはいしゃ", "style": "underline" }], "caret_utf8_byte_offset": 6, "candidate_window": { "generation": 1, "items": [{ "id": "1-0", "text": "変換", "annotation": null, "consuming_count": 2 }, { "id": "1-1", "text": "きょ", "annotation": "reading", "consuming_count": 2 }], "selected_index": 0, "page_size": 2 }, "effects": [] },
+    { "revision": 2, "phase": "previewing", "preedit": [{ "text": "変換", "style": "active" }, { "text": "いしゃ", "style": "underline" }], "caret_utf8_byte_offset": 6, "candidate_window": { "generation": 2, "items": [{ "id": "2-0", "text": "変換", "annotation": null, "consuming_count": 2 }, { "id": "2-1", "text": "うは", "annotation": "reading", "consuming_count": 2 }], "selected_index": 0, "page_size": 2 }, "effects": [{ "effect_id": 1, "type": "commit_text", "text": "変換" }] },
+    { "revision": 3, "phase": "composing", "preedit": [{ "text": "うはいしゃ", "style": "underline" }], "caret_utf8_byte_offset": 15, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [] }
+  ],
+  "expected_learning": { "completed": 1, "updated": 1, "committed": 1, "forgotten": 0 }
+}

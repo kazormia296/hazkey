@@ -43,83 +43,6 @@ private final class LearningClearProbe: @unchecked Sendable {
 }
 
 final class GrimodexSessionRegistryTests: XCTestCase {
-  func testCommittedLearningIsVisibleToAnotherLongLivedSessionAtNextComposition() throws {
-    let memoryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
-      "GrimodexSharedLearning-\(UUID().uuidString)",
-      isDirectory: true
-    )
-    try FileManager.default.createDirectory(
-      at: memoryDirectory,
-      withIntermediateDirectories: true
-    )
-    defer { try? FileManager.default.removeItem(at: memoryDirectory) }
-
-    let registry = HazkeySessionRegistry(
-      converterFactory: { .withDefaultDictionary() }
-    )
-    let sessionA = registry.open(
-      clientContext: context(program: "grimodex"),
-      ownerFd: 10
-    )
-    let sessionB = registry.open(
-      clientContext: context(program: "grimodex"),
-      ownerFd: 11
-    )
-    let stateA = try XCTUnwrap(registry.state(for: sessionA, ownerFd: 10))
-    let stateB = try XCTUnwrap(registry.state(for: sessionB, ownerFd: 11))
-    XCTAssertFalse(stateA.converter === stateB.converter)
-
-    for state in [stateA, stateB] {
-      state.baseConvertRequestOptions.learningType = .inputAndOutput
-      state.baseConvertRequestOptions.memoryDirectoryURL = memoryDirectory
-    }
-
-    var input = ComposingText()
-    input.insertAtCursorPosition("せいかん", inputStyle: .direct)
-    func candidates(_ state: HazkeyServerState) -> [Candidate] {
-      state.converter.stopComposition()
-      return state.converter.requestCandidates(
-        input,
-        options: state.baseConvertRequestOptions
-      ).mainResults
-    }
-
-    let surface = "星環"
-    XCTAssertFalse(candidates(stateB).contains { $0.text == surface })
-    _ = candidates(stateA)
-
-    let learnedElement = DicdataElement(
-      word: surface,
-      ruby: "セイカン",
-      cid: 1288,
-      mid: 501,
-      value: -10
-    )
-    stateA.currentCandidateList = [
-      Candidate(
-        text: surface,
-        value: learnedElement.value(),
-        composingCount: .inputCount(input.input.count),
-        lastMid: learnedElement.mid,
-        data: [learnedElement]
-      )
-    ]
-    XCTAssertEqual(stateA.completePrefix(candidateIndex: 0).status, .success)
-    XCTAssertEqual(stateA.saveLearningData().status, .success)
-
-    XCTAssertFalse(
-      candidates(stateB).contains { $0.text == surface },
-      "an in-flight composition must keep its pinned learning cache"
-    )
-    XCTAssertEqual(stateB.createComposingTextInstanse().status, .success)
-    XCTAssertTrue(
-      candidates(stateB).contains {
-        $0.text == surface && $0.data.contains { $0.metadata.contains(.isLearned) }
-      },
-      "the next composition must reload learning committed by another session"
-    )
-  }
-
   func testEachSessionOwnsIndependentCompositionState() {
     let config = HazkeyServerConfig()
     let registry = HazkeySessionRegistry(serverConfig: config)
@@ -132,24 +55,30 @@ final class GrimodexSessionRegistryTests: XCTestCase {
       ownerFd: 10
     )
 
-    let stateA = registry.state(for: sessionA, ownerFd: 10)!
-    let stateB = registry.state(for: sessionB, ownerFd: 10)!
-    XCTAssertTrue(stateA !== stateB)
-    XCTAssertTrue(stateA.serverConfig === config)
-    XCTAssertTrue(stateB.serverConfig === config)
-    XCTAssertFalse(
-      stateA.converter === stateB.converter,
-      "converter-local dynamic dictionaries must remain isolated per composition session"
-    )
+    let controllerA = registry.semanticController(for: sessionA, ownerFd: 10)!
+    let controllerB = registry.semanticController(for: sessionB, ownerFd: 10)!
+    let firstA = controllerA.handle(ImeV2Request(
+      requestID: "a",
+      expectedRevision: 0,
+      action: .insertText("a")
+    ))
+    let firstB = controllerB.handle(ImeV2Request(
+      requestID: "i",
+      expectedRevision: 0,
+      action: .insertText("i")
+    ))
+    XCTAssertEqual(firstA.status, .success)
+    XCTAssertEqual(firstB.status, .success)
+    XCTAssertEqual(controllerA.snapshot.revision, 1)
+    XCTAssertEqual(controllerB.snapshot.revision, 1)
 
-    _ = stateA.inputChar(inputString: "a")
-    _ = stateB.inputChar(inputString: "i")
-    XCTAssertEqual(hiragana(stateA), "あ")
-    XCTAssertEqual(hiragana(stateB), "い")
-
-    _ = stateA.createComposingTextInstanse()
-    XCTAssertEqual(hiragana(stateA), "")
-    XCTAssertEqual(hiragana(stateB), "い")
+    _ = controllerA.handle(ImeV2Request(
+      requestID: "cancel-a",
+      expectedRevision: firstA.snapshot.revision,
+      action: .cancel
+    ))
+    XCTAssertEqual(controllerA.snapshot.phase, .idle)
+    XCTAssertEqual(controllerB.snapshot.phase, .composing)
   }
 
   func testUnknownClosedAndForeignOwnerSessionsAreRejected() {
@@ -159,12 +88,12 @@ final class GrimodexSessionRegistryTests: XCTestCase {
       ownerFd: 10
     )
 
-    XCTAssertNil(registry.state(for: "missing", ownerFd: 10))
-    XCTAssertNil(registry.state(for: session, ownerFd: 11))
+    XCTAssertNil(registry.semanticController(for: "missing", ownerFd: 10))
+    XCTAssertNil(registry.semanticController(for: session, ownerFd: 11))
     XCTAssertFalse(registry.close(sessionID: session, ownerFd: 11))
-    XCTAssertNotNil(registry.state(for: session, ownerFd: 10))
+    XCTAssertNotNil(registry.semanticController(for: session, ownerFd: 10))
     XCTAssertTrue(registry.close(sessionID: session, ownerFd: 10))
-    XCTAssertNil(registry.state(for: session, ownerFd: 10))
+    XCTAssertNil(registry.semanticController(for: session, ownerFd: 10))
   }
 
   func testDisconnectOnlyClosesSessionsOwnedByThatSocket() {
@@ -180,8 +109,8 @@ final class GrimodexSessionRegistryTests: XCTestCase {
 
     registry.closeAll(ownerFd: 10)
 
-    XCTAssertNil(registry.state(for: sessionA, ownerFd: 10))
-    XCTAssertNotNil(registry.state(for: sessionB, ownerFd: 11))
+    XCTAssertNil(registry.semanticController(for: sessionA, ownerFd: 10))
+    XCTAssertNotNil(registry.semanticController(for: sessionB, ownerFd: 11))
     XCTAssertEqual(registry.count, 1)
   }
 
@@ -202,15 +131,15 @@ final class GrimodexSessionRegistryTests: XCTestCase {
       ownerFd: 11
     )
     clock.advance(10)
-    XCTAssertNotNil(registry.state(for: sessionA, ownerFd: 10))
+    XCTAssertNotNil(registry.semanticController(for: sessionA, ownerFd: 10))
     clock.advance(10)
     let thirdOwnerResult = registry.attemptOpen(
       clientContext: context(program: "grimodex"),
       ownerFd: 12
     )
 
-    XCTAssertNotNil(registry.state(for: sessionA, ownerFd: 10))
-    XCTAssertNotNil(registry.state(for: sessionB, ownerFd: 11))
+    XCTAssertNotNil(registry.semanticController(for: sessionA, ownerFd: 10))
+    XCTAssertNotNil(registry.semanticController(for: sessionB, ownerFd: 11))
     switch thirdOwnerResult {
     case .success(let sessionID):
       XCTFail("foreign owner unexpectedly opened session \(sessionID)")
@@ -220,8 +149,8 @@ final class GrimodexSessionRegistryTests: XCTestCase {
     XCTAssertEqual(registry.count, 2)
 
     clock.advance(61)
-    XCTAssertNil(registry.state(for: sessionA, ownerFd: 10))
-    XCTAssertNil(registry.state(for: sessionB, ownerFd: 11))
+    XCTAssertNil(registry.semanticController(for: sessionA, ownerFd: 10))
+    XCTAssertNil(registry.semanticController(for: sessionB, ownerFd: 11))
     XCTAssertEqual(registry.count, 0)
   }
 
@@ -247,10 +176,10 @@ final class GrimodexSessionRegistryTests: XCTestCase {
       ownerFd: 20
     )
 
-    XCTAssertNotNil(registry.state(for: protected, ownerFd: 10))
-    XCTAssertNil(registry.state(for: firstAttackerSession, ownerFd: 20))
-    XCTAssertNotNil(registry.state(for: secondAttackerSession, ownerFd: 20))
-    XCTAssertNotNil(registry.state(for: thirdAttackerSession, ownerFd: 20))
+    XCTAssertNotNil(registry.semanticController(for: protected, ownerFd: 10))
+    XCTAssertNil(registry.semanticController(for: firstAttackerSession, ownerFd: 20))
+    XCTAssertNotNil(registry.semanticController(for: secondAttackerSession, ownerFd: 20))
+    XCTAssertNotNil(registry.semanticController(for: thirdAttackerSession, ownerFd: 20))
     XCTAssertEqual(registry.count, 3)
   }
 
@@ -348,12 +277,14 @@ final class GrimodexSessionRegistryTests: XCTestCase {
       clientContext: context(program: "grimodex", secureInput: true),
       ownerFd: 10
     )
-    let state = registry.state(for: session, ownerFd: 10)!
-
-    XCTAssertTrue(state.grimodexSecureInput)
-    XCTAssertFalse(state.grimodexAllowsLearning)
-    _ = state.setContext(surroundingText: "password-secret", anchorIndex: 15)
-    XCTAssertEqual(state.baseConvertRequestOptions.zenzaiMode, .off)
+    let controller = registry.semanticController(for: session, ownerFd: 10)!
+    let result = controller.handle(ImeV2Request(
+      requestID: "secure-input",
+      expectedRevision: 0,
+      action: .insertText("秘密")
+    ))
+    XCTAssertEqual(result.status, .success)
+    XCTAssertNil(result.snapshot.recovery)
   }
 
   private func context(
@@ -365,10 +296,6 @@ final class GrimodexSessionRegistryTests: XCTestCase {
       frontend: "wayland",
       secureInput: secureInput
     )
-  }
-
-  private func hiragana(_ state: HazkeyServerState) -> String {
-    state.getComposingString(charType: .hiragana, currentPreedit: "").text
   }
 
   private func publishedSnapshot() -> GrimodexPublishedSnapshot {

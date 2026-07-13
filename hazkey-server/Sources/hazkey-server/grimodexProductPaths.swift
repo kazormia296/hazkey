@@ -4,6 +4,7 @@ struct GrimodexProductPaths {
     static let packageName = "fcitx5-grimodex"
     static let serverExecutableName = "fcitx5-grimodex-server"
     static let settingsExecutableName = "fcitx5-grimodex-settings"
+    private static let maximumUnixSocketPathBytes = 108
 
     let runtimeDirectory: URL
     let socketURL: URL
@@ -18,15 +19,23 @@ struct GrimodexProductPaths {
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         uid: uid_t = getuid()
     ) {
-        let runtimeDirectory: URL
+        let fallbackRuntimeDirectory = URL(
+            fileURLWithPath: "/tmp/\(Self.packageName)-\(uid)",
+            isDirectory: true
+        )
+        var runtimeDirectory: URL
         if let base = Self.nonEmpty(environment["XDG_RUNTIME_DIR"]) {
             runtimeDirectory = URL(fileURLWithPath: base, isDirectory: true)
                 .appendingPathComponent(Self.packageName, isDirectory: true)
         } else {
-            runtimeDirectory = URL(
-                fileURLWithPath: "/tmp/\(Self.packageName)-\(uid)",
-                isDirectory: true
-            )
+            runtimeDirectory = fallbackRuntimeDirectory
+        }
+        let candidateSocketURL = runtimeDirectory.appendingPathComponent(
+            "server.sock",
+            isDirectory: false
+        )
+        if candidateSocketURL.path.utf8.count >= Self.maximumUnixSocketPathBytes {
+            runtimeDirectory = fallbackRuntimeDirectory
         }
         self.runtimeDirectory = runtimeDirectory
         socketURL = runtimeDirectory.appendingPathComponent("server.sock", isDirectory: false)

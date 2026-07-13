@@ -8,16 +8,22 @@ final class GrimodexSessionProtocolTests: XCTestCase {
   func testSessionIDRoundTripsAlongsideAConversionPayload() throws {
     let request = Hazkey_RequestEnvelope.with {
       $0.sessionID = "session-a"
-      $0.inputChar = Hazkey_Commands_InputChar.with { $0.text = "a" }
+      $0.handleImeAction = Hazkey_Commands_HandleImeAction.with {
+        $0.requestID = "request-a"
+        $0.expectedRevision = 4
+        $0.insertText = Hazkey_Commands_InsertText.with { $0.text = "a" }
+      }
     }
 
     let decoded = try Hazkey_RequestEnvelope(serializedBytes: request.serializedData())
 
     XCTAssertEqual(decoded.sessionID, "session-a")
-    guard case .inputChar(let command) = decoded.payload else {
-      return XCTFail("input_char payload was not preserved")
+    guard case .handleImeAction(let command) = decoded.payload else {
+      return XCTFail("handle_ime_action payload was not preserved")
     }
-    XCTAssertEqual(command.text, "a")
+    XCTAssertEqual(command.requestID, "request-a")
+    XCTAssertEqual(command.expectedRevision, 4)
+    XCTAssertEqual(command.insertText.text, "a")
   }
 
   func testOpenAndCloseSessionMessagesRoundTripClientIdentity() throws {

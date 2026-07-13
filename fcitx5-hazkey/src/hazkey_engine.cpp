@@ -45,6 +45,7 @@ void HazkeyEngine::activate([[maybe_unused]] const InputMethodEntry &entry,
     FCITX_DEBUG() << "Grimodex IME activate";
     auto inputContext = event.inputContext();
     auto state = inputContext->propertyFor(&factory_);
+    state->capabilityAboutToChange(inputContext->capabilityFlags());
     state->reset();
     inputContext->updatePreedit();
     inputContext->updateUserInterface(UserInterfaceComponent::InputPanel);
@@ -73,8 +74,13 @@ void HazkeyEngine::reloadConfig() {
     std::string lastVersion = config_.lastVersion.value();
 
     if (lastVersion != HAZKEY_VERSION) {
-        FCITX_DEBUG() << "Update detected. restarting server..";
-        server_.startHazkeyServer(true);
+        // An empty value is a first-run configuration, not an upgrade. The
+        // normal lazy connection starts the current server, whose own lock
+        // metadata already replaces an actually mismatched older binary.
+        if (!lastVersion.empty()) {
+            FCITX_DEBUG() << "Update detected. restarting server..";
+            server_.startHazkeyServer(true);
+        }
 
         config_.lastVersion.setValue(HAZKEY_VERSION);
         safeSaveAsIni(config_, "conf/grimodex.conf");

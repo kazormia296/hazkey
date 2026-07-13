@@ -65,6 +65,11 @@ class SocketManager {
     }
 
     func setupSocket() throws {
+        let maximumPathBytes = MemoryLayout.size(ofValue: sockaddr_un().sun_path)
+        guard !socketPath.isEmpty,
+              socketPath.utf8.count < maximumPathBytes else {
+            throw SocketError.readFailed("Unix socket path is too long", ENAMETOOLONG)
+        }
         unlink(socketPath)
 
         serverFd = socket(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0)
@@ -97,9 +102,9 @@ class SocketManager {
 
         // Set non-blocking
         let flags = fcntl(serverFd, F_GETFL, 0)
-        let fcntlRes = fcntl(serverFd, F_SETFL, flags | O_NONBLOCK)
-        if fcntlRes != 0 {
-            NSLog("fcntl() failed")
+        guard flags >= 0,
+              fcntl(serverFd, F_SETFL, flags | O_NONBLOCK) == 0 else {
+            throw SocketError.readFailed("Failed to make server socket non-blocking", errno)
         }
 
         var fds: [Int32] = [0, 0]

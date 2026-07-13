@@ -160,6 +160,16 @@ final class GrimodexProcessHarness {
     environment["XDG_DATA_HOME"] = sandboxURL.appendingPathComponent("data").path
     environment["XDG_STATE_HOME"] = sandboxURL.appendingPathComponent("state").path
     environment["XDG_CACHE_HOME"] = sandboxURL.appendingPathComponent("cache").path
+    if environment["FCITX5_GRIMODEX_DICTIONARY"] == nil {
+      let sourceDictionary = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("azooKey_dictionary_storage/Dictionary", isDirectory: true)
+      if fileManager.fileExists(atPath: sourceDictionary.path) {
+        environment["FCITX5_GRIMODEX_DICTIONARY"] = sourceDictionary.path
+      }
+    }
 
     process.executableURL = executableURL
     process.environment = environment
@@ -245,6 +255,8 @@ final class GrimodexProcessClient {
   private static let transactionTimeout: TimeInterval = 10
 
   private var fileDescriptor: Int32
+  private var revisions: [String: UInt64] = [:]
+  private var snapshots: [String: Hazkey_SessionSnapshot] = [:]
 
   private init(fileDescriptor: Int32) {
     self.fileDescriptor = fileDescriptor
@@ -262,7 +274,7 @@ final class GrimodexProcessClient {
       }
       var address = sockaddr_un()
       address.sun_family = sa_family_t(AF_UNIX)
-      socketURL.path.withCString { source in
+      _ = socketURL.path.withCString { source in
         strncpy(
           &address.sun_path.0,
           source,
@@ -298,6 +310,10 @@ final class GrimodexProcessClient {
   }
 
   func openSession(program: String) throws -> String {
+    try openSessionInfo(program: program).sessionID
+  }
+
+  func openSessionInfo(program: String) throws -> Hazkey_OpenSessionResult {
     let response = try transact(
       Hazkey_RequestEnvelope.with {
         $0.openSession = Hazkey_OpenSession.with {
@@ -313,57 +329,97 @@ final class GrimodexProcessClient {
     guard !response.openSessionResult.sessionID.isEmpty else {
       throw GrimodexProcessE2EError.invalidResponse("Open session returned an empty ID")
     }
-    return response.openSessionResult.sessionID
+    revisions[response.openSessionResult.sessionID] = 0
+    snapshots[response.openSessionResult.sessionID] = Hazkey_SessionSnapshot.with {
+      $0.phase = .idle
+    }
+    return response.openSessionResult
   }
 
-  func convertDirect(_ text: String, sessionID: String) throws -> [String] {
-    try requireSuccess(
-      try transact(
-        sessionRequest(sessionID) { $0.newComposingText = .init() }
-      ),
-      operation: "reset composition"
-    )
-    for event in [
-      Hazkey_Commands_ModifierEvent.EventType.press,
-      Hazkey_Commands_ModifierEvent.EventType.release,
-    ] {
-      try requireSuccess(
-        try transact(
-          sessionRequest(sessionID) {
-            $0.modifierEvent = Hazkey_Commands_ModifierEvent.with {
-              $0.modType = .shift
-              $0.eventType = event
-            }
-          }
-        ),
-        operation: "switch to direct input"
-      )
-    }
-    for character in text {
-      try requireSuccess(
-        try transact(
-          sessionRequest(sessionID) {
-            $0.inputChar = Hazkey_Commands_InputChar.with {
-              $0.text = String(character)
-            }
-          }
-        ),
-        operation: "input character"
-      )
-    }
-    return try candidates(sessionID: sessionID)
-  }
-
-  func candidates(sessionID: String) throws -> [String] {
+  func transactV2(
+    sessionID: String,
+    requestID: String,
+    expectedRevision: UInt64,
+    configure: (inout Hazkey_Commands_HandleImeAction) -> Void
+  ) throws -> Hazkey_ResponseEnvelope {
+    var action = Hazkey_Commands_HandleImeAction()
+    action.requestID = requestID
+    action.expectedRevision = expectedRevision
+    configure(&action)
     let response = try transact(
-      sessionRequest(sessionID) {
-        $0.getCandidates = Hazkey_Commands_GetCandidates.with {
-          $0.isSuggest = false
+      sessionRequest(sessionID) { $0.handleImeAction = action }
+    )
+    if case .handleImeActionResult(let result)? = response.payload,
+       result.hasSnapshot {
+      let snapshot = result.snapshot
+      revisions[sessionID] = snapshot.revision
+      snapshots[sessionID] = snapshot
+    }
+    return response
+  }
+
+  func addUserDictionaryEntry(
+    id: String,
+    reading: String,
+    surface: String,
+    partOfSpeech: String = "noun",
+    layer: Hazkey_Config_UserDictionaryLayer = .personal
+  ) throws -> Hazkey_Config_UserDictionaryResult {
+    let response = try transact(
+      Hazkey_RequestEnvelope.with {
+        $0.addUserDictionaryEntry = Hazkey_Config_AddUserDictionaryEntry.with {
+          $0.entry = Hazkey_Config_UserDictionaryEntry.with {
+            $0.id = id
+            $0.reading = reading
+            $0.surface = surface
+            $0.partOfSpeech = partOfSpeech
+            $0.layer = layer
+          }
         }
       }
     )
-    try requireSuccess(response, operation: "get candidates")
-    return response.candidates.candidates.map(\.text)
+    try requireSuccess(response, operation: "add user dictionary entry")
+    return response.userDictionaryResult
+  }
+
+  func convertDirect(_ text: String, sessionID: String) throws -> [String] {
+    for attempt in 0..<3 {
+      guard snapshots[sessionID]?.phase != .idle else { break }
+      let response = try transactV2(
+        sessionID: sessionID,
+        requestID: "process-reset-\(attempt)-\(UUID().uuidString)",
+        expectedRevision: revisions[sessionID] ?? 0
+      ) {
+        $0.cancel = .init()
+      }
+      try requireSuccess(response, operation: "reset v2 composition")
+    }
+    let inserted = try transactV2(
+      sessionID: sessionID,
+      requestID: "process-insert-\(UUID().uuidString)",
+      expectedRevision: revisions[sessionID] ?? 0
+    ) {
+      $0.insertText = Hazkey_Commands_InsertText.with { $0.text = text }
+    }
+    try requireSuccess(inserted, operation: "v2 direct input")
+    let converted = try transactV2(
+      sessionID: sessionID,
+      requestID: "process-convert-\(UUID().uuidString)",
+      expectedRevision: revisions[sessionID] ?? 0
+    ) {
+      $0.startConversion = .init()
+    }
+    try requireSuccess(converted, operation: "v2 conversion")
+    return converted.handleImeActionResult.snapshot.candidateWindow.items.map(\.text)
+  }
+
+  func candidates(sessionID: String) throws -> [String] {
+    guard let snapshot = snapshots[sessionID] else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "No confirmed v2 snapshot exists for session"
+      )
+    }
+    return snapshot.candidateWindow.items.map(\.text)
   }
 
   func setScope(_ mode: Hazkey_Config_Profile.GrimodexScopeMode) throws {

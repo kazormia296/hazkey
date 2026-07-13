@@ -1,0 +1,19 @@
+{
+  "contract_version": "composition-behavior-v1",
+  "scenario_id": "cursor-editing",
+  "initial": { "phase": "idle", "composition": "", "revision": 0 },
+  "actions": [
+    { "type": "insert_text", "text": "𠮷👨‍👩‍👧‍👦" },
+    { "type": "move_cursor", "offset": -1 },
+    { "type": "delete_backward" },
+    { "type": "move_cursor_to_end" }
+  ],
+  "statuses": ["success", "success", "success", "success"],
+  "snapshots": [
+    { "revision": 1, "phase": "composing", "preedit": [{ "text": "𠮷👨‍👩‍👧‍👦", "style": "underline" }], "caret_utf8_byte_offset": 29, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [] },
+    { "revision": 2, "phase": "composing", "preedit": [{ "text": "𠮷👨‍👩‍👧‍👦", "style": "underline" }], "caret_utf8_byte_offset": 4, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [] },
+    { "revision": 3, "phase": "composing", "preedit": [{ "text": "👨‍👩‍👧‍👦", "style": "underline" }], "caret_utf8_byte_offset": 0, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [] },
+    { "revision": 4, "phase": "composing", "preedit": [{ "text": "👨‍👩‍👧‍👦", "style": "underline" }], "caret_utf8_byte_offset": 25, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [] }
+  ],
+  "expected_learning": { "completed": 0, "updated": 0, "committed": 0, "forgotten": 0 }
+}

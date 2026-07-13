@@ -35,6 +35,7 @@ let package = Package(
                     package: "AzooKeyKanaKanjiConverter"),
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
             ],
+            exclude: ["constants.swift.in"],
             swiftSettings: [.interoperabilityMode(.Cxx)],
             linkerSettings: [
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "$ORIGIN/libllama"])

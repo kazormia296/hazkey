@@ -9,9 +9,14 @@ endif()
 
 project(grimodex-ime VERSION 0.2.1)
 include(GNUInstallDirs)
+include(CTest)
 
 set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY TRUE)
 
 add_subdirectory(fcitx5-hazkey)
 add_subdirectory(hazkey-server)
 add_subdirectory(hazkey-settings)
+
+if(BUILD_TESTING)
+    add_subdirectory(fcitx5-hazkey/tests)
+endif()

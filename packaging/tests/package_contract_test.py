@@ -56,6 +56,10 @@ FCITX_SOURCE_CMAKE = REPOSITORY_ROOT / "fcitx5-hazkey/src/CMakeLists.txt"
 DEBIAN_CHANGELOG = REPOSITORY_ROOT / "debian/changelog"
 SWIFT_TOKENIZERS_REVISION = "4a606f66e0cc4d7d9f0197649e812f7fc86a4c34"
 SERVER_CMAKE = REPOSITORY_ROOT / "hazkey-server/CMakeLists.txt"
+SWIFT_BUILD_DRIVER = REPOSITORY_ROOT / "hazkey-server/build_swift.cmake"
+NO_ZENZAI_PREPARER = (
+    REPOSITORY_ROOT / "hazkey-server/prepare_no_zenzai_dependency.cmake"
+)
 
 SWIFT_RUNTIME_RESOURCES = (
     (
@@ -242,6 +246,24 @@ def validate_staged_root(root: Path, entries: list[tuple[str, str]]) -> None:
             raise AssertionError(f"Hazkey public path leaked into Grimodex package: {path}")
         if not any(manifest_path_matches(path, pattern) for pattern in patterns):
             raise AssertionError(f"unowned staged package path: {path}")
+
+    metadata_roots = (
+        root / "usr/share/fcitx5",
+        root / "usr/share/applications",
+        root / "usr/share/metainfo",
+    )
+    placeholder = re.compile(r"@[A-Z][A-Z0-9_]+@")
+    for metadata_root in metadata_roots:
+        if not metadata_root.exists():
+            continue
+        for metadata in metadata_root.rglob("*"):
+            if metadata.is_file():
+                text = metadata.read_text(encoding="utf-8")
+                match = placeholder.search(text)
+                if match:
+                    raise AssertionError(
+                        f"unexpanded CMake placeholder in {metadata}: {match.group(0)}"
+                    )
 
     for kind, pattern in entries:
         expanded_patterns = expand_manifest_pattern(pattern)
@@ -514,6 +536,8 @@ class PackageMetadataContractTests(unittest.TestCase):
             "-DGRIMODEX_FCITX_ADDON_INSTALL_DIR=${{ matrix.install_libdir }}/fcitx5",
             workflow,
         )
+        for component in ("Core", "Utils", "Config"):
+            self.assertIn(f"find_package(Fcitx5{component} 5.0.4 REQUIRED)", cmake)
 
     def test_release_archives_have_reproducible_root_owned_metadata(self) -> None:
         workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
@@ -791,6 +815,61 @@ class PackageMetadataContractTests(unittest.TestCase):
                 self.assertIn(required, install_entries)
                 self.assertIn(("optional", recursive), uninstall_entries)
                 self.assertIn(required, uninstall_entries)
+
+    def test_non_zenzai_build_prepares_the_pinned_upstream_mock_idempotently(self) -> None:
+        driver = SWIFT_BUILD_DRIVER.read_text(encoding="utf-8")
+        self.assertIn('"${SWIFT_EXECUTABLE}" package resolve', driver)
+        self.assertIn("prepare_no_zenzai_dependency.cmake", driver)
+        self.assertLess(
+            driver.index("prepare_no_zenzai_dependency.cmake"),
+            driver.index("COMMAND ${SWIFT_COMMAND}"),
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            scratch = Path(temporary_directory) / "swift-build"
+            mock_file = (
+                scratch
+                / "checkouts/AzooKeyKanaKanjiConverter"
+                / "Sources/KanaKanjiConverterModule/ConversionAlgorithms"
+                / "Zenzai/Zenz/llama-mock.swift"
+            )
+            mock_file.parent.mkdir(parents=True)
+            mock_file.write_text(
+                """#if !Zenzai
+package func ggml_backend_load_all() {}
+package func ggml_backend_dev_count() {}
+
+package func llama_backend_init() {}
+package func ggml_backend_load_all() {}
+package func ggml_backend_load_all_from_path(_: String) {}
+package func ggml_backend_dev_count() -> Int { 0 }
+#endif
+""",
+                encoding="utf-8",
+            )
+
+            command = [
+                "cmake",
+                f"-DSWIFT_SCRATCH_PATH={scratch}",
+                "-P",
+                str(NO_ZENZAI_PREPARER),
+            ]
+            for _ in range(2):
+                completed = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(
+                    completed.returncode,
+                    0,
+                    completed.stdout + completed.stderr,
+                )
+
+            prepared = mock_file.read_text(encoding="utf-8")
+            self.assertEqual(prepared.count("ggml_backend_load_all()"), 1)
+            self.assertEqual(prepared.count("ggml_backend_dev_count()"), 1)
 
     def test_license_collector_copies_every_resolved_and_bundled_license(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

@@ -1,0 +1,32 @@
+if(NOT DEFINED FIXTURE_ROOT)
+    message(FATAL_ERROR "FIXTURE_ROOT is required")
+endif()
+
+file(READ "${FIXTURE_ROOT}/contract-lock.json" lock_json)
+string(JSON contract_version GET "${lock_json}" contract_version)
+if(NOT contract_version STREQUAL "composition-behavior-v1")
+    message(FATAL_ERROR "Unexpected contract version: ${contract_version}")
+endif()
+
+string(JSON file_count LENGTH "${lock_json}" files)
+math(EXPR last_file "${file_count} - 1")
+foreach(index RANGE 0 ${last_file})
+    string(JSON filename MEMBER "${lock_json}" files ${index})
+    string(JSON expected GET "${lock_json}" files "${filename}")
+    set(path "${FIXTURE_ROOT}/scenarios/${filename}")
+    if(NOT EXISTS "${path}")
+        message(FATAL_ERROR "Locked scenario is missing: ${filename}")
+    endif()
+    file(SHA256 "${path}" actual)
+    if(NOT actual STREQUAL expected)
+        message(FATAL_ERROR
+            "Contract fixture hash mismatch for ${filename}: ${actual} != ${expected}")
+    endif()
+endforeach()
+
+file(GLOB scenario_files "${FIXTURE_ROOT}/scenarios/*.json")
+list(LENGTH scenario_files actual_count)
+if(NOT actual_count EQUAL file_count)
+    message(FATAL_ERROR
+        "Contract lock has ${file_count} files but fixture has ${actual_count}")
+endif()

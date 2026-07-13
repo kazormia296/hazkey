@@ -149,6 +149,43 @@ message ClearAllHistory {
 
 message ReloadZenzaiModel {}
 
+enum UserDictionaryLayer {
+    USER_DICTIONARY_LAYER_UNSPECIFIED = 0;
+    SYSTEM = 1;
+    PERSONAL = 2;
+    PROJECT = 3;
+    TEMPORARY = 4;
+}
+
+message UserDictionaryEntry {
+    string id = 1;
+    string reading = 2;
+    string surface = 3;
+    string part_of_speech = 4;
+    UserDictionaryLayer layer = 5;
+}
+
+message ListUserDictionary {}
+
+message AddUserDictionaryEntry {
+    UserDictionaryEntry entry = 1;
+}
+
+message UpdateUserDictionaryEntry {
+    UserDictionaryEntry entry = 1;
+}
+
+message RemoveUserDictionaryEntry {
+    string id = 1;
+}
+
+message ImportUserDictionary {
+    bytes json = 1;
+    bool merge = 2;
+}
+
+message ExportUserDictionary {}
+
 // Response messages
 
 message GrimodexDiagnostics {
@@ -185,4 +222,9 @@ message CurrentConfig {
     string zenzai_model_path = 9;
     string xdg_config_home_path = 6;
     GrimodexDiagnostics grimodex_diagnostics = 20;
+}
+
+message UserDictionaryResult {
+    repeated UserDictionaryEntry entries = 1;
+    bytes exported_json = 2;
 }

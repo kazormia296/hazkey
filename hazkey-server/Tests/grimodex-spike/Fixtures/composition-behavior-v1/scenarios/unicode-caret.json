@@ -1,0 +1,15 @@
+{
+  "contract_version": "composition-behavior-v1",
+  "scenario_id": "unicode-caret",
+  "initial": { "phase": "idle", "composition": "", "revision": 0 },
+  "actions": [
+    { "type": "insert_text", "text": "𠮷ば✈️👨‍👩‍👧‍👦" },
+    { "type": "move_cursor", "offset": -1 }
+  ],
+  "statuses": ["success", "success"],
+  "snapshots": [
+    { "revision": 1, "phase": "composing", "preedit": [{ "text": "𠮷ば✈️👨‍👩‍👧‍👦", "style": "underline" }], "caret_utf8_byte_offset": 41, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [] },
+    { "revision": 2, "phase": "composing", "preedit": [{ "text": "𠮷ば✈️👨‍👩‍👧‍👦", "style": "underline" }], "caret_utf8_byte_offset": 16, "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 }, "effects": [] }
+  ],
+  "expected_learning": { "completed": 0, "updated": 0, "committed": 0, "forgotten": 0 }
+}

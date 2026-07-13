@@ -1,0 +1,29 @@
+{
+  "contract_version": "composition-behavior-v1",
+  "scenario_id": "composing-basic",
+  "initial": { "phase": "idle", "composition": "", "revision": 0 },
+  "actions": [
+    { "type": "insert_text", "text": "かな" },
+    { "type": "commit_all" }
+  ],
+  "statuses": ["success", "success"],
+  "snapshots": [
+    {
+      "revision": 1,
+      "phase": "composing",
+      "preedit": [{ "text": "かな", "style": "underline" }],
+      "caret_utf8_byte_offset": 6,
+      "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 },
+      "effects": []
+    },
+    {
+      "revision": 2,
+      "phase": "idle",
+      "preedit": [],
+      "caret_utf8_byte_offset": null,
+      "candidate_window": { "generation": 0, "items": [], "selected_index": null, "page_size": 0 },
+      "effects": [{ "effect_id": 1, "type": "commit_text", "text": "かな" }]
+    }
+  ],
+  "expected_learning": { "completed": 0, "updated": 0, "committed": 0, "forgotten": 0 }
+}

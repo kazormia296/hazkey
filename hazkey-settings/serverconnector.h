@@ -3,6 +3,7 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "base.pb.h"
 
@@ -14,6 +15,15 @@ class ServerConnector {
     void setCurrentConfig(hazkey::config::CurrentConfig);
     bool clearAllHistory(const std::string& profileId);
     bool reloadZenzaiModel();
+    std::optional<std::vector<hazkey::config::UserDictionaryEntry>>
+    listUserDictionary();
+    bool addUserDictionaryEntry(
+        const hazkey::config::UserDictionaryEntry& entry);
+    bool updateUserDictionaryEntry(
+        const hazkey::config::UserDictionaryEntry& entry);
+    bool removeUserDictionaryEntry(const std::string& id);
+    bool importUserDictionary(const std::string& json, bool merge);
+    std::optional<std::string> exportUserDictionary();
 
     // Begin a session with persistent connection
     bool beginSession();
