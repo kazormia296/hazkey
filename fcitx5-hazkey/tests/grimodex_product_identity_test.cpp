@@ -42,4 +42,13 @@ int main() {
            "fallback socket must match the server");
     expect(fallback.lock == "/tmp/fcitx5-grimodex-1000/server.lock",
            "fallback lock must match the server");
+
+    const std::string longRuntime =
+        "/tmp/grimodex-fcitx5-grimodex-server-process-e2e-"
+        "12345678-1234-1234-1234-123456789012/runtime";
+    const auto bounded = resolveRuntimePaths(longRuntime.c_str(), 1000);
+    expect(bounded.directory == "/tmp/fcitx5-grimodex-1000",
+           "overlong XDG runtime path must use the shared fallback");
+    expect(bounded.socket.size() < kMaximumUnixSocketPathBytes,
+           "fallback socket must fit sockaddr_un::sun_path");
 }

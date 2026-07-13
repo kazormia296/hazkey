@@ -1,6 +1,7 @@
 #ifndef GRIMODEX_PRODUCT_IDENTITY_H
 #define GRIMODEX_PRODUCT_IDENTITY_H
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 
@@ -12,6 +13,7 @@ inline constexpr std::string_view kInputMethodId = "grimodex";
 inline constexpr std::string_view kServerExecutable = "fcitx5-grimodex-server";
 inline constexpr std::string_view kSettingsExecutable = "fcitx5-grimodex-settings";
 inline constexpr std::string_view kRuntimeDirectoryName = "fcitx5-grimodex";
+inline constexpr std::size_t kMaximumUnixSocketPathBytes = 108;
 
 struct RuntimePaths {
     std::string directory;
@@ -30,12 +32,19 @@ inline std::string appendPath(std::string base, std::string_view component) {
 
 inline RuntimePaths resolveRuntimePaths(const char* xdgRuntimeDirectory,
                                         unsigned int uid) {
+    const auto fallbackDirectory = [&] {
+        return "/tmp/" + std::string(kRuntimeDirectoryName) + "-" +
+               std::to_string(uid);
+    };
     std::string directory;
     if (xdgRuntimeDirectory != nullptr && xdgRuntimeDirectory[0] != '\0') {
         directory = appendPath(xdgRuntimeDirectory, kRuntimeDirectoryName);
     } else {
-        directory = "/tmp/" + std::string(kRuntimeDirectoryName) + "-" +
-                    std::to_string(uid);
+        directory = fallbackDirectory();
+    }
+    if (appendPath(directory, "server.sock").size() >=
+        kMaximumUnixSocketPathBytes) {
+        directory = fallbackDirectory();
     }
     return RuntimePaths{
         .directory = directory,

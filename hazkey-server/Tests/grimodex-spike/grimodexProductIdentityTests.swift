@@ -44,4 +44,19 @@ final class GrimodexProductIdentityTests: XCTestCase {
     XCTAssertEqual(paths.stateDirectory.path, "/home/writer/.local/state/fcitx5-grimodex")
     XCTAssertEqual(paths.cacheDirectory.path, "/home/writer/.cache/fcitx5-grimodex")
   }
+
+  func testOverlongRuntimePathUsesSharedFallback() {
+    let paths = GrimodexProductPaths(
+      environment: [
+        "XDG_RUNTIME_DIR":
+          "/tmp/grimodex-fcitx5-grimodex-server-process-e2e-12345678-1234-1234-1234-123456789012/runtime"
+      ],
+      homeDirectory: URL(fileURLWithPath: "/home/writer", isDirectory: true),
+      uid: 1000
+    )
+
+    XCTAssertEqual(paths.runtimeDirectory.path, "/tmp/fcitx5-grimodex-1000")
+    XCTAssertEqual(paths.socketURL.path, "/tmp/fcitx5-grimodex-1000/server.sock")
+    XCTAssertLessThan(paths.socketURL.path.utf8.count, 108)
+  }
 }
