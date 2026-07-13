@@ -79,6 +79,21 @@ the tokenizer fallback configuration must survive staging and uninstall as a
 single package-owned tree; the executable's build-machine fallback paths are
 not usable on an installed system.
 
+The Zenzai GGUF is intentionally not part of the package archive or the IME
+application releases. The dedicated `kazormia296/grimodex-models` repository
+publishes the pinned model as the immutable
+`zenzai-v3-small-q5km-v1` Release asset and includes its SHA-256 catalog. The
+package contains only the Qt-based `fcitx5-grimodex-model` helper, which
+downloads that fixed asset into the invoking user's XDG data directory with an
+atomic replace and checksum verification. It retains a fallback to the pinned
+upstream source so an updated helper can recover installations whose app
+release predates the model release. Debian's
+`postinst` and the AUR install hook make a best-effort download for the user who
+invoked `sudo`; when no invoking user is available, the settings application
+exposes the same download action. The helper is the sole intentionally
+network-capable product artifact and is explicitly allowlisted by the packaging
+audit.
+
 The integration workflow installs the already-built Fcitx addon, Qt settings
 application, and Swift server with CMake into two DESTDIR trees, merges those
 trees, and runs this validator with `GRIMODEX_STAGED_ROOT`. The validator checks

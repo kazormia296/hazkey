@@ -9,6 +9,8 @@ endif()
 
 project(fcitx5-grimodex-settings VERSION 0.2.1 LANGUAGES CXX)
 
+include(GNUInstallDirs)
+
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -17,7 +19,7 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR})
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets LinguistTools)
+find_package(Qt6 REQUIRED COMPONENTS Core Network Widgets LinguistTools)
 # Prefer protobuf's config package.  Recent protobuf releases generate C++
 # sources that reference Abseil directly, and the config target carries those
 # transitive libraries.  CMake's legacy FindProtobuf module exposes only the
@@ -68,6 +70,14 @@ set(PROJECT_SOURCES
     config_macros.h
     ${TS_FILES}
 )
+
+add_executable(fcitx5-grimodex-model
+    zenzai_model_downloader.cpp)
+target_include_directories(fcitx5-grimodex-model PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(fcitx5-grimodex-model PRIVATE
+    Qt6::Core
+    Qt6::Network)
 
 add_library(grimodex-settings-protocol STATIC)
 
@@ -161,8 +171,10 @@ target_link_libraries(fcitx5-grimodex-settings PRIVATE
     grimodex-settings-protocol
 )
 
-include(GNUInstallDirs)
 install(TARGETS fcitx5-grimodex-settings
+    RUNTIME DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR}/fcitx5-grimodex
+)
+install(TARGETS fcitx5-grimodex-model
     RUNTIME DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR}/fcitx5-grimodex
 )
 

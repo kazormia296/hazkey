@@ -1,4 +1,22 @@
 post_install() {
+  local user="${SUDO_USER:-}"
+  local home=""
+  local helper='/usr/lib/fcitx5-grimodex/fcitx5-grimodex-model'
+  if [[ -n "${user}" && "${user}" != root ]]; then
+    home="$(getent passwd "${user}" | cut -d: -f6)"
+    if [[ -n "${home}" && -x "${helper}" ]]; then
+      if ! runuser -u "${user}" -- env \
+          HOME="${home}" \
+          XDG_DATA_HOME="${home}/.local/share" \
+          "${helper}"; then
+        echo 'fcitx5-grimodex: automatic Zenzai model download failed; open IME Settings to retry.'
+      fi
+    else
+      echo 'fcitx5-grimodex: Zenzai model download deferred; open IME Settings to download it.'
+    fi
+  else
+    echo 'fcitx5-grimodex: Zenzai model download deferred; open IME Settings to download it.'
+  fi
   echo 'fcitx5-grimodex installed. Restart Fcitx5, then enable Grimodex in Input Method Configuration.'
 }
 

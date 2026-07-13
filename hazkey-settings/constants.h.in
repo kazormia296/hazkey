@@ -2,5 +2,13 @@
 #define CONSTANTS_H
 
 inline constexpr char GRIMODEX_IME_VERSION_STR[] = "@PROJECT_VERSION@";
+inline constexpr char GRIMODEX_ZENZAI_MODEL_URL[] =
+    "https://github.com/kazormia296/grimodex-models/releases/download/zenzai-v3-small-q5km-v1/zenzai-v3-small-Q5_K_M.gguf";
+inline constexpr char GRIMODEX_ZENZAI_MODEL_FALLBACK_URL[] =
+    "https://huggingface.co/Miwa-Keita/zenz-v3-small-gguf/resolve/main/ggml-model-Q5_K_M.gguf";
+inline constexpr char GRIMODEX_ZENZAI_MODEL_SHA256[] =
+    "501f605d088f5b988791a00ae19ed46985ed7c48144f364b2f3f1f951c9b2083";
+inline constexpr char GRIMODEX_ZENZAI_MODEL_HELPER_PATH[] =
+    "@CMAKE_INSTALL_FULL_LIBDIR@/fcitx5-grimodex/fcitx5-grimodex-model";
 
 #endif

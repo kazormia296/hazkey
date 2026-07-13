@@ -73,6 +73,8 @@ void MainWindow::bindContexts() {
     controllerContext_.currentConfig = &currentConfig_;
     controllerContext_.currentProfile = currentProfile_;
     controllerContext_.server = &server_;
+    controllerContext_.reloadConfiguration =
+        [this]() { return loadCurrentConfig(true); };
 
     uiTab_->setContext(controllerContext_);
     conversionTab_->setContext(controllerContext_);

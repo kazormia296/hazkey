@@ -214,8 +214,10 @@ jobs:
       - name: Audit product network capability metadata
         run: |
           python3 packaging/scripts/audit_product_network_capabilities.py --root ${{ github.workspace }}/workdir \
+            --allow-network-artifact "${{ github.workspace }}/workdir/usr/${{ matrix.install_libdir }}/fcitx5-grimodex/fcitx5-grimodex-model" \
             --source-root fcitx5-hazkey/src \
             --source-root hazkey-settings \
+            --allow-network-source-file hazkey-settings/zenzai_model_downloader.cpp \
             --source-root hazkey-server/Sources \
             --source-root linux-shared \
             --source-root protocol \
@@ -346,6 +348,7 @@ jobs:
             fcitx5 \
             file \
             libgomp1 \
+            libqt6network6 \
             libqt6widgets6 \
             libvulkan1 \
             passwd \
@@ -396,7 +399,7 @@ jobs:
             printf 'Maintainer: Grimodex Project <kazormia296@users.noreply.github.com>\n'
             printf 'Section: utils\n'
             printf 'Priority: optional\n'
-            printf 'Depends: fcitx5, libgomp1, libqt6widgets6, libvulkan1\n'
+            printf 'Depends: fcitx5, libgomp1, libqt6network6, libqt6widgets6, libvulkan1\n'
             printf 'Description: test-only Grimodex canonical payload transaction package\n'
           } > "$payload_root/DEBIAN/control"
           (
