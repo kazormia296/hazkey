@@ -5,13 +5,26 @@ import Foundation
 /// trusted because the user or project explicitly supplied their surface;
 /// generic and Zenzai candidates must preserve protected input fragments.
 enum ProtectedSurfacePolicy {
-    private static let asciiSymbolScalars: Set<UInt32> = Set(
-        (Array(0x21...0x2F)
-            + Array(0x3A...0x40)
-            + Array(0x5B...0x60)
-            + Array(0x7B...0x7E))
-            .map(UInt32.init)
-    )
+    private static let asciiSymbolScalars = makeASCIISymbolScalars()
+
+    private static func makeASCIISymbolScalars() -> Set<UInt32> {
+        var result = Set<UInt32>()
+        insertRange(0x21, through: 0x2F, into: &result)
+        insertRange(0x3A, through: 0x40, into: &result)
+        insertRange(0x5B, through: 0x60, into: &result)
+        insertRange(0x7B, through: 0x7E, into: &result)
+        return result
+    }
+
+    private static func insertRange(
+        _ lowerBound: UInt32,
+        through upperBound: UInt32,
+        into result: inout Set<UInt32>
+    ) {
+        for value in lowerBound...upperBound {
+            result.insert(value)
+        }
+    }
 
     static func allows(
         _ candidate: ConverterCandidate,
