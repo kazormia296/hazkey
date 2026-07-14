@@ -63,6 +63,29 @@ def make_result(
     }
 
 
+def make_v2_result(
+    case_id: str,
+    samples: list[float | int],
+    *,
+    converter_backend: str = "mozc",
+    resource_kind: str = "mozc_runtime_inputs",
+    resource_path: str = "/fixtures/mozc.data",
+    resource_fingerprint: str = "sha256:123456",
+    **kwargs: object,
+) -> dict[str, object]:
+    result = make_result(case_id, samples, **kwargs)
+    result["schema"] = "hazkey.ab-probe-result.v2"
+    del result["dictionary_path"]
+    del result["dictionary_fingerprint"]
+    result["converter_backend"] = converter_backend
+    result["resource"] = {
+        "kind": resource_kind,
+        "path": resource_path,
+        "fingerprint": resource_fingerprint,
+    }
+    return result
+
+
 def write_run(path: Path, results: list[dict[str, object]]) -> None:
     path.write_text(
         "".join(json.dumps(result) + "\n" for result in results),
@@ -116,7 +139,253 @@ class ABProbeSummaryTests(unittest.TestCase):
         self.assertEqual(summary["max_latency_ms"], 8)
         self.assertEqual(summary["mean_total_ms_per_run"], 15)
         self.assertEqual(summary["max_observed_rss_kib"], 200)
+        self.assertEqual(summary["max_observed_total_rss_kib"], 200)
+        self.assertIsNone(summary["max_observed_parent_pss_kib"])
+        self.assertIsNone(summary["max_observed_backend_rss_kib"])
+        self.assertIsNone(summary["max_observed_backend_pss_kib"])
+        self.assertIsNone(summary["max_observed_total_pss_kib"])
+        self.assertIsNone(summary["max_backend_process_launch_count"])
+        self.assertIsNone(summary["max_backend_cleanup_failure_count"])
+        self.assertNotIn("converter_backend", summary)
         self.assertNotIn("peak_rss_kib", summary)
+
+    def test_summarize_aggregates_optional_memory_and_backend_diagnostics(self) -> None:
+        first_result = make_result("one", [1, 2], rss_before=90, rss_after=100)
+        first_result["measurement"]["rss"].update(
+            {
+                "before_pss_kib": 80,
+                "after_pss_kib": 90,
+                "backend_before_kib": 100,
+                "backend_after_kib": 150,
+                "backend_before_pss_kib": 30,
+                "backend_after_pss_kib": 40,
+            }
+        )
+        first_result["measurement"]["backend_diagnostics"] = {
+            "process_launch_count": 1,
+            "cleanup_failure_count": 0,
+        }
+        second_result = make_result("two", [3, 4], rss_before=400, rss_after=160)
+        second_result["measurement"]["rss"].update(
+            {
+                "before_pss_kib": 400,
+                "after_pss_kib": 160,
+                "backend_before_kib": None,
+                "backend_after_kib": 300,
+                "backend_before_pss_kib": None,
+                "backend_after_pss_kib": 120,
+            }
+        )
+        second_result["measurement"]["backend_diagnostics"] = {
+            "process_launch_count": 4,
+            "cleanup_failure_count": None,
+        }
+        incomplete_result = make_result(
+            "three", [5, 6], rss_before=900, rss_after=1_000
+        )
+        incomplete_result["measurement"]["rss"].update(
+            {"before_pss_kib": 900, "after_pss_kib": 1_000}
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run_path = Path(temporary_directory) / "run.jsonl"
+            write_run(run_path, [first_result, second_result, incomplete_result])
+            summary = summarize_ab_probe.summarize([run_path])
+
+        self.assertEqual(summary["max_observed_rss_kib"], 1_000)
+        self.assertEqual(summary["max_observed_total_rss_kib"], 460)
+        self.assertEqual(summary["max_observed_parent_pss_kib"], 1_000)
+        self.assertEqual(summary["max_observed_backend_rss_kib"], 300)
+        self.assertEqual(summary["max_observed_backend_pss_kib"], 120)
+        # Incomplete snapshots are omitted, including cases with no backend fields.
+        self.assertEqual(summary["max_observed_total_pss_kib"], 280)
+        self.assertEqual(summary["max_backend_process_launch_count"], 4)
+        self.assertEqual(summary["max_backend_cleanup_failure_count"], 0)
+
+    def test_summarize_supports_v2_resource_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run_path = Path(temporary_directory) / "run.jsonl"
+            write_run(run_path, [make_v2_result("case", [1, 2])])
+            summary = summarize_ab_probe.summarize([run_path])
+
+        self.assertEqual(summary["schema"], "hazkey.ab-probe-summary.v2")
+        self.assertEqual(summary["converter_backend"], "mozc")
+        self.assertIsNone(summary["max_observed_total_rss_kib"])
+        self.assertIsNone(summary["max_observed_total_pss_kib"])
+        self.assertEqual(
+            summary["provenance"],
+            {
+                "source_ref": "0123456789abcdef",
+                "resource": {
+                    "kind": "mozc_runtime_inputs",
+                    "path": "/fixtures/mozc.data",
+                    "fingerprint": "sha256:123456",
+                },
+            },
+        )
+
+    def test_summarize_rejects_mixed_v1_and_v2_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            first = directory / "v1.jsonl"
+            second = directory / "v2.jsonl"
+            write_run(first, [make_result("case", [1, 2])])
+            write_run(second, [make_v2_result("case", [3, 4])])
+
+            with self.assertRaisesRegex(ValueError, "cannot mix"):
+                summarize_ab_probe.summarize([first, second])
+
+    def test_summarize_rejects_candidate_drift_between_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            first = directory / "first.jsonl"
+            second = directory / "second.jsonl"
+            write_run(first, [make_v2_result("case", [1, 2])])
+            changed = make_v2_result("case", [3, 4])
+            changed["candidates"] = ["different-candidate"]
+            write_run(second, [changed])
+
+            with self.assertRaisesRegex(ValueError, "candidates.*do not match"):
+                summarize_ab_probe.summarize([first, second])
+
+    def test_v1_preserves_candidate_drift_compatibility(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            first = directory / "first.jsonl"
+            second = directory / "second.jsonl"
+            write_run(first, [make_result("case", [1, 2])])
+            changed = make_result("case", [3, 4])
+            changed["candidates"] = ["different-candidate"]
+            write_run(second, [changed])
+
+            summary = summarize_ab_probe.summarize([first, second])
+
+        self.assertEqual(summary["schema"], "hazkey.ab-probe-summary.v1")
+        self.assertEqual(summary["runs"], 2)
+
+    def test_optional_measurements_reject_invalid_values(self) -> None:
+        scenarios: dict[str, dict[str, object]] = {}
+
+        negative_pss = make_result("case", [1, 2])
+        negative_pss["measurement"]["rss"]["before_pss_kib"] = -1
+        scenarios["negative pss"] = negative_pss
+
+        bool_backend_rss = make_result("case", [1, 2])
+        bool_backend_rss["measurement"]["rss"]["backend_after_kib"] = True
+        scenarios["bool backend rss"] = bool_backend_rss
+
+        invalid_diagnostics = make_result("case", [1, 2])
+        invalid_diagnostics["measurement"]["backend_diagnostics"] = []
+        scenarios["non-object diagnostics"] = invalid_diagnostics
+
+        negative_launch_count = make_result("case", [1, 2])
+        negative_launch_count["measurement"]["backend_diagnostics"] = {
+            "process_launch_count": -1,
+            "cleanup_failure_count": None,
+        }
+        scenarios["negative launch count"] = negative_launch_count
+
+        bool_cleanup_count = make_result("case", [1, 2])
+        bool_cleanup_count["measurement"]["backend_diagnostics"] = {
+            "process_launch_count": None,
+            "cleanup_failure_count": False,
+        }
+        scenarios["bool cleanup count"] = bool_cleanup_count
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            for name, payload in scenarios.items():
+                with self.subTest(name=name):
+                    path = directory / f"{name}.jsonl"
+                    write_run(path, [payload])
+                    with self.assertRaises(ValueError):
+                        summarize_ab_probe.summarize([path])
+
+    def test_backend_diagnostics_allows_omitted_or_null_counts(self) -> None:
+        result = make_v2_result(
+            "case",
+            [1, 2],
+            converter_backend="hazkey",
+            resource_kind="hazkey_dictionary",
+        )
+        result["measurement"]["rss"].update(
+            {"before_pss_kib": 80, "after_pss_kib": 90}
+        )
+        result["measurement"]["backend_diagnostics"] = {
+            "cleanup_failure_count": None,
+        }
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "run.jsonl"
+            write_run(path, [result])
+            summary = summarize_ab_probe.summarize([path])
+
+        self.assertIsNone(summary["max_backend_process_launch_count"])
+        self.assertIsNone(summary["max_backend_cleanup_failure_count"])
+        self.assertEqual(summary["converter_backend"], "hazkey")
+        self.assertEqual(summary["max_observed_total_rss_kib"], 120)
+        self.assertEqual(summary["max_observed_total_pss_kib"], 90)
+
+    def test_v2_fails_closed_for_invalid_resource_and_converter(self) -> None:
+        scenarios: dict[str, dict[str, object]] = {}
+        for field in ("kind", "path", "fingerprint"):
+            missing = make_v2_result("case", [1, 2])
+            del missing["resource"][field]
+            scenarios[f"missing resource {field}"] = missing
+
+            empty = make_v2_result("case", [1, 2])
+            empty["resource"][field] = ""
+            scenarios[f"empty resource {field}"] = empty
+
+        missing_converter = make_v2_result("case", [1, 2])
+        del missing_converter["converter_backend"]
+        scenarios["missing converter"] = missing_converter
+
+        empty_converter = make_v2_result("case", [1, 2])
+        empty_converter["converter_backend"] = ""
+        scenarios["empty converter"] = empty_converter
+
+        unknown_converter = make_v2_result("case", [1, 2])
+        unknown_converter["converter_backend"] = "unknown"
+        scenarios["unknown converter"] = unknown_converter
+
+        mismatched_kind = make_v2_result("case", [1, 2])
+        mismatched_kind["resource"]["kind"] = "hazkey_dictionary"
+        scenarios["mismatched converter and resource"] = mismatched_kind
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            for name, payload in scenarios.items():
+                with self.subTest(name=name):
+                    path = directory / f"{name}.jsonl"
+                    write_run(path, [payload])
+                    with self.assertRaises(ValueError):
+                        summarize_ab_probe.summarize([path])
+
+    def test_v2_rejects_inconsistent_resource_or_converter(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            first = directory / "first.jsonl"
+            second = directory / "second.jsonl"
+            write_run(first, [make_v2_result("case", [1, 2])])
+
+            for field, changed in (
+                ("resource", make_v2_result("case", [3, 4], resource_path="/other")),
+                (
+                    "converter_backend",
+                    make_v2_result(
+                        "case",
+                        [3, 4],
+                        converter_backend="hazkey",
+                        resource_kind="hazkey_dictionary",
+                    ),
+                ),
+            ):
+                with self.subTest(field=field):
+                    write_run(second, [changed])
+                    with self.assertRaisesRegex(
+                        ValueError, rf"{field} does not match the first run"
+                    ):
+                        summarize_ab_probe.summarize([first, second])
 
     def test_cli_supports_output_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

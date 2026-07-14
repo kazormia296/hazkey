@@ -25,6 +25,14 @@ protocol MozcCoreConverting: AnyObject {
     func purgeSensitiveState()
 }
 
+/// Process-only diagnostics for benchmarks and health checks. This deliberately
+/// excludes request text and the helper's private profile directory.
+struct MozcSidecarDiagnostics: Equatable, Sendable {
+    let processIdentifier: Int32?
+    let processLaunchCount: UInt64
+    let temporaryDirectoryCleanupFailureCount: UInt64
+}
+
 enum MozcSidecarError: Error, LocalizedError, Equatable {
     case invalidRequest
     case launchFailed
@@ -75,6 +83,7 @@ final class MozcSidecarClient: MozcCoreConverting {
     private var outputHandle: FileHandle?
     private var temporaryDirectoryPath: String?
     private var nextRequestID: UInt64 = 1
+    private var processLaunchCount: UInt64 = 0
     private var temporaryDirectoryCleanupFailures: UInt64 = 0
 
     /// Exposes cleanup failures to diagnostics/tests without publishing the
@@ -83,6 +92,19 @@ final class MozcSidecarClient: MozcCoreConverting {
         lock.lock()
         defer { lock.unlock() }
         return temporaryDirectoryCleanupFailures
+    }
+
+    func diagnostics() -> MozcSidecarDiagnostics {
+        lock.lock()
+        defer { lock.unlock() }
+        return MozcSidecarDiagnostics(
+            processIdentifier: process?.isRunning == true
+                ? process?.processIdentifier
+                : nil,
+            processLaunchCount: processLaunchCount,
+            temporaryDirectoryCleanupFailureCount:
+                temporaryDirectoryCleanupFailures
+        )
     }
 
     init(
@@ -237,6 +259,7 @@ final class MozcSidecarClient: MozcCoreConverting {
         process = child
         inputHandle = inputPipe.fileHandleForWriting
         outputHandle = outputPipe.fileHandleForReading
+        processLaunchCount &+= 1
         try performHandshakeLocked()
     }
 

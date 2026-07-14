@@ -485,6 +485,14 @@ final class GrimodexMozcSidecarTests: XCTestCase {
       dataPath: fixture.data.path,
       timeoutMilliseconds: 500
     )
+    XCTAssertEqual(
+      client.diagnostics(),
+      MozcSidecarDiagnostics(
+        processIdentifier: nil,
+        processLaunchCount: 0,
+        temporaryDirectoryCleanupFailureCount: 0
+      )
+    )
 
     let result = try client.convert(
       reading: "かな",
@@ -503,6 +511,21 @@ final class GrimodexMozcSidecarTests: XCTestCase {
           )
         ],
         segmentKeySize: 2
+      )
+    )
+    let activeDiagnostics = client.diagnostics()
+    XCTAssertNotNil(activeDiagnostics.processIdentifier)
+    XCTAssertEqual(activeDiagnostics.processLaunchCount, 1)
+    XCTAssertEqual(activeDiagnostics.temporaryDirectoryCleanupFailureCount, 0)
+
+    client.purgeSensitiveState()
+
+    XCTAssertEqual(
+      client.diagnostics(),
+      MozcSidecarDiagnostics(
+        processIdentifier: nil,
+        processLaunchCount: 1,
+        temporaryDirectoryCleanupFailureCount: 0
       )
     )
   }
@@ -769,6 +792,14 @@ final class GrimodexMozcSidecarTests: XCTestCase {
       dataPath: bundle.appendingPathComponent("mozc.data").path,
       timeoutMilliseconds: 10_000
     )
+    XCTAssertEqual(
+      client.diagnostics(),
+      MozcSidecarDiagnostics(
+        processIdentifier: nil,
+        processLaunchCount: 0,
+        temporaryDirectoryCleanupFailureCount: 0
+      )
+    )
 
     let natural = try client.convert(
       reading: "きょうはいしゃにいく",
@@ -777,6 +808,10 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     )
     XCTAssertEqual(natural.segmentKeySize, 4)
     XCTAssertEqual(natural.candidates.first?.value, "今日は")
+    let activeDiagnostics = client.diagnostics()
+    XCTAssertNotNil(activeDiagnostics.processIdentifier)
+    XCTAssertEqual(activeDiagnostics.processLaunchCount, 1)
+    XCTAssertEqual(activeDiagnostics.temporaryDirectoryCleanupFailureCount, 0)
 
     let resized = try client.convert(
       reading: "きょうは",
@@ -785,6 +820,18 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     )
     XCTAssertEqual(resized.segmentKeySize, 3)
     XCTAssertEqual(resized.candidates.first?.value, "今日")
+    XCTAssertEqual(client.diagnostics().processLaunchCount, 1)
+
+    client.purgeSensitiveState()
+
+    XCTAssertEqual(
+      client.diagnostics(),
+      MozcSidecarDiagnostics(
+        processIdentifier: nil,
+        processLaunchCount: 1,
+        temporaryDirectoryCleanupFailureCount: 0
+      )
+    )
   }
 
   private func mappedInput(_ text: String) -> CompositionInput {

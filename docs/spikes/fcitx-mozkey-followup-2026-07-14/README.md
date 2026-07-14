@@ -15,9 +15,10 @@
   通過した。これとは別に、本番のsegmented reducer経路で自然分節、resize、partial commitを
   統合検証し、fixed B0 actual helperでも自然変換と文節resizeを通過した。公開Protocol v2は
   変更していない。
-- clean Mozc OSSの小規模品質とprocess性能はBが優位だった。ただしdaily辞書、
-  product dictionary overlay、learning parity、同一の長寿命server/IPC境界での性能比較が
-  未完のため、default切替の根拠にはしない。
+- fixed Mozc sidecarを同じSwift executable / `candidates()`境界で測ったwarm latencyでも
+  Bが明確に優位だった。meanは5.77倍、p95は5.79倍高速だった。ただしTop-10は
+  14/15から12/15へ低下し、daily辞書、product dictionary overlay、learning parity、
+  長寿命server/IPC境界が未完のため、default切替の根拠にはしない。
 - fcitx-mozkeyのfull daily辞書は固定source SHAだけでは再現できない。B1のoffline
   syntax guardは再現できたが、生成辞書を組み込んだ品質測定は未実施である。
 
@@ -34,6 +35,73 @@
 | child process max RSS | 51,352 KiB | 30,448 KiB | A/B=1.69 |
 | 既存Protocol v2との接続 | native | real adapter + fake coreで互換9/9 scenario、26/26 steps。本番segmented reducerとactual helperも別途検証 | 公開Protocol v2変更なし。full parityではない |
 | 辞書再現性 | repo固定 | clean OSSのみ固定 | full dailyはlock前提 |
+
+## 最新: 実adapter境界のwarm A/B
+
+`2364bc1`上の未commit worktreeで、AB probeを実Mozc sidecar対応へ拡張して再測定した。
+これは前節のfresh process比較を置き換えるものではなく、起動済みconverter adapterの
+同じ`KanaKanjiConverting.candidates()`呼び出し境界を比較する追加証拠である。
+
+### 条件
+
+- 15件、各100 iteration、warmup 5、Top-10、backendごとに5 run（各7,500変換）
+- odd cycleはHazkey→Mozc、even cycleはMozc→Hazkey
+- learning / Zenzaiは両方off
+- Mozc helperは各runで1 processを再利用し、計時区間に起動・PINGを含めない
+- RSS/PSSは計時区間外の同じbefore/after phaseでparent→helperの順に逐次取得し、
+  対応するpairを合算する。厳密な同時snapshotではない
+- Mozc generationは`O_NOFOLLOW`で開き、固定size/SHA-256、manifest、mode、link countを
+  fail-closed検証した。同じbyteをprivate read-only snapshotへ固定し、そのpathだけを実行した
+- `resource.path`は入力元generationを示し、`resource.fingerprint`はそこからpinして実行した
+  helper/data/manifestの名前とbyteだけを対象とする。generation全体や測定後のpath内容のdigestではない
+- JSONLは全case終了後もbufferし、helper cleanupとsnapshot削除の成功後だけ公開した
+
+### 結果
+
+| 指標 | Hazkey | Mozc sidecar | Hazkey / Mozc |
+|---|---:|---:|---:|
+| mean warm latency | 3.858 ms | 0.669 ms | 5.77 |
+| median warm latency | 3.210 ms | 0.644 ms | 4.99 |
+| p95 warm latency | 9.194 ms | 1.589 ms | 5.79 |
+| max total RSS | 37,460 KiB | 48,688 KiB | 0.77 |
+| max total PSS | 33,030 KiB | 40,390 KiB | 0.82 |
+
+Mozcのtotal PSSはHazkeyより22.3%多い。RSSは共有pageを二重計上するため、memory判断は
+PSSを主指標とする。候補列は両backendとも5 runで完全一致し、Mozcは全runで
+helper launch count 1、cleanup failure count 0、一時snapshot残留0だった。
+
+同じ15件の品質は、Top-1がHazkey 10/15 (66.7%)、Mozc 12/15 (80.0%)、
+Top-10がHazkey 14/15 (93.3%)、Mozc 12/15 (80.0%)だった。Top-1の改善だけを見て
+defaultを切り替えることはできない。MozcがTop-10で落とした`肌身離さず`、
+`お茶はいりません`、`対人スキル`を含め、100〜500件のblind corpusが必要である。
+
+### 15万変換soak
+
+同じMozc adapter/helperを、15件×10,000 iteration（150,000変換）で連続実行した。
+mean 0.698 ms、median 0.675 ms、p95 1.636 ms、max 3.908 msだった。helperは
+全期間1 process、cleanup failure 0、max total PSS 40,724 KiB、一時snapshot残留0で
+完走した。これは無障害時の長時間安定性であり、kill/EOF/timeoutの故障注入や
+Fcitx→Protocol v2→server全体のsoakではない。
+
+集約値、resource fingerprint、candidate fingerprint、測定条件は
+[`runtime-ab-summary.json`](./runtime-ab-summary.json)に固定した。
+
+## 実行中Mozc runtimeの現物確認
+
+install/restartは行わず、既存sessionを確認した。`/usr`のhelper/dataはartifact verifierを
+通過し、実行中serverとFcitxの両方が次を継承していた。
+
+- `FCITX5_GRIMODEX_CONVERTER=mozc`
+- helper/dataは
+  `/run/user/1000/fcitx5-grimodex/mozc-runtime/sha256-4e61bd...`の同一generation
+- generation/helper/data modeは`0555` / `0555` / `0444`
+- helper SHA-256は`8676275b...577d`、data SHA-256は`b9884362...c5e`
+- 初回確認時のactive engineは`grimodex`、`fcitx5-remote` stateは`2`だった。測定後の
+  最終確認では同じserver/helper processが生存したまま`keyboard-jp` / state `1`へ変わって
+  いたため、この値はruntime identityではなく、その時点のfocus/input-context状態として扱う
+
+したがって今回のA/Bは、誤ってHazkey経路を測った結果ではない。ただしA/B probe自体は
+実行中Fcitxへ接続せず、別のprivate helperで測定している。
 
 ## 1. 同一process境界の交互benchmark
 
@@ -294,11 +362,11 @@ env \
   hazkey-server/scripts/swift-test.sh --filter GrimodexMozcSidecarTests
 ```
 
-system installと明示的な比較起動は次の順で行う。未指定ならHazkeyのままである。
+system installと明示的な比較起動は、通常runnerと混ぜずMozc専用runnerで行う。
 
 ```bash
-scripts/grimodex-ime.sh install
-FCITX5_GRIMODEX_CONVERTER=mozc scripts/grimodex-ime.sh restart
+BUILD_DIR="$PWD/build-grimodex" ./scripts/grimodex-ime_mozc.sh install
+BUILD_DIR="$PWD/build-grimodex" ./scripts/grimodex-ime_mozc.sh restart
 ```
 
 ここでいうS0の9 scenario通過は、現行fixtureをそのまま満たすという意味ではない。現行
@@ -324,11 +392,12 @@ full rebaseではなく、実装済みのopt-in sliceを比較器として使う
 5. **未完:** 現行partial-commit learning期待値`1/1/1/0`のparityまたは廃止判断
 6. **未完:** project/personal dictionaryのgeneric candidate overlay
 7. **未完:** B1またはlocked B2で100〜500件のblind実利用corpus
-8. **未完:** 同じ長寿命server / IPC境界のwarm latency、steady RSS、failure recovery
+8. **部分完了:** 同じadapter境界のwarm latency、PSS、150,000変換soakは完了。
+   長寿命server / IPC境界と故障注入は未完
 
 現在のMozc session openでもHazkey用`KanaKanjiConverter`を2個生成し、
 `HazkeySessionEnvironment`を構築・refreshする。このため現状のserver全体startup/RSSは
-Mozc-only対Hazkey-onlyのclean A/Bではない。前段の6.31倍process結果もharness単位の参考値で
-あり、実製品server/IPC境界の優位性としては使わない。
+Mozc-only対Hazkey-onlyのclean A/Bではない。前段の6.31倍process結果と今回の5.77倍
+adapter結果はともに明確な速度シグナルだが、実製品server/IPC境界の倍率としては使わない。
 
 ここまで満たす前はHazkeyをdefaultとし、Mozc coreはopt-in比較実装に留める。

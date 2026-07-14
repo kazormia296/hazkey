@@ -1,0 +1,141 @@
+{
+  "schema": "hazkey.adapter-runtime-ab-summary.v1",
+  "measured_on": "2026-07-14",
+  "git": {
+    "head": "2364bc17cc75e548e6707c43e4ec26d0ec4ea052",
+    "probe_source": "uncommitted working tree on top of HEAD"
+  },
+  "inputs": {
+    "executable_sha256": "5b63b6757ef0adfc4188a4c813d60ef48d6674fd6469731a6c8bcd7233754d33",
+    "corpus_sha256": "e5c61cc92042c24ff334f702c7bd3e01473e37002c9d64d6c652462721520e9e",
+    "hazkey_dictionary_fingerprint": "sha256:cee9210b8dc92a30e8b4e600c416db70a51fed1199f6b4c3659aba821ef4024c",
+    "mozc_runtime_fingerprint": "sha256:2ba2cccb3c7489def988b63b0f0fd2cd96469521569c4807b63c80d2b50d3063",
+    "mozc_helper_sha256": "8676275bb47aefe963c8b82047cc66fb7a5140caec72d1ebbfa17556b281577d",
+    "mozc_data_sha256": "b9884362e37772f772a0d28d1e12622455c14353497b3435deed60aa7e592c5e"
+  },
+  "method": {
+    "boundary": "KanaKanjiConverting.candidates() in the same hazkey-server executable",
+    "cases": 15,
+    "warmups_per_case": 5,
+    "iterations_per_case": 100,
+    "runs_per_backend": 5,
+    "measured_conversions_per_backend": 7500,
+    "top_k": 10,
+    "order": [
+      "hazkey-mozc",
+      "mozc-hazkey",
+      "hazkey-mozc",
+      "mozc-hazkey",
+      "hazkey-mozc"
+    ],
+    "learning": false,
+    "zenzai": false,
+    "memory": "parent then helper RSS/PSS sampled sequentially in paired before/after phases outside timed calls; not a simultaneous snapshot",
+    "mozc_execution": "verified bytes copied to a private read-only snapshot before helper launch",
+    "mozc_resource_scope": "resource.path is the origin generation; resource.fingerprint covers only the pinned helper, data, and manifest names and bytes",
+    "publication": "JSONL published only after helper cleanup and snapshot removal succeed"
+  },
+  "performance": {
+    "hazkey": {
+      "mean_latency_ms": 3.8577234186666667,
+      "median_latency_ms": 3.2098044999999997,
+      "p95_latency_ms": 9.193595,
+      "minimum_latency_ms": 0.738893,
+      "maximum_latency_ms": 14.56238,
+      "max_total_rss_kib": 37460,
+      "max_total_pss_kib": 33030
+    },
+    "mozc": {
+      "mean_latency_ms": 0.6689054481333334,
+      "median_latency_ms": 0.643695,
+      "p95_latency_ms": 1.588532,
+      "minimum_latency_ms": 0.088388,
+      "maximum_latency_ms": 2.109111,
+      "max_parent_rss_kib": 25488,
+      "max_helper_rss_kib": 23292,
+      "max_total_rss_kib": 48688,
+      "max_parent_pss_kib": 21052,
+      "max_helper_pss_kib": 19406,
+      "max_total_pss_kib": 40390
+    },
+    "hazkey_over_mozc_latency_ratio": {
+      "mean": 5.76721781745408,
+      "median": 4.986530111310481,
+      "p95": 5.787478628066668
+    },
+    "mozc_over_hazkey_total_pss_ratio": 1.2228277323645171
+  },
+  "quality": {
+    "hazkey": {
+      "top1_hits": 10,
+      "top1_rate": 0.6666666666666666,
+      "top10_hits": 14,
+      "top10_rate": 0.9333333333333333
+    },
+    "mozc": {
+      "top1_hits": 12,
+      "top1_rate": 0.8,
+      "top10_hits": 12,
+      "top10_rate": 0.8
+    },
+    "mozc_minus_hazkey": {
+      "top1_hits": 2,
+      "top1_rate": 0.1333333333333334,
+      "top10_hits": -2,
+      "top10_rate": -0.1333333333333333
+    },
+    "rank_wins": {
+      "hazkey": 2,
+      "mozc": 2,
+      "ties": 11
+    }
+  },
+  "stability": {
+    "hazkey_candidate_fingerprint": "b688fff8506ede6d6645a6855cbad8f13470a5277793fa61d3c11f349e888736",
+    "mozc_candidate_fingerprint": "7360a063160e5d1e085e63f56e694c2da1b091cf324821ef63ea4d7deaa5ee18",
+    "candidate_lists_stable_across_all_runs": true,
+    "mozc_max_helper_launch_count_per_run": 1,
+    "mozc_max_cleanup_failure_count": 0,
+    "private_snapshot_residue": 0
+  },
+  "soak": {
+    "backend": "mozc",
+    "cases": 15,
+    "warmups_per_case": 5,
+    "iterations_per_case": 10000,
+    "measured_conversions": 150000,
+    "mean_latency_ms": 0.6977698791133333,
+    "median_latency_ms": 0.6745289999999999,
+    "p95_latency_ms": 1.636132,
+    "minimum_latency_ms": 0.086828,
+    "maximum_latency_ms": 3.907819,
+    "max_total_rss_kib": 49012,
+    "max_total_pss_kib": 40724,
+    "helper_launch_count": 1,
+    "cleanup_failure_count": 0,
+    "private_snapshot_residue": 0
+  },
+  "raw_output_sha256": {
+    "hazkey": [
+      "92abca977aa6910e9197fe731555baab6605dc6a2b85bb5b0352cf5f89f65e07",
+      "cc3941d35b1c0ae49735411cdf6bc1ce1346fdd650bfcdeff0af1ebfe00c0b3f",
+      "a8faf87ba6086e973a93ec8d9e156eb56be49e8f74fc93a12203f42b88372710",
+      "4fc8f260b17215913d869142a273d2a1c6783ed43bc388e1c526a92e1fe4c52d",
+      "50a4ad43ef5e95f30916cc8e29c5b7a3296338b3ddadc4e5d2cfff714f5553bf"
+    ],
+    "mozc": [
+      "0f420d4accc5e525395effa94095d19fa4d8329fb0bfd9948c9ab4837103e3fa",
+      "52b2cdbadbb2bc16121f13d18342e9e9fdd69ae84fc461c7a5d154194cb49468",
+      "6df4bf293f99a2c511992246b337f3f565b8ca588500b92d5b446065b270c0ce",
+      "cba34abf6857a97355a921443cdac7ec2c0a901c8ae18192da19f4ddee2c8bec",
+      "09ee3d92a7132c877f3f67c54db5d656dca1459021bb13128a22504c638389e5"
+    ],
+    "mozc_soak": "7933aff5419a57cfc9810a31639a4d7854021ff8c0c15d9a5be9e396a1cb5f2d"
+  },
+  "limitations": [
+    "The 15-case corpus is a decision spike, not a release-quality language benchmark.",
+    "The probe excludes Fcitx, Protocol v2 IPC, rendering, learning, and Zenzai.",
+    "The soak measures a no-fault run; helper kill, EOF, and timeout injection remain separate work.",
+    "RSS double-counts shared pages; PSS is the primary memory comparison."
+  ]
+}
