@@ -61,6 +61,15 @@ MOZC_ARTIFACT_BUILDER = (
     REPOSITORY_ROOT / "tools/mozc/build_fixed_sidecar_bundle.py"
 )
 MOZC_RUNTIME_SCRIPT = REPOSITORY_ROOT / "scripts/grimodex-ime_mozc.sh"
+MOZC_SIDECAR_PROTO = REPOSITORY_ROOT / "protocol/mozc_sidecar.proto"
+MOZC_SIDECAR_OVERLAY_PROTO = (
+    REPOSITORY_ROOT
+    / "third_party/fcitx-mozkey/overlay/grimodex_mozc_sidecar/mozc_sidecar.proto"
+)
+MOZC_SIDECAR_HELPER_SOURCE = (
+    REPOSITORY_ROOT
+    / "third_party/fcitx-mozkey/overlay/grimodex_mozc_sidecar/mozc_sidecar_helper.cc"
+)
 DEFAULT_RUNTIME_SCRIPT = REPOSITORY_ROOT / "scripts/grimodex-ime.sh"
 TOP_LEVEL_CMAKE = REPOSITORY_ROOT / "CMakeLists.txt"
 FCITX_CMAKE = REPOSITORY_ROOT / "fcitx5-hazkey/CMakeLists.txt"
@@ -381,6 +390,28 @@ class MozcArtifactBundleContractTests(unittest.TestCase):
         "UTF8-RANGE-LICENSE",
         "JAPANESE-USAGE-DICTIONARY-LICENSE",
     )
+
+    def test_sidecar_remains_conversion_only_with_history_disabled(self) -> None:
+        helper = MOZC_SIDECAR_HELPER_SOURCE.read_text(encoding="utf-8")
+        root_proto = MOZC_SIDECAR_PROTO.read_bytes()
+        overlay_proto = MOZC_SIDECAR_OVERLAY_PROTO.read_bytes()
+        self.assertEqual(
+            overlay_proto,
+            root_proto,
+            "the fixed helper build input must match the runtime-side protocol",
+        )
+        sidecar_proto = overlay_proto.decode("utf-8")
+
+        self.assertIn("options.enable_user_history_for_conversion = false;", helper)
+        self.assertIn("options.incognito_mode = true;", helper)
+        self.assertEqual(
+            re.findall(
+                r"^\s*(OPERATION_[A-Z_]+)\s*=",
+                sidecar_proto,
+                flags=re.MULTILINE,
+            ),
+            ["OPERATION_UNSPECIFIED", "OPERATION_CONVERT", "OPERATION_PING"],
+        )
 
     @staticmethod
     def _elf_helper(

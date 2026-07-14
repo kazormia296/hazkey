@@ -52,7 +52,8 @@
       "transport": "private length-prefixed protobuf between Swift and the sidecar",
       "swift_port": "KanaKanjiConverting",
       "private_protocol": "protocol/mozc_sidecar.proto",
-      "public_protocol_changed": false,
+      "public_protocol_version_changed": false,
+      "public_protocol_addition": "additive proto3-optional OpenSessionResult.persistent_learning_available capability",
       "rejected_boundary": "Mozc SessionHandler, because it would duplicate session, composer, keymap, watchdog, and commit state"
     }
   },
@@ -80,15 +81,17 @@
       "forgotten": 0
     },
     "s0_learning_off_expectation": {
-      "completed": 0,
+      "completed": "non-normative process-local cache callback; observed once for partial commit",
       "updated": 0,
       "committed": 0,
-      "forgotten": 0
+      "forgotten": 0,
+      "pending_learning": false
     },
-    "status": "intentional S0 product-contract gap; restore the existing counters or obtain an explicit product decision before default switching"
+    "runtime_capability": "OpenSessionResult sets the additive proto3-optional persistent_learning_available field; false means conversion-only and absence means a legacy unknown capability",
+    "status": "hazkey preparation implemented: v1 remains exact, the Mozc compatibility runner applies allowsLearning=false and audits real callbacks plus all-step pending=false; formal closure still requires an authoritative central v2 learning-disabled profile and a SHA-locked vendor copy"
   },
   "protocol_v2_scenarios": {
-    "evidence_level": "real Mozc Swift adapter plus fake Mozc core passed all 9 locked scenarios and all 26 visible/session steps through the versioned compatibility presentation path; a separate supportsSegmentEditing=true reducer integration passed natural segmentation, resize round-trip, and partial commit; neither proves full product parity or all scenarios against the actual C++ helper",
+    "evidence_level": "real Mozc Swift adapter plus fake Mozc core passed all 9 locked v1 visible/session scenarios and all 26 steps under an explicit local draft conversion-only policy; this is not v1 or formal v2 conformance. A separate supportsSegmentEditing=true reducer integration passed natural segmentation, resize round-trip, and partial commit; neither proves full product parity or all scenarios against the actual C++ helper",
     "locked_scenarios_passed": 9,
     "locked_scenarios_total": 9,
     "visible_session_steps_passed": 26,
@@ -107,7 +110,8 @@
   "external_protocol_v2_extension": {
     "expected_required": false,
     "verified": true,
-    "public_protocol_changed": false,
+    "public_protocol_version_changed": false,
+    "public_protocol_addition": "additive proto3-optional OpenSessionResult.persistent_learning_available capability; no action or snapshot semantic change",
     "private_protocol": "protocol/mozc_sidecar.proto"
   },
   "fixed_bundle": {
@@ -151,7 +155,7 @@
       "repeat import reused the exact generation while a tampered generation failed closed",
       "CMake strict import and dataset-authenticated host runtime PING passed",
       "normal cached-dependency release build passed",
-      "59 packaging contract tests passed"
+      "65 packaging contract tests passed, including staged generation checks"
     ],
     "focused_swift_tests": {
       "total": 29,
@@ -167,7 +171,7 @@
       ]
     },
     "full_swift_regression": {
-      "total": 274,
+      "total": 276,
       "optional_skipped": 11,
       "failures": 0,
       "execution": "normal host permissions"
@@ -208,7 +212,7 @@
     "product_parity_additional_loc": "400-700"
   },
   "remaining_gates": [
-    "restore or explicitly retire partial-commit learning parity 1/1/1/0",
+    "land the authoritative central composition-behavior-v2 learning-disabled profile and vendor its SHA lock; v1 partial-commit 1/1/1/0 remains unchanged",
     "run a 100-500 item blind corpus with B1 or an immutable B2 snapshot",
     "complete external SIGKILL recovery, Fcitx-inclusive soak, and alternating long-lived server benchmark cycles"
   ],

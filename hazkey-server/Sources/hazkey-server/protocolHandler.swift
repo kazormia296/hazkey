@@ -57,6 +57,8 @@ class ProtocolHandler {
                         $0.recoverySupport = ImeV2Negotiation.current.recoverySupport
                         $0.idempotentRequestSupport =
                             ImeV2Negotiation.current.idempotentRequestSupport
+                        $0.persistentLearningAvailable = sessionRegistry
+                            .learningCapability.persistentLearningAvailable
                     }
                 }
             case .failure(.resourceExhausted):

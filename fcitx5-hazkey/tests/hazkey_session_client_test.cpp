@@ -338,6 +338,39 @@ void tracksV2CapabilitiesRevisionAndEffectDeduplication() {
     expect(!session.shouldApplyEffect(11), "duplicate effect application must be ignored");
 }
 
+void distinguishesPersistentLearningCapabilityPresence() {
+    auto conversionOnly = openSuccess("session-conversion-only");
+    conversionOnly.mutable_open_session_result()
+        ->set_persistent_learning_available(false);
+    auto legacy = openSuccess("session-legacy-learning-capability");
+    auto persistent = openSuccess("session-persistent-learning");
+    persistent.mutable_open_session_result()
+        ->set_persistent_learning_available(true);
+
+    FakeTransport transport;
+    transport.responses = {conversionOnly, legacy, persistent};
+    HazkeySessionClient client(
+        [&transport](const auto& request, bool tryConnect) {
+            return transport.transact(request, tryConnect);
+        });
+    HazkeyClientSession session(context());
+
+    expect(client.open(session),
+           "conversion-only session must open");
+    expect(session.capabilities().persistentLearningAvailable.has_value() &&
+               !*session.capabilities().persistentLearningAvailable,
+           "present false must advertise conversion-only behavior");
+
+    expect(client.open(session), "legacy-capability session must reopen");
+    expect(!session.capabilities().persistentLearningAvailable.has_value(),
+           "absent field must clear stale state and preserve unknown legacy capability");
+
+    expect(client.open(session), "persistent-learning session must reopen");
+    expect(session.capabilities().persistentLearningAvailable.has_value() &&
+               *session.capabilities().persistentLearningAvailable,
+           "present true must replace the legacy unknown capability");
+}
+
 void retriesLostV2ResponsesWithTheSameRequestID() {
     FakeTransport transport;
     transport.responses = {
@@ -1848,6 +1881,7 @@ int main() {
     notifiesTheOwnerWhenAStatefulRequestReopensTheSession();
     replacesSessionWhenClientContextChanges();
     tracksV2CapabilitiesRevisionAndEffectDeduplication();
+    distinguishesPersistentLearningCapabilityPresence();
     retriesLostV2ResponsesWithTheSameRequestID();
     failedBestEffortActionIsNotReplayedBeforeTheNextAction();
     failedDurableBestEffortActionIsJournaledWithoutBlockingRecovery();

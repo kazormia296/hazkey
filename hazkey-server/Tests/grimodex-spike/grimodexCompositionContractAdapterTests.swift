@@ -116,6 +116,18 @@ private protocol ContractScenarioConverting: KanaKanjiConverting {
   var updated: Int { get }
   var committed: Int { get }
   var forgotten: Int { get }
+  var staged: Int { get }
+  var stagedCommitted: Int { get }
+  var stagedDiscarded: Int { get }
+}
+
+private enum ContractLearningProfile: Equatable {
+  case v1Persistent
+  /// Local preparation for the proposed central v2 conversion-only profile.
+  /// This is a compatibility observation, not a v1 conformance claim.
+  case conversionOnlyDraft
+
+  var allowsLearning: Bool { self == .v1Persistent }
 }
 
 private final class ContractFixtureConverter: ContractScenarioConverting {
@@ -126,6 +138,9 @@ private final class ContractFixtureConverter: ContractScenarioConverting {
   private(set) var updated = 0
   private(set) var committed = 0
   private(set) var forgotten = 0
+  private(set) var staged = 0
+  private(set) var stagedCommitted = 0
+  private(set) var stagedDiscarded = 0
 
   init(shouldFail: Bool) {
     self.shouldFail = shouldFail
@@ -164,6 +179,19 @@ private final class ContractFixtureConverter: ContractScenarioConverting {
   func setCompletedData(_ candidate: ConverterCandidate) { completed += 1 }
   func updateLearningData(_ candidate: ConverterCandidate) { updated += 1 }
   func commitLearning() { committed += 1 }
+  func stageLearning(
+    candidate: ConverterCandidate,
+    reading: String
+  ) -> ConverterLearningToken? {
+    staged += 1
+    return nil
+  }
+  func commitStagedLearning(_ token: ConverterLearningToken) {
+    stagedCommitted += 1
+  }
+  func discardStagedLearning(_ token: ConverterLearningToken) {
+    stagedDiscarded += 1
+  }
   func forget(_ candidate: ConverterCandidate) { forgotten += 1 }
   func stopComposition() {}
 }
@@ -211,10 +239,13 @@ private final class ContractMozcCore: MozcCoreConverting {
 /// dedicated Mozc reducer integration test.
 private final class ContractMozcAdapter: ContractScenarioConverting {
   private let adapter: MozcKanaKanjiConverterAdapter
-  let completed = 0
-  let updated = 0
-  let committed = 0
-  let forgotten = 0
+  private(set) var completed = 0
+  private(set) var updated = 0
+  private(set) var committed = 0
+  private(set) var forgotten = 0
+  private(set) var staged = 0
+  private(set) var stagedCommitted = 0
+  private(set) var stagedDiscarded = 0
 
   init(shouldFail: Bool) {
     adapter = MozcKanaKanjiConverterAdapter(
@@ -257,47 +288,67 @@ private final class ContractMozcAdapter: ContractScenarioConverting {
     try adapter.predictions(for: composition, options: options)
   }
 
-  func setCompletedData(_ candidate: ConverterCandidate) {}
-  func updateLearningData(_ candidate: ConverterCandidate) {}
-  func commitLearning() {}
-  func forget(_ candidate: ConverterCandidate) {}
+  func setCompletedData(_ candidate: ConverterCandidate) {
+    completed += 1
+    adapter.setCompletedData(candidate)
+  }
+  func updateLearningData(_ candidate: ConverterCandidate) {
+    updated += 1
+    adapter.updateLearningData(candidate)
+  }
+  func commitLearning() {
+    committed += 1
+    adapter.commitLearning()
+  }
+  func stageLearning(
+    candidate: ConverterCandidate,
+    reading: String
+  ) -> ConverterLearningToken? {
+    staged += 1
+    return adapter.stageLearning(candidate: candidate, reading: reading)
+  }
+  func commitStagedLearning(_ token: ConverterLearningToken) {
+    stagedCommitted += 1
+    adapter.commitStagedLearning(token)
+  }
+  func discardStagedLearning(_ token: ConverterLearningToken) {
+    stagedDiscarded += 1
+    adapter.discardStagedLearning(token)
+  }
+  func forget(_ candidate: ConverterCandidate) {
+    forgotten += 1
+    adapter.forget(candidate)
+  }
   func stopComposition() { adapter.stopComposition() }
   func purgeSensitiveState() { adapter.purgeSensitiveState() }
 }
 
 final class GrimodexCompositionContractAdapterTests: XCTestCase {
-  func testAllLockedCompositionBehaviorScenariosRunThroughTheLinuxReducer() throws {
+  func testCompositionBehaviorV1PersistentProfileRemainsExactThroughLinuxReducer() throws {
     try runLockedScenarios(
       converterFactory: {
         ContractFixtureConverter(
           shouldFail: $0.converterFault == "converter_throws"
         )
       },
-      expectedLearning: { $0.expectedLearning }
+      learningProfile: .v1Persistent
     )
   }
 
-  func testAllLockedCompositionBehaviorScenariosRunThroughMozcAdapter() throws {
+  func testLockedVisibleScenariosRemainCompatibleUnderMozcConversionOnlyDraft() throws {
     try runLockedScenarios(
       converterFactory: {
         ContractMozcAdapter(
           shouldFail: $0.converterFault == "converter_throws"
         )
       },
-      expectedLearning: { _ in
-        ContractScenario.ExpectedLearning(
-          completed: 0,
-          updated: 0,
-          committed: 0,
-          forgotten: 0
-        )
-      }
+      learningProfile: .conversionOnlyDraft
     )
   }
 
   private func runLockedScenarios(
     converterFactory: (ContractScenario) -> any ContractScenarioConverting,
-    expectedLearning: (ContractScenario) -> ContractScenario.ExpectedLearning
+    learningProfile: ContractLearningProfile
   ) throws {
     let root = try XCTUnwrap(Bundle.module.resourceURL)
       .appendingPathComponent("Fixtures/composition-behavior-v1/scenarios")
@@ -324,6 +375,7 @@ final class GrimodexCompositionContractAdapterTests: XCTestCase {
       var session = CompositionSession()
       session.phase = ImePhase(rawValue: scenario.initial.phase) ?? .idle
       session.revision = scenario.initial.revision
+      session.policy.allowsLearning = learningProfile.allowsLearning
       session.composingText.insert(scenario.initial.composition, inputStyle: .direct)
       let converter = converterFactory(scenario)
       let reducer = ImeReducer(
@@ -361,6 +413,12 @@ final class GrimodexCompositionContractAdapterTests: XCTestCase {
           matches: scenario.snapshots[index],
           scenarioID: "\(scenario.scenarioID) action \(index)"
         )
+        if learningProfile == .conversionOnlyDraft {
+          XCTAssertFalse(
+            result.snapshot.pendingLearning,
+            "\(scenario.scenarioID) action \(index)"
+          )
+        }
         if scenario.scenarioID == "secure-input" {
           if index < 3 {
             XCTAssertNil(result.snapshot.recovery, "secure action \(index)")
@@ -370,11 +428,29 @@ final class GrimodexCompositionContractAdapterTests: XCTestCase {
         }
       }
 
-      let learning = expectedLearning(scenario)
-      XCTAssertEqual(converter.completed, learning.completed, scenario.scenarioID)
-      XCTAssertEqual(converter.updated, learning.updated, scenario.scenarioID)
-      XCTAssertEqual(converter.committed, learning.committed, scenario.scenarioID)
-      XCTAssertEqual(converter.forgotten, learning.forgotten, scenario.scenarioID)
+      switch learningProfile {
+      case .v1Persistent:
+        let learning = scenario.expectedLearning
+        XCTAssertEqual(converter.completed, learning.completed, scenario.scenarioID)
+        XCTAssertEqual(converter.updated, learning.updated, scenario.scenarioID)
+        XCTAssertEqual(converter.committed, learning.committed, scenario.scenarioID)
+        XCTAssertEqual(converter.forgotten, learning.forgotten, scenario.scenarioID)
+      case .conversionOnlyDraft:
+        // Completion only updates process-local converter state. Keep it
+        // observable so an unexpected callback cannot hide behind its
+        // non-normative contract status.
+        XCTAssertEqual(
+          converter.completed,
+          scenario.scenarioID == "partial-commit" ? 1 : 0,
+          scenario.scenarioID
+        )
+        XCTAssertEqual(converter.updated, 0, scenario.scenarioID)
+        XCTAssertEqual(converter.committed, 0, scenario.scenarioID)
+        XCTAssertEqual(converter.forgotten, 0, scenario.scenarioID)
+        XCTAssertEqual(converter.staged, 0, scenario.scenarioID)
+        XCTAssertEqual(converter.stagedCommitted, 0, scenario.scenarioID)
+        XCTAssertEqual(converter.stagedDiscarded, 0, scenario.scenarioID)
+      }
     }
 
     XCTAssertEqual(observed, required)

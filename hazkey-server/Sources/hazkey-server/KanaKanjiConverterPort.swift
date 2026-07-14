@@ -91,6 +91,15 @@ struct ConverterLearningToken: Hashable, Codable, Sendable {
     let rawValue: String
 }
 
+/// Backend-wide persistence support. Composition policy can further disable
+/// learning, but it cannot enable persistence on a conversion-only backend.
+enum ConverterLearningCapability: String, Codable, Sendable, Equatable {
+    case persistent
+    case conversionOnly
+
+    var persistentLearningAvailable: Bool { self == .persistent }
+}
+
 enum LearningOrigin: String, Codable, Sendable, Equatable {
     case liveConversion
     case directCommit

@@ -5,6 +5,28 @@ import XCTest
 
 @testable import hazkey_server
 
+private final class ProtocolHandlerConversionOnlyCore: MozcCoreConverting {
+  func convert(
+    reading: String,
+    targetKeySize: Int?,
+    maxCandidates: Int
+  ) throws -> MozcCoreConversion {
+    MozcCoreConversion(candidates: [], segmentKeySize: 0)
+  }
+
+  func purgeSensitiveState() {}
+}
+
+private struct ProtocolHandlerSnapshotProvider: GrimodexSnapshotProviding, Sendable {
+  func latest() -> GrimodexPublishedSnapshot {
+    GrimodexPublishedSnapshot(
+      generation: 0,
+      payload: nil,
+      diagnostic: .inactive
+    )
+  }
+}
+
 final class GrimodexProtocolHandlerSessionTests: XCTestCase {
   func testOpenSessionReturnsAnOwnedSessionAndPreservesClientContext() throws {
     let registry = HazkeySessionRegistry()
@@ -35,6 +57,83 @@ final class GrimodexProtocolHandlerSessionTests: XCTestCase {
         secureInput: false
       )
     )
+  }
+
+  func testOpenSessionAdvertisesPersistentLearningBackendCapability() throws {
+    func openResponse(
+      registry: HazkeySessionRegistry,
+      clientFd: Int32,
+      secureInput: Bool = false
+    ) throws -> Hazkey_OpenSessionResult {
+      let response = try process(
+        Hazkey_RequestEnvelope.with {
+          $0.openSession = Hazkey_OpenSession.with {
+            $0.client = Hazkey_ClientContext.with {
+              $0.program = "grimodex"
+              $0.secureInput = secureInput
+            }
+          }
+        },
+        handler: ProtocolHandler(sessionRegistry: registry),
+        clientFd: clientFd
+      )
+      XCTAssertEqual(response.status, .success)
+      return response.openSessionResult
+    }
+
+    let persistent = try openResponse(
+      registry: HazkeySessionRegistry(),
+      clientFd: 30
+    )
+    XCTAssertTrue(persistent.hasPersistentLearningAvailable)
+    XCTAssertTrue(persistent.persistentLearningAvailable)
+
+    let historyDisabledConfig = HazkeyServerConfig()
+    historyDisabledConfig.currentProfile.useInputHistory = false
+    let historyDisabled = try openResponse(
+      registry: HazkeySessionRegistry(serverConfig: historyDisabledConfig),
+      clientFd: 31
+    )
+    XCTAssertTrue(historyDisabled.hasPersistentLearningAvailable)
+    XCTAssertTrue(historyDisabled.persistentLearningAvailable)
+
+    let snapshotProvider = ProtocolHandlerSnapshotProvider()
+    let secureRegistry = HazkeySessionRegistry(
+      revisionProviderFactory: { clientContext in
+        GrimodexSessionRevisionProvider(
+          snapshotProvider: snapshotProvider,
+          scopeMode: .allApplications,
+          clientContext: clientContext
+        )
+      }
+    )
+    let secure = try openResponse(
+      registry: secureRegistry,
+      clientFd: 32,
+      secureInput: true
+    )
+    XCTAssertTrue(secure.hasPersistentLearningAvailable)
+    XCTAssertTrue(secure.persistentLearningAvailable)
+    let secureEnvironment = try XCTUnwrap(
+      secureRegistry.environment(for: secure.sessionID, ownerFd: 32)
+    )
+    XCTAssertTrue(secureEnvironment.grimodexSecureInput)
+    XCTAssertFalse(secureEnvironment.grimodexAllowsLearning)
+
+    let conversionOnlyConfig = HazkeyServerConfig(
+      environment: ["FCITX5_GRIMODEX_CONVERTER": "mozc"]
+    )
+    let conversionOnly = try openResponse(
+      registry: HazkeySessionRegistry(
+        serverConfig: conversionOnlyConfig,
+        mozcCore: ProtocolHandlerConversionOnlyCore()
+      ),
+      clientFd: 33
+    )
+    XCTAssertTrue(conversionOnly.hasPersistentLearningAvailable)
+    XCTAssertFalse(conversionOnly.persistentLearningAvailable)
+
+    XCTAssertFalse(Hazkey_OpenSessionResult().hasPersistentLearningAvailable)
   }
 
   func testLegacyClientKeepsImmediateConversionWhileCurrentClientGetsDelayEffect() throws {

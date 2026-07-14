@@ -205,9 +205,24 @@ struct Hazkey_OpenSessionResult: Sendable {
 
   var idempotentRequestSupport: Bool = false
 
+  /// Backend capability, not the current composition policy. Presence is
+  /// required for current servers: true means persistent history operations
+  /// are supported, false means conversion-only. Absence means a legacy
+  /// server whose learning capability is unknown.
+  var persistentLearningAvailable: Bool {
+    get {return _persistentLearningAvailable ?? false}
+    set {_persistentLearningAvailable = newValue}
+  }
+  /// Returns true if `persistentLearningAvailable` has been explicitly set.
+  var hasPersistentLearningAvailable: Bool {return self._persistentLearningAvailable != nil}
+  /// Clears the value of `persistentLearningAvailable`. Subsequent reads from it will return its default value.
+  mutating func clearPersistentLearningAvailable() {self._persistentLearningAvailable = nil}
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
+
+  fileprivate var _persistentLearningAvailable: Bool? = nil
 }
 
 struct Hazkey_CloseSession: Sendable {
@@ -840,6 +855,7 @@ extension Hazkey_OpenSessionResult: SwiftProtobuf.Message, SwiftProtobuf._Messag
     4: .standard(proto: "max_snapshot_version"),
     5: .standard(proto: "recovery_support"),
     6: .standard(proto: "idempotent_request_support"),
+    7: .standard(proto: "persistent_learning_available"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -854,12 +870,17 @@ extension Hazkey_OpenSessionResult: SwiftProtobuf.Message, SwiftProtobuf._Messag
       case 4: try { try decoder.decodeSingularUInt32Field(value: &self.maxSnapshotVersion) }()
       case 5: try { try decoder.decodeSingularBoolField(value: &self.recoverySupport) }()
       case 6: try { try decoder.decodeSingularBoolField(value: &self.idempotentRequestSupport) }()
+      case 7: try { try decoder.decodeSingularBoolField(value: &self._persistentLearningAvailable) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.sessionID.isEmpty {
       try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 1)
     }
@@ -878,6 +899,9 @@ extension Hazkey_OpenSessionResult: SwiftProtobuf.Message, SwiftProtobuf._Messag
     if self.idempotentRequestSupport != false {
       try visitor.visitSingularBoolField(value: self.idempotentRequestSupport, fieldNumber: 6)
     }
+    try { if let v = self._persistentLearningAvailable {
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 7)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -888,6 +912,7 @@ extension Hazkey_OpenSessionResult: SwiftProtobuf.Message, SwiftProtobuf._Messag
     if lhs.maxSnapshotVersion != rhs.maxSnapshotVersion {return false}
     if lhs.recoverySupport != rhs.recoverySupport {return false}
     if lhs.idempotentRequestSupport != rhs.idempotentRequestSupport {return false}
+    if lhs._persistentLearningAvailable != rhs._persistentLearningAvailable {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

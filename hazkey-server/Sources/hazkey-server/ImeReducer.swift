@@ -325,6 +325,15 @@ final class ImeReducer {
                 result = failure(.staleCandidate, "candidate generation or id is stale")
                 break
             }
+            guard session.policy.allowsLearning else {
+                // Preserve the successful forget wire behavior while making a
+                // conversion-only session incapable of reaching persistent
+                // converter state. Capability-aware clients should hide this
+                // action, but older clients remain safe until they upgrade.
+                session.advanceRevision()
+                result = success()
+                break
+            }
             converter.forget(ConverterCandidate(
                 text: candidate.text,
                 annotation: candidate.annotation,

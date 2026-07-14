@@ -134,6 +134,13 @@ enum HazkeyConverterBackend: Equatable, Sendable {
     case hazkey
     case mozc
 
+    var learningCapability: ConverterLearningCapability {
+        switch self {
+        case .hazkey: return .persistent
+        case .mozc: return .conversionOnly
+        }
+    }
+
     init(environment: [String: String]) {
         // The experimental process backend is exact-match opt-in. Unknown
         // values retain the in-process Hazkey backend.

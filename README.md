@@ -109,7 +109,9 @@ MOZC_ARTIFACT_DIR=/path/to/fcitx5-grimodex-mozc-bundle \
 ```
 
 すでにMozc bundle付きでconfigure済みの場合は、`BUILD_DIR`を指定すればCMake cache内の
-artifact pathを再利用できます。Mozc modeではlearningとZenzaiは無効です。
+artifact pathを再利用できます。Mozc modeではlearningとZenzaiは無効です。serverは
+open-session応答で永続learning capabilityを`false`として明示しますが、履歴依存の設定UIと
+候補forgetの無効表示はdefault切替前の残作業です。
 
 主要なローカル検証:
 

@@ -13,13 +13,13 @@
   大小文字違いはHazkeyのままである。
 - real Swift adapter + fake Mozc coreでlocked 9/9 scenario、26/26 stepsの互換経路を
   通過した。これとは別に、本番のsegmented reducer経路で自然分節、resize、partial commitを
-  統合検証し、fixed B0 actual helperでも自然変換と文節resizeを通過した。公開Protocol v2は
-  変更していない。
+  統合検証し、fixed B0 actual helperでも自然変換と文節resizeを通過した。公開Protocol v2の
+  version/snapshotは変えず、open-sessionにadditiveな永続learning capabilityだけを追加した。
 - fixed Mozc sidecarを同じSwift executable / `candidates()`境界で測ったwarm latencyでも
   Bが明確に優位だった。meanは5.77倍、p95は5.79倍高速だった。実serverの
   Protocol v2 `startConversion`往復でも、単一A→B runではmean 13.90倍、p95 15.12倍の
   差が残った。ただしTop-10は14/15から12/15へ低下し、B1辞書でのblind品質評価、
-  learning parity、実serverへの外部SIGKILL回復が未完のため、default切替の根拠にはしない。
+  中央v2 conversion-only contract、実serverへの外部SIGKILL回復が未完のため、default切替の根拠にはしない。
 - fcitx-mozkeyのfull daily辞書は固定source SHAだけでは再現できない。B1のoffline
   syntax guardは再現できたが、生成辞書を組み込んだ品質測定は未実施である。
 
@@ -37,7 +37,7 @@
 | Protocol v2 `startConversion` mean、各1,500変換 | 16.719 ms | 1.203 ms | 単一A→B runでA/B=13.90。steady-state signal |
 | 同p95 | 38.733 ms | 2.561 ms | A/B=15.12 |
 | 実server endpoint PSS観測最大 | 62,381 KiB | 70,752 KiB | Bは13.4%増。現行product overhead込み |
-| 既存Protocol v2との接続 | native | actual helperで実server 1,500変換を完走 | 公開Protocol v2変更なし。full parityではない |
+| 既存Protocol v2との接続 | native | actual helperで実server 1,500変換を完走 | version変更なし。additive capabilityのみ。full parityではない |
 | 辞書再現性 | repo固定 | clean OSSのみ固定 | full dailyはlock前提 |
 
 ## 最新: 実adapter境界のwarm A/B
@@ -342,7 +342,9 @@ fixed SHAの主要根拠は次の通り。
 外部Protocol v2と`ImeReducer`を唯一のsemantic/session ownerとして維持し、Mozcは
 `ConverterInterface`直結のprivate sidecarに限定した。private Swift↔helper wireは
 [`protocol/mozc_sidecar.proto`](../../../protocol/mozc_sidecar.proto)のlength-prefixed
-protobufであり、公開Protocol v2は変更していない。
+protobufである。公開Protocol v2のversion/snapshotは変更せず、open-session応答にproto3 optional
+`persistent_learning_available`だけを追加した。present falseはconversion-only、absenceは旧serverの
+unknown capabilityであり、現在のsecure/policy状態とは区別する。
 
 - `FCITX5_GRIMODEX_CONVERTER=mozc`との完全一致時だけMozcを選ぶ
 - helper/dataは`FCITX5_GRIMODEX_MOZC_HELPER`と`FCITX5_GRIMODEX_MOZC_DATA`で上書き可能
@@ -418,8 +420,8 @@ transactional rollbackするものではない。
 - `きょうはいしゃにいく`のnatural変換はfirst segment key size 4 / top `今日は`
 - `きょうは`をtarget key size 3へresizeするとsegment key size 3 / top `今日`
 
-strict import、通常release build、全Swift回帰274件（11 optional skip、失敗0）、
-actual bundle指定のfocused 29件、CTest 17件、実stageを使う59件のpackaging contractは
+strict import、通常release build、全Swift回帰276件（11 optional skip、失敗0）、
+actual bundle指定のfocused 29件、CTest 17件、実stage検証を含む65件のpackaging contractは
 成功した。一方、このactual
 bundleが動くことと、前節のclean/no-network builderをゼロから完遂できることは別の証拠であり、
 後者は未証明のままである。
@@ -479,8 +481,10 @@ BUILD_DIR="$PWD/build-grimodex" ./scripts/grimodex-ime_mozc.sh restart
 
 ここでいうS0の9 scenario通過は、現行fixtureをそのまま満たすという意味ではない。現行
 `partial-commit.json`はlearningを`completed=1, updated=1, committed=1, forgotten=0`と
-期待するが、S0 profileは4値すべて0とする。この差は意図的な初期sliceのproduct-contract
-gapであり、visible commit semanticsが同じでもfull parityとは数えない。
+期待する。S0 draftでは実sessionの`allowsLearning=false`を設定し、全stepの
+`pending_learning=false`とpersistent update/commit/forget 0を確認する。`completed`は永続学習ではない
+process-local cache callbackなので非規範とし、partial commitでは実際に1回呼ばれる。中央Grimodexに
+正式v2 profileがまだないため、visible commit semanticsが同じでもv1/v2 conformanceとは数えない。
 
 詳細なboundary、scenario割当、見積りは
 [`mozc-core-adapter.json`](./mozc-core-adapter.json)に記録した。
@@ -490,7 +494,7 @@ gapであり、visible commit semanticsが同じでもfull parityとは数えな
 full rebaseではなく、実装済みのopt-in sliceを比較器として使う。default切替gateの状態は
 次の通り。
 
-1. **完了:** dedicated learning-off profileでfake core + real adapterの互換9/9 scenario、
+1. **互換経路完了:** local draft learning-off profileでfake core + real adapterの互換9/9 scenario、
    26/26 stepsに加え、本番segmented reducerのresize/partial commit統合を通した。ただし
    learningを含むfull parityとは数えない
 2. **部分完了:** actual fixed B0 helperでnatural/resizeを通した。大規模品質評価は未実施
@@ -499,7 +503,9 @@ full rebaseではなく、実装済みのopt-in sliceを比較器として使う
 4. **完了:** helperの通常/partial-frame EOFとtimeout時にrequestを再送せずcompositionを保持し、
    同じrequest IDをcached failureとして返し、fresh requestだけでrespawnする経路を
    実server / Protocol v2で通した
-5. **未完:** 現行partial-commit learning期待値`1/1/1/0`のparityまたは廃止判断
+5. **hazkey準備完了・中央未完:** v1 `1/1/1/0`は不変のまま、実policyをlearning-offにした
+   callback監査、全step pending false、runtime capability、ADR proposalを追加した。正式完了には
+   中央Grimodexのversioned v2 `learning: disabled` profileと、そのSHA lock vendorが必要
 6. **focused levelで完了:** session-scoped project snapshotとlive personal/temporary snapshotを
    generic candidate overlayへ接続し、priority/stable order、NFC first-wins、候補上限、
    natural最長prefix、明示resize優先、project scope/pin、CRUD後の次composition反映、

@@ -814,6 +814,41 @@ final class GrimodexImeReducerTests: XCTestCase {
     XCTAssertFalse(reducer.session.composingText.isEmpty)
   }
 
+  func testForgetCandidateIsSuccessfulNoOpWhenLearningIsDisabled() {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.policy.allowsLearning = false
+    let reducer = ImeReducer(session: session, converter: converter)
+    _ = reducer.reduce(.insertText("かな"), requestID: "insert")
+    let converted = reducer.reduce(.startConversion, requestID: "convert")
+    let candidate = converted.snapshot.candidateWindow.items[0]
+    let forgotten = reducer.reduce(
+      .forgetCandidate(
+        id: candidate.id,
+        generation: converted.snapshot.candidateWindow.generation
+      ),
+      requestID: "forget-disabled"
+    )
+
+    XCTAssertEqual(forgotten.status, .success)
+    XCTAssertEqual(forgotten.snapshot.revision, converted.snapshot.revision + 1)
+    XCTAssertTrue(forgotten.snapshot.effects.isEmpty)
+    XCTAssertFalse(forgotten.snapshot.pendingLearning)
+    XCTAssertEqual(converter.forgotten, 0)
+    XCTAssertFalse(reducer.session.composingText.isEmpty)
+    XCTAssertEqual(
+      reducer.reduce(
+        .forgetCandidate(
+          id: candidate.id,
+          generation: converted.snapshot.candidateWindow.generation
+        ),
+        requestID: "forget-disabled"
+      ),
+      forgotten
+    )
+    XCTAssertEqual(converter.forgotten, 0)
+  }
+
   func testPredictionsStayInComposingUntilExplicitlySelected() {
     let converter = ReducerFixtureConverter()
     converter.predictionCandidates = [

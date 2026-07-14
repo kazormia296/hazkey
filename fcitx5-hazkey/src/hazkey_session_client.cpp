@@ -97,6 +97,10 @@ bool HazkeySessionClient::open(HazkeyClientSession& session, bool tryConnect) {
     session.capabilities_.recoverySupport = result.recovery_support();
     session.capabilities_.idempotentRequestSupport =
         result.idempotent_request_support();
+    session.capabilities_.persistentLearningAvailable =
+        result.has_persistent_learning_available()
+            ? std::optional<bool>(result.persistent_learning_available())
+            : std::nullopt;
     session.revision_ = 0;
     return true;
 }

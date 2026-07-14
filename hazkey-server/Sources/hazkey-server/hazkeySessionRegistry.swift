@@ -141,6 +141,10 @@ final class HazkeySessionRegistry {
         return sessions.count
     }
 
+    var learningCapability: ConverterLearningCapability {
+        serverConfig.converterBackend.learningCapability
+    }
+
     init(
         serverConfig: HazkeyServerConfig = HazkeyServerConfig(),
         revisionProviderFactory: @escaping RevisionProviderFactory = {
@@ -253,6 +257,8 @@ final class HazkeySessionRegistry {
             ? environment.grimodexLiveConversionDelayMilliseconds
             : 0
         let usesMozc = serverConfig.converterBackend == .mozc
+        let persistentLearningAvailable =
+            learningCapability.persistentLearningAvailable
         let semanticSession = CompositionSession(
             sessionID: sessionID,
             context: SessionContext(
@@ -261,9 +267,8 @@ final class HazkeySessionRegistry {
                 projectRevision: appliedRevision?.generation ?? 0
             ),
             policy: PinnedCompositionPolicy(
-                allowsLearning: usesMozc
-                    ? false
-                    : environment.grimodexAllowsLearning,
+                allowsLearning: persistentLearningAvailable
+                    && environment.grimodexAllowsLearning,
                 secureInput: environment.grimodexSecureInput,
                 zenzaiEnabled: usesMozc
                     ? false
@@ -348,9 +353,8 @@ final class HazkeySessionRegistry {
                 environment.refreshGrimodexIntegration()
                 let revision = environment.grimodexAppliedRevision
                 return PinnedCompositionPolicy(
-                    allowsLearning: usesMozc
-                        ? false
-                        : environment.grimodexAllowsLearning,
+                    allowsLearning: persistentLearningAvailable
+                        && environment.grimodexAllowsLearning,
                     secureInput: environment.grimodexSecureInput,
                     zenzaiEnabled: usesMozc
                         ? false

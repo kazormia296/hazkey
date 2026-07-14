@@ -11,6 +11,22 @@ with the shared deterministic fake converter. Every step compares status,
 revision, phase, all preedit spans, UTF-8 caret, candidate IDs/generation,
 effects, and final learning call totals.
 
+That exact assertion is the persistent-learning v1 claim. The experimental
+Mozc adapter does not claim v1 conformance: its separately named compatibility
+test replays the same visible/session traces with an explicit
+`allowsLearning=false` policy, records the real converter callbacks, requires
+all steps to publish `pendingLearning=false`, and requires persistent learning
+callbacks to remain zero. `setCompletedData` is observed but non-normative
+because it is a process-local completion cache.
+
+The proposed profile and migration rules are recorded in
+[`adr-002-mozc-conversion-only-learning-profile.md`](./adr-002-mozc-conversion-only-learning-profile.md).
+Formal v2 conformance remains blocked until the central Grimodex contract owns
+the new schema/profile and Linux vendors its SHA-256-locked copy. The additive
+open-session `persistent_learning_available` field exposes current runtime
+backend capability without bumping Protocol v2 or snapshot versions; absence
+means a legacy server with unknown capability.
+
 Platform-specific layers are tested separately while retaining the shared
 scenario IDs:
 
@@ -27,6 +43,8 @@ scenario IDs:
 
 Protocol v2 is the only composition protocol. The retired procedural v1 field
 numbers remain reserved in `base.proto` and are not accepted or generated.
-Rollback means reinstalling the previous package as one coherent client/server
-pair; mixed protocol binaries fail capability negotiation instead of falling
-back silently.
+Rollback across that retired procedural-v1/current-v2 boundary means
+reinstalling the previous package as one coherent client/server pair; those
+mixed binaries fail capability negotiation instead of falling back silently.
+The optional learning-capability field is intentionally different: old clients
+ignore it, and updated clients accept an old server's absence as unknown.

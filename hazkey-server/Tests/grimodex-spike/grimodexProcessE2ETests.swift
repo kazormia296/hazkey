@@ -148,6 +148,8 @@ final class GrimodexProcessE2ETests: XCTestCase {
     XCTAssertEqual(open.protocolVersion, 2)
     XCTAssertTrue(open.idempotentRequestSupport)
     XCTAssertTrue(open.recoverySupport)
+    XCTAssertTrue(open.hasPersistentLearningAvailable)
+    XCTAssertTrue(open.persistentLearningAvailable)
 
     let inserted = try client.transactV2(
       sessionID: open.sessionID,

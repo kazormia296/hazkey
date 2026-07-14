@@ -583,7 +583,7 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     XCTAssertEqual(core.requests.count, 1)
   }
 
-  func testRegistryPinsMozcLearningAndZenzaiOff() throws {
+  func testRegistryPinsMozcConversionOnlyProfileAcrossCommitAndResolve() throws {
     let config = HazkeyServerConfig(
       zenzaiBackendDevicesProvider: { [] },
       environment: ["FCITX5_GRIMODEX_CONVERTER": "mozc"]
@@ -593,6 +593,7 @@ final class GrimodexMozcSidecarTests: XCTestCase {
       serverConfig: config,
       mozcCore: core
     )
+    XCTAssertEqual(registry.learningCapability, .conversionOnly)
     let sessionID = registry.open(
       clientContext: GrimodexClientContext(
         program: "grimodex",
@@ -613,6 +614,7 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     let policy = try XCTUnwrap(inserted.snapshot.recovery?.policy)
     XCTAssertFalse(policy.allowsLearning)
     XCTAssertFalse(policy.zenzaiEnabled)
+    XCTAssertFalse(inserted.snapshot.pendingLearning)
     XCTAssertTrue(core.requests.isEmpty, "B0 predictions must remain local/no-op")
 
     let converted = controller.handle(ImeV2Request(
@@ -621,6 +623,7 @@ final class GrimodexMozcSidecarTests: XCTestCase {
       action: .startConversion
     ))
     XCTAssertEqual(converted.status, .success)
+    XCTAssertFalse(converted.snapshot.pendingLearning)
     let committed = controller.handle(ImeV2Request(
       requestID: "commit",
       expectedRevision: converted.snapshot.revision,
@@ -628,6 +631,20 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     ))
     XCTAssertEqual(committed.status, .success)
     XCTAssertFalse(committed.snapshot.pendingLearning)
+    XCTAssertEqual(core.requests.count, 1)
+    let resolved = controller.handle(ImeV2Request(
+      requestID: "resolve-noop",
+      expectedRevision: committed.snapshot.revision,
+      action: .resolvePendingLearning(commit: true)
+    ))
+    XCTAssertEqual(resolved.status, .success)
+    XCTAssertFalse(resolved.snapshot.pendingLearning)
+    let replayed = controller.handle(ImeV2Request(
+      requestID: "resolve-noop",
+      expectedRevision: committed.snapshot.revision,
+      action: .resolvePendingLearning(commit: true)
+    ))
+    XCTAssertEqual(replayed, resolved)
     XCTAssertEqual(core.requests.count, 1)
     XCTAssertEqual(
       registry.zenzaiRuntimeDiagnostics().status,
@@ -638,6 +655,17 @@ final class GrimodexMozcSidecarTests: XCTestCase {
       registry.zenzaiRuntimeDiagnostics().status,
       .policyDisabled
     )
+    let nextInserted = controller.handle(ImeV2Request(
+      requestID: "insert-after-reinitialize",
+      expectedRevision: resolved.snapshot.revision,
+      action: .insertText("つぎ")
+    ))
+    XCTAssertEqual(nextInserted.status, .success)
+    let nextPolicy = try XCTUnwrap(nextInserted.snapshot.recovery?.policy)
+    XCTAssertFalse(nextPolicy.allowsLearning)
+    XCTAssertFalse(nextPolicy.zenzaiEnabled)
+    XCTAssertFalse(nextInserted.snapshot.pendingLearning)
+    XCTAssertEqual(core.requests.count, 1)
   }
 
   func testProtocolV2RealServerOverlaysScopedProjectAndLivePersonalDictionary() throws {
@@ -676,7 +704,10 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     let client = try GrimodexProcessClient.connect(to: server.socketURL)
     defer { client.close() }
 
-    let grimodexSession = try client.openSession(program: "grimodex")
+    let grimodexOpen = try client.openSessionInfo(program: "grimodex")
+    XCTAssertTrue(grimodexOpen.hasPersistentLearningAvailable)
+    XCTAssertFalse(grimodexOpen.persistentLearningAvailable)
+    let grimodexSession = grimodexOpen.sessionID
     XCTAssertEqual(
       try client.convertDirect("せつな", sessionID: grimodexSession).first,
       "Mozc工程A"

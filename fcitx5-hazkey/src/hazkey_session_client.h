@@ -32,6 +32,7 @@ struct HazkeyProtocolCapabilities {
     uint32_t maxSnapshotVersion = 0;
     bool recoverySupport = false;
     bool idempotentRequestSupport = false;
+    std::optional<bool> persistentLearningAvailable;
 
     bool supportsV2() const {
         return protocolVersion >= 2 && idempotentRequestSupport;

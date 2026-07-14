@@ -29,6 +29,11 @@ message OpenSessionResult {
     uint32 max_snapshot_version = 4;
     bool recovery_support = 5;
     bool idempotent_request_support = 6;
+    // Backend capability, not the current composition policy. Presence is
+    // required for current servers: true means persistent history operations
+    // are supported, false means conversion-only. Absence means a legacy
+    // server whose learning capability is unknown.
+    optional bool persistent_learning_available = 7;
 }
 
 message CloseSession {
