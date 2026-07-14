@@ -1,0 +1,286 @@
+{
+    "schema": "hazkey.process-backend-pair-benchmark.v1",
+    "manifest": {
+        "schema": "hazkey.process-backend-pair-manifest.v1",
+        "path": "/home/grimodex/GrimodexIntegratedIME/hazkey/docs/spikes/fcitx-mozkey-followup-2026-07-14/process-benchmark.manifest.json",
+        "fingerprint": "sha256:286e5e835f18b96d2e59b2bbc2b0eada4e41731b477cdaf6c4e98652d9378696"
+    },
+    "cycles": 5,
+    "ordering": "odd cycles AB; even cycles BA",
+    "raw_execution_order": [
+        {
+            "sequence": 1,
+            "cycle": 1,
+            "position": 1,
+            "backend": "a",
+            "backend_name": "hazkey-ab-probe",
+            "started_monotonic_ns": 229501447612901,
+            "ended_monotonic_ns": 229506647106218,
+            "wall_time_ms": 5199.493317,
+            "maximum_rss_kib": 51352,
+            "exit_code": 0
+        },
+        {
+            "sequence": 2,
+            "cycle": 1,
+            "position": 2,
+            "backend": "b",
+            "backend_name": "fcitx-mozkey-quality-regression",
+            "started_monotonic_ns": 229506647762531,
+            "ended_monotonic_ns": 229507486302535,
+            "wall_time_ms": 838.540004,
+            "maximum_rss_kib": 30348,
+            "exit_code": 0
+        },
+        {
+            "sequence": 3,
+            "cycle": 2,
+            "position": 1,
+            "backend": "b",
+            "backend_name": "fcitx-mozkey-quality-regression",
+            "started_monotonic_ns": 229507487036136,
+            "ended_monotonic_ns": 229508285163020,
+            "wall_time_ms": 798.126884,
+            "maximum_rss_kib": 30200,
+            "exit_code": 0
+        },
+        {
+            "sequence": 4,
+            "cycle": 2,
+            "position": 2,
+            "backend": "a",
+            "backend_name": "hazkey-ab-probe",
+            "started_monotonic_ns": 229508285754385,
+            "ended_monotonic_ns": 229513560890569,
+            "wall_time_ms": 5275.136184,
+            "maximum_rss_kib": 51180,
+            "exit_code": 0
+        },
+        {
+            "sequence": 5,
+            "cycle": 3,
+            "position": 1,
+            "backend": "a",
+            "backend_name": "hazkey-ab-probe",
+            "started_monotonic_ns": 229513561546432,
+            "ended_monotonic_ns": 229518854158785,
+            "wall_time_ms": 5292.612353,
+            "maximum_rss_kib": 51080,
+            "exit_code": 0
+        },
+        {
+            "sequence": 6,
+            "cycle": 3,
+            "position": 2,
+            "backend": "b",
+            "backend_name": "fcitx-mozkey-quality-regression",
+            "started_monotonic_ns": 229518854604314,
+            "ended_monotonic_ns": 229519713157893,
+            "wall_time_ms": 858.553579,
+            "maximum_rss_kib": 30148,
+            "exit_code": 0
+        },
+        {
+            "sequence": 7,
+            "cycle": 4,
+            "position": 1,
+            "backend": "b",
+            "backend_name": "fcitx-mozkey-quality-regression",
+            "started_monotonic_ns": 229519713630501,
+            "ended_monotonic_ns": 229520531144414,
+            "wall_time_ms": 817.513913,
+            "maximum_rss_kib": 30448,
+            "exit_code": 0
+        },
+        {
+            "sequence": 8,
+            "cycle": 4,
+            "position": 2,
+            "backend": "a",
+            "backend_name": "hazkey-ab-probe",
+            "started_monotonic_ns": 229520531528974,
+            "ended_monotonic_ns": 229525719260546,
+            "wall_time_ms": 5187.731572,
+            "maximum_rss_kib": 51068,
+            "exit_code": 0
+        },
+        {
+            "sequence": 9,
+            "cycle": 5,
+            "position": 1,
+            "backend": "a",
+            "backend_name": "hazkey-ab-probe",
+            "started_monotonic_ns": 229525719653877,
+            "ended_monotonic_ns": 229530947830307,
+            "wall_time_ms": 5228.17643,
+            "maximum_rss_kib": 51140,
+            "exit_code": 0
+        },
+        {
+            "sequence": 10,
+            "cycle": 5,
+            "position": 2,
+            "backend": "b",
+            "backend_name": "fcitx-mozkey-quality-regression",
+            "started_monotonic_ns": 229530948514459,
+            "ended_monotonic_ns": 229531787896628,
+            "wall_time_ms": 839.382169,
+            "maximum_rss_kib": 30316,
+            "exit_code": 0
+        }
+    ],
+    "backends": {
+        "a": {
+            "backend_name": "hazkey-ab-probe",
+            "command_fingerprint": "sha256:0adfc7668c053f8dfab8d3850447668f64923852256457c64873e45279800c0f",
+            "execution_fingerprint": "sha256:5d97b0029c063472e59dca3b3a12c5daca857f3c1eb9bd836bfc2c1b059e819d",
+            "process": {
+                "argv": [
+                    "/usr/bin/taskset",
+                    "-c",
+                    "8-11",
+                    "/home/grimodex/GrimodexIntegratedIME/hazkey/build-grimodex/hazkey-server/swift-build/release/hazkey-server",
+                    "--ab-probe",
+                    "--corpus",
+                    "/home/grimodex/GrimodexIntegratedIME/hazkey/hazkey-server/Tests/grimodex-spike/Fixtures/ime-base-ab-v1/conversion-quality-v1.tsv",
+                    "--dictionary",
+                    "/home/grimodex/GrimodexIntegratedIME/hazkey/hazkey-server/azooKey_dictionary_storage/Dictionary",
+                    "--source-ref",
+                    "fc11156bfac57850c7edc7e5b197b50f4cd9970d",
+                    "--warmups",
+                    "0",
+                    "--iterations",
+                    "100",
+                    "--top-k",
+                    "1"
+                ],
+                "resolved_executable": "/usr/bin/taskset",
+                "cwd": "/home/grimodex/GrimodexIntegratedIME/hazkey",
+                "environment": {
+                    "mode": "inherit-with-overrides",
+                    "override_keys": [
+                        "GGML_BACKEND_DIR",
+                        "LD_LIBRARY_PATH"
+                    ],
+                    "effective_fingerprint": "sha256:1d4ca4c1a4f3fa8c2cab0d321151705df81bea892a018815fd8a9a6451fab48e"
+                },
+                "stdin": {
+                    "mode": "discard"
+                },
+                "stdout": {
+                    "mode": "discard"
+                },
+                "stderr": {
+                    "mode": "discard"
+                },
+                "clock": "time.monotonic_ns",
+                "rss_source": "os.wait4(pid, os.WNOHANG).rusage.ru_maxrss",
+                "rss_unit": "KiB",
+                "platform": "linux",
+                "timeout_seconds": 30.0
+            },
+            "expected_exit_code": 0,
+            "timeout_seconds": 30.0,
+            "runs": 5,
+            "wall_time_ms": {
+                "mean": 5236.6299712,
+                "median": 5228.17643,
+                "p95": 5292.612353,
+                "minimum": 5187.731572,
+                "maximum": 5292.612353
+            },
+            "maximum_rss_kib": 51352
+        },
+        "b": {
+            "backend_name": "fcitx-mozkey-quality-regression",
+            "command_fingerprint": "sha256:3d14b8c637727457a7c2e4acf474d6cab1d9aa9df3c7f42158a085eafeb26dd2",
+            "execution_fingerprint": "sha256:f61c045831e9b04d9ac6a3e99378fc164a2525245ea781a92b85c9cc0a3a490c",
+            "process": {
+                "argv": [
+                    "/usr/bin/taskset",
+                    "-c",
+                    "8-11",
+                    "/tmp/fcitx-mozkey-audit/src/bazel-bin/converter/quality_regression_main",
+                    "--data_file=/tmp/fcitx-mozkey-audit/src/bazel-bin/data_manager/oss/mozc.data",
+                    "--data_type=oss",
+                    "--test_files=/tmp/fcitx-mozkey-quality-100-v2.tsv"
+                ],
+                "resolved_executable": "/usr/bin/taskset",
+                "cwd": "/tmp/fcitx-mozkey-audit/src",
+                "environment": {
+                    "mode": "inherit-with-overrides",
+                    "override_keys": [
+                        "HOME"
+                    ],
+                    "effective_fingerprint": "sha256:ed1e195ef43f2aae9673952ab4295579f8844f3c34ed2539237b95d50237eea8"
+                },
+                "stdin": {
+                    "mode": "discard"
+                },
+                "stdout": {
+                    "mode": "discard"
+                },
+                "stderr": {
+                    "mode": "discard"
+                },
+                "clock": "time.monotonic_ns",
+                "rss_source": "os.wait4(pid, os.WNOHANG).rusage.ru_maxrss",
+                "rss_unit": "KiB",
+                "platform": "linux",
+                "timeout_seconds": 30.0
+            },
+            "expected_exit_code": 0,
+            "timeout_seconds": 30.0,
+            "runs": 5,
+            "wall_time_ms": {
+                "mean": 830.4233098000001,
+                "median": 838.540004,
+                "p95": 858.553579,
+                "minimum": 798.126884,
+                "maximum": 858.553579
+            },
+            "maximum_rss_kib": 30448
+        }
+    },
+    "paired_wall_ratio": {
+        "definition": "a.wall_time_ms / b.wall_time_ms within each cycle",
+        "samples": [
+            {
+                "cycle": 1,
+                "a_wall_time_ms": 5199.493317,
+                "b_wall_time_ms": 838.540004,
+                "a_over_b": 6.200650287639706
+            },
+            {
+                "cycle": 2,
+                "a_wall_time_ms": 5275.136184,
+                "b_wall_time_ms": 798.126884,
+                "a_over_b": 6.609395435425528
+            },
+            {
+                "cycle": 3,
+                "a_wall_time_ms": 5292.612353,
+                "b_wall_time_ms": 858.553579,
+                "a_over_b": 6.16456850504842
+            },
+            {
+                "cycle": 4,
+                "a_wall_time_ms": 5187.731572,
+                "b_wall_time_ms": 817.513913,
+                "a_over_b": 6.345741019822864
+            },
+            {
+                "cycle": 5,
+                "a_wall_time_ms": 5228.17643,
+                "b_wall_time_ms": 839.382169,
+                "a_over_b": 6.228600776960275
+            }
+        ],
+        "mean": 6.3097912049793585,
+        "median": 6.228600776960275,
+        "p95": 6.609395435425528,
+        "minimum": 6.16456850504842,
+        "maximum": 6.609395435425528,
+        "ratio_of_means": 6.305976613856365
+    }
+}

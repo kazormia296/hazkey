@@ -1,0 +1,50 @@
+{
+  "schema": "hazkey.process-backend-pair-manifest.v1",
+  "a": {
+    "backend_name": "hazkey-ab-probe",
+    "argv": [
+      "/usr/bin/taskset",
+      "-c",
+      "8-11",
+      "/home/grimodex/GrimodexIntegratedIME/hazkey/build-grimodex/hazkey-server/swift-build/release/hazkey-server",
+      "--ab-probe",
+      "--corpus",
+      "/home/grimodex/GrimodexIntegratedIME/hazkey/hazkey-server/Tests/grimodex-spike/Fixtures/ime-base-ab-v1/conversion-quality-v1.tsv",
+      "--dictionary",
+      "/home/grimodex/GrimodexIntegratedIME/hazkey/hazkey-server/azooKey_dictionary_storage/Dictionary",
+      "--source-ref",
+      "fc11156bfac57850c7edc7e5b197b50f4cd9970d",
+      "--warmups",
+      "0",
+      "--iterations",
+      "100",
+      "--top-k",
+      "1"
+    ],
+    "cwd": "/home/grimodex/GrimodexIntegratedIME/hazkey",
+    "environment_overrides": {
+      "LD_LIBRARY_PATH": "/home/grimodex/GrimodexIntegratedIME/hazkey/build-grimodex/bin",
+      "GGML_BACKEND_DIR": "/home/grimodex/GrimodexIntegratedIME/hazkey/build-grimodex/bin"
+    },
+    "expected_exit_code": 0,
+    "timeout_seconds": 30
+  },
+  "b": {
+    "backend_name": "fcitx-mozkey-quality-regression",
+    "argv": [
+      "/usr/bin/taskset",
+      "-c",
+      "8-11",
+      "/tmp/fcitx-mozkey-audit/src/bazel-bin/converter/quality_regression_main",
+      "--data_file=/tmp/fcitx-mozkey-audit/src/bazel-bin/data_manager/oss/mozc.data",
+      "--data_type=oss",
+      "--test_files=/tmp/fcitx-mozkey-quality-100-v2.tsv"
+    ],
+    "cwd": "/tmp/fcitx-mozkey-audit/src",
+    "environment_overrides": {
+      "HOME": "/tmp/mozkey-home"
+    },
+    "expected_exit_code": 0,
+    "timeout_seconds": 30
+  }
+}

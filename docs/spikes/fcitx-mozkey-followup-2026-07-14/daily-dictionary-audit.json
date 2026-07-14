@@ -1,0 +1,94 @@
+{
+  "schema": "grimodex.fcitx-mozkey-daily-dictionary-audit.v1",
+  "audited_at": "2026-07-14",
+  "source_ref": "462cbbf04886e32096bc318833e974ccc43d9fc8",
+  "verdict": {
+    "fixed_source_ref_is_sufficient": false,
+    "clean_checkout_profile": "Mozc OSS dictionary only",
+    "reason": "The daily inputs follow mutable upstream branches without input checksums or an output manifest. Missing generated files are accepted by the Bazel target."
+  },
+  "inputs": [
+    {
+      "name": "merge-ut-dictionaries",
+      "fetch": "git clone --depth 1 followed by branch pull",
+      "immutable_ref": false,
+      "checksum_status": "missing"
+    },
+    {
+      "name": "dic-nico-intersection-pixiv",
+      "fetch": "raw GitHub master URL",
+      "immutable_ref": false,
+      "checksum_status": "missing"
+    },
+    {
+      "name": "mozcdic-ut-personal-names",
+      "fetch": "raw GitHub main URL",
+      "immutable_ref": false,
+      "checksum_status": "missing"
+    },
+    {
+      "name": "koyasi-syntax-guard",
+      "fetch": "generated from the fixed checkout and Mozc OSS dictionary",
+      "immutable_ref": true,
+      "checksum_status": "observed output hash recorded; rebuilt mozc.data not verified"
+    }
+  ],
+  "offline_syntax_guard": {
+    "generated_twice_identically": true,
+    "entries": 537,
+    "dictionary_sha256": "1d29b99c8b4bff45239e6ae2c5b97e43356fe0740a96c758f1020a32a28007fd",
+    "debug_tsv_sha256": "4b1dcfb111404e71fac322e6f0183dd2e49b868e7b7b413666faf238a6f8fa8b",
+    "confirmed_entries": [
+      {
+        "reading": "はだみはなさ",
+        "surface": "肌身離さ"
+      },
+      {
+        "reading": "はだみはなさず",
+        "surface": "肌身離さず"
+      }
+    ],
+    "quality_measurement": "not run: compiling the generated guard into mozc.data requires executing third-party Bazel build logic outside the restricted sandbox"
+  },
+  "comparison_variants": [
+    {
+      "id": "B0",
+      "dictionary": "clean Mozc OSS",
+      "status": "measured",
+      "reproducible": true
+    },
+    {
+      "id": "B1",
+      "dictionary": "Mozc OSS plus offline syntax guard",
+      "status": "guard-generated-build-unmeasured",
+      "reproducible": false,
+      "reproducible_part": "the generated guard text only"
+    },
+    {
+      "id": "B2",
+      "dictionary": "full daily dictionary",
+      "status": "blocked-on-locked-snapshot-and-license-review",
+      "reproducible": false
+    }
+  ],
+  "required_lock": {
+    "schema": "mozkey.daily-dictionary-lock.v1",
+    "must_pin": [
+      "fcitx-mozkey source commit",
+      "immutable URL or commit and SHA-256 for every direct input",
+      "transitive merge-ut input lock",
+      "runner image and generator toolchain versions",
+      "generation parameters",
+      "every generated file hash, line count, and byte count",
+      "final mozc.data hash",
+      "bundled notice hashes"
+    ],
+    "release_behavior": "fail closed on a missing or mismatched generated input; do not use allow_empty for the daily release profile"
+  },
+  "license_gates": [
+    "Resolve redistribution terms for each merge-ut component rather than relying on the aggregate Combined label.",
+    "Review the web-derived nico/pixiv data separately from its MIT-licensed importer code.",
+    "Carry the Apache-2.0 attribution and any required notice for personal-name data.",
+    "Bundle dictionary-specific notices in the shipped package."
+  ]
+}

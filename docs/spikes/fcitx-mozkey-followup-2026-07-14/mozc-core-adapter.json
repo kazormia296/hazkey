@@ -1,0 +1,95 @@
+{
+  "schema": "grimodex.mozc-core-adapter-feasibility.v1",
+  "spiked_at": "2026-07-14",
+  "source_ref": "462cbbf04886e32096bc318833e974ccc43d9fc8",
+  "workspace_modified_by_smoke": false,
+  "smoke": {
+    "temporary_build_files": {
+      "build_loc": 20,
+      "cpp_loc": 81,
+      "build_sha256": "88dd4e6de1990d26ef1d561ef11ee2452ba521509f99f81f8bb923cf89ed3c55",
+      "cpp_sha256": "be1e2720fffd32c5ea3e5308f422e2a89a252b9a0ffb7ae52ed1e3d201862e88",
+      "saved_under": "docs/spikes/fcitx-mozkey-followup-2026-07-14/mozc-core-adapter-smoke"
+    },
+    "build": {
+      "bazel": "9.0.2",
+      "configs": [
+        "release_build",
+        "oss_linux"
+      ],
+      "actions": 998,
+      "elapsed_seconds": 204
+    },
+    "observed": [
+      "CreateEvalEngine succeeded",
+      "StartConversion returned three segments for きょうは",
+      "the first segment key/value was きょうは/今日は",
+      "ResizeSegment(+1) succeeded",
+      "CommitSegments API succeeded",
+      "CancelConversion succeeded",
+      "learning was disabled"
+    ],
+    "helper_bytes": 5658528,
+    "session_handler_bytes": 30837784,
+    "mozc_data": {
+      "bytes": 18887468,
+      "sha256": "b9884362e37772f772a0d28d1e12622455c14353497b3435deed60aa7e592c5e"
+    }
+  },
+  "recommended_boundary": {
+    "core": "Mozc ConverterInterface in a long-lived private sidecar",
+    "session_owner": "Hazkey ImeReducer and external Protocol v2",
+    "transport": "private length-prefixed protobuf between Swift and the sidecar",
+    "swift_port": "KanaKanjiConverting",
+    "rejected_boundary": "Mozc SessionHandler, because it would duplicate session, composer, keymap, watchdog, and commit state"
+  },
+  "safety_profile": {
+    "learning": "enable_user_history_for_conversion=false and incognito_mode=true; no FinishConversion, sync, or history mutation in S0. This intentionally does not satisfy the current partial-commit learning counters.",
+    "secure_input": "do not send reading or context to the sidecar; purge local maps and helper buffers",
+    "failure": "on helper crash or EOF, retain the reading, report converterUnavailable, and respawn on the next request",
+    "stale_candidates": "the existing reducer generation/revision guards reject them before a core call"
+  },
+  "learning_parity": {
+    "existing_partial_commit_expected_learning": {
+      "completed": 1,
+      "updated": 1,
+      "committed": 1,
+      "forgotten": 0
+    },
+    "s0_learning_off_expectation": {
+      "completed": 0,
+      "updated": 0,
+      "committed": 0,
+      "forgotten": 0
+    },
+    "status": "intentional S0 product-contract gap; restore the existing counters or obtain an explicit product decision before default switching"
+  },
+  "protocol_v2_scenarios": {
+    "evidence_level": "design responsibility mapping only; none of the nine end-to-end scenarios was executed with the Mozc core",
+    "composing-basic": "adapter and reducer",
+    "cursor-editing": "Swift EGC surface mapper",
+    "escape-backspace": "discard local Mozc Segments",
+    "partial-commit": "exactly-once reducer effect, remove prefix, then reconvert; learning is intentionally off in S0",
+    "secure-input": "secure no-call and purge",
+    "segment-editing": "native segments and ResizeSegment",
+    "server-failure": "sidecar supervision with reducer-owned composition",
+    "stale-candidate": "existing reducer generation guard",
+    "unicode-caret": "caret remains Swift-owned"
+  },
+  "external_protocol_v2_extension": {
+    "expected_required": false,
+    "verified": false
+  },
+  "estimate": {
+    "files": "8-10",
+    "handwritten_loc": "750-1050",
+    "product_parity_additional_loc": "400-700"
+  },
+  "shortest_slice": [
+    "Pin the upstream source and add helper convert, convertFirstSegment, and purge operations with learning hard-off.",
+    "Add Swift transport and select it only with FCITX5_GRIMODEX_CONVERTER=mozc; retain Hazkey as the default.",
+    "Reuse the surface mapper, enforce secure no-call, and respawn after helper failure.",
+    "Run the nine visible/session semantic scenarios against a fake core with a dedicated learning-off expectation; do not count this as full product parity.",
+    "Add the generic project/personal dictionary overlay and repeat the paired process benchmark before considering a default switch."
+  ]
+}

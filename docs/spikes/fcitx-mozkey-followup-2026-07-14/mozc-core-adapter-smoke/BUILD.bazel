@@ -1,0 +1,20 @@
+load("//:build_defs.bzl", "mozc_cc_binary")
+
+package(default_visibility = ["//visibility:private"])
+
+mozc_cc_binary(
+    name = "converter_adapter_smoke",
+    testonly = 1,
+    srcs = ["converter_adapter_smoke.cc"],
+    deps = [
+        "//base/file:temp_dir",
+        "//base:init_mozc",
+        "//base:system_util",
+        "//converter:converter_interface",
+        "//converter:segments",
+        "//engine:eval_engine_factory",
+        "//request:conversion_request",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)
