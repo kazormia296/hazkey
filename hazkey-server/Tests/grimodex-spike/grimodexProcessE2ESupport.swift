@@ -109,11 +109,43 @@ final class GrimodexProcessSnapshotFixture {
   }
 }
 
+enum GrimodexProcessConverterConfiguration {
+  case hazkey
+  case mozc(helperURL: URL, dataURL: URL)
+
+  func apply(to environment: inout [String: String]) throws {
+    environment.removeValue(forKey: "FCITX5_GRIMODEX_CONVERTER")
+    environment.removeValue(forKey: "FCITX5_GRIMODEX_MOZC_HELPER")
+    environment.removeValue(forKey: "FCITX5_GRIMODEX_MOZC_DATA")
+
+    switch self {
+    case .hazkey:
+      return
+    case .mozc(let helperURL, let dataURL):
+      guard FileManager.default.isExecutableFile(atPath: helperURL.path) else {
+        throw GrimodexProcessE2EError.invalidResponse(
+          "Mozc process E2E helper is not executable: \(helperURL.path)"
+        )
+      }
+      guard FileManager.default.isReadableFile(atPath: dataURL.path) else {
+        throw GrimodexProcessE2EError.invalidResponse(
+          "Mozc process E2E data is not readable: \(dataURL.path)"
+        )
+      }
+      environment["FCITX5_GRIMODEX_CONVERTER"] = "mozc"
+      environment["FCITX5_GRIMODEX_MOZC_HELPER"] = helperURL.path
+      environment["FCITX5_GRIMODEX_MOZC_DATA"] = dataURL.path
+    }
+  }
+}
+
 final class GrimodexProcessHarness {
   let socketURL: URL
 
   private let executableURL: URL
   private let grimodexRootURL: URL
+  private let converterConfiguration: GrimodexProcessConverterConfiguration
+  private let dictionaryURL: URL?
   private let sandboxURL: URL
   private let logURL: URL
   private let process = Process()
@@ -121,10 +153,18 @@ final class GrimodexProcessHarness {
   private var logHandle: FileHandle?
 
   var isRunning: Bool { launched && process.isRunning }
+  var processIdentifier: Int32? { launched ? process.processIdentifier : nil }
 
-  init(executableURL: URL, grimodexRootURL: URL) {
+  init(
+    executableURL: URL,
+    grimodexRootURL: URL,
+    converterConfiguration: GrimodexProcessConverterConfiguration = .hazkey,
+    dictionaryURL: URL? = nil
+  ) {
     self.executableURL = executableURL
     self.grimodexRootURL = grimodexRootURL
+    self.converterConfiguration = converterConfiguration
+    self.dictionaryURL = dictionaryURL
     sandboxURL = FileManager.default.temporaryDirectory.appendingPathComponent(
       "grimodex-process-server-\(UUID().uuidString)",
       isDirectory: true
@@ -154,11 +194,9 @@ final class GrimodexProcessHarness {
 
     var environment = ProcessInfo.processInfo.environment
     // Product E2E remains a Hazkey-default gate even when a developer's shell
-    // opts into the Mozc comparison backend. Mozc process behavior has a
-    // dedicated hermetic fixture suite.
-    environment.removeValue(forKey: "FCITX5_GRIMODEX_CONVERTER")
-    environment.removeValue(forKey: "FCITX5_GRIMODEX_MOZC_HELPER")
-    environment.removeValue(forKey: "FCITX5_GRIMODEX_MOZC_DATA")
+    // opts into the Mozc comparison backend. Individual opt-in process tests
+    // must supply an explicit Mozc configuration.
+    try converterConfiguration.apply(to: &environment)
     environment["HOME"] = homeURL.path
     environment["GRIMODEX_IME_ROOT"] = grimodexRootURL.path
     environment["XDG_RUNTIME_DIR"] = runtimeURL.path
@@ -166,7 +204,19 @@ final class GrimodexProcessHarness {
     environment["XDG_DATA_HOME"] = sandboxURL.appendingPathComponent("data").path
     environment["XDG_STATE_HOME"] = sandboxURL.appendingPathComponent("state").path
     environment["XDG_CACHE_HOME"] = sandboxURL.appendingPathComponent("cache").path
-    if environment["FCITX5_GRIMODEX_DICTIONARY"] == nil {
+    if let dictionaryURL {
+      var isDirectory: ObjCBool = false
+      guard fileManager.fileExists(
+        atPath: dictionaryURL.path,
+        isDirectory: &isDirectory
+      ), isDirectory.boolValue else {
+        throw GrimodexProcessE2EError.invalidResponse(
+          "process E2E dictionary is not a directory: \(dictionaryURL.path)"
+        )
+      }
+      environment["FCITX5_GRIMODEX_DICTIONARY"] = dictionaryURL.path
+    } else if (environment["FCITX5_GRIMODEX_DICTIONARY"] ?? "").isEmpty {
+      environment.removeValue(forKey: "FCITX5_GRIMODEX_DICTIONARY")
       let sourceDictionary = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
         .deletingLastPathComponent()
@@ -234,6 +284,35 @@ final class GrimodexProcessHarness {
         "real server socket is not mode 0600"
       )
     }
+  }
+
+  func childProcessIdentifiers() throws -> [Int32] {
+    guard let processIdentifier else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "real server has not been launched"
+      )
+    }
+#if canImport(Glibc)
+    let childrenPath = "/proc/\(processIdentifier)/task/\(processIdentifier)/children"
+    let contents: String
+    do {
+      contents = try String(contentsOfFile: childrenPath, encoding: .utf8)
+    } catch {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "unable to inspect real server children: \(error)"
+      )
+    }
+    return try contents.split(whereSeparator: \.isWhitespace).map { raw in
+      guard let value = Int32(raw) else {
+        throw GrimodexProcessE2EError.invalidResponse(
+          "invalid child process identifier: \(raw)"
+        )
+      }
+      return value
+    }.sorted()
+#else
+    return []
+#endif
   }
 
   private func waitForSocket(timeout: TimeInterval) throws {
@@ -390,8 +469,14 @@ final class GrimodexProcessClient {
   }
 
   func convertDirect(_ text: String, sessionID: String) throws -> [String] {
+    try resetComposition(sessionID: sessionID)
+    try insertText(text, sessionID: sessionID)
+    return try startConversion(sessionID: sessionID)
+  }
+
+  func resetComposition(sessionID: String) throws {
     for attempt in 0..<3 {
-      guard snapshots[sessionID]?.phase != .idle else { break }
+      guard snapshots[sessionID]?.phase != .idle else { return }
       let response = try transactV2(
         sessionID: sessionID,
         requestID: "process-reset-\(attempt)-\(UUID().uuidString)",
@@ -401,6 +486,19 @@ final class GrimodexProcessClient {
       }
       try requireSuccess(response, operation: "reset v2 composition")
     }
+    guard snapshots[sessionID]?.phase == .idle else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "unable to reset v2 composition to idle"
+      )
+    }
+  }
+
+  func insertText(_ text: String, sessionID: String) throws {
+    guard snapshots[sessionID]?.phase == .idle else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "v2 text insertion requires an idle session"
+      )
+    }
     let inserted = try transactV2(
       sessionID: sessionID,
       requestID: "process-insert-\(UUID().uuidString)",
@@ -409,6 +507,19 @@ final class GrimodexProcessClient {
       $0.insertText = Hazkey_Commands_InsertText.with { $0.text = text }
     }
     try requireSuccess(inserted, operation: "v2 direct input")
+    guard inserted.handleImeActionResult.snapshot.phase == .composing else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "v2 text insertion did not enter the composing phase"
+      )
+    }
+  }
+
+  func startConversion(sessionID: String) throws -> [String] {
+    guard snapshots[sessionID]?.phase == .composing else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "v2 conversion requires a composing session"
+      )
+    }
     let converted = try transactV2(
       sessionID: sessionID,
       requestID: "process-convert-\(UUID().uuidString)",
@@ -417,7 +528,47 @@ final class GrimodexProcessClient {
       $0.startConversion = .init()
     }
     try requireSuccess(converted, operation: "v2 conversion")
-    return converted.handleImeActionResult.snapshot.candidateWindow.items.map(\.text)
+    guard converted.handleImeActionResult.snapshot.phase == .previewing else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "v2 conversion did not enter the previewing phase"
+      )
+    }
+    let candidates = converted.handleImeActionResult.snapshot.candidateWindow.items.map(\.text)
+    guard !candidates.isEmpty else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "v2 conversion returned no candidates"
+      )
+    }
+    return candidates
+  }
+
+  func configureBenchmarkProfile() throws {
+    let current = try getConfig()
+    guard !current.profiles.isEmpty else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "Configuration contains no profile"
+      )
+    }
+    var profiles = current.profiles
+    for index in profiles.indices {
+      profiles[index].autoConvertMode = .autoConvertDisabled
+      profiles[index].suggestionListMode = .suggestionListShowNormalResults
+      profiles[index].numSuggestions = 10
+      profiles[index].numCandidatesPerPage = 10
+      profiles[index].useInputHistory = false
+      profiles[index].stopStoreNewHistory = true
+      profiles[index].specialConversionMode = .init()
+      profiles[index].zenzaiEnable = false
+      profiles[index].grimodexScopeMode = .grimodexOff
+    }
+    let response = try transact(
+      Hazkey_RequestEnvelope.with {
+        $0.setConfig = Hazkey_Config_SetConfig.with {
+          $0.profiles = profiles
+        }
+      }
+    )
+    try requireSuccess(response, operation: "configure benchmark profile")
   }
 
   func candidates(sessionID: String) throws -> [String] {
