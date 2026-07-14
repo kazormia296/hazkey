@@ -19,3 +19,10 @@ implementations connected only through the shared contract.
 The delayed live-conversion debounce was independently implemented with
 reference to [Mozkey](https://github.com/koyasi777/mozkey). See
 `THIRDPARTYLICENSE` for the attribution and upstream license links.
+
+Experimental packages may additionally install a learning-off conversion
+sidecar built from a fixed
+[Masterisk-F/fcitx-mozkey](https://github.com/Masterisk-F/fcitx-mozkey)
+revision and the fixed Mozc OSS dataset. Such packages install the verified
+source, dictionary, and linked-component notices under
+`mozc-sidecar/`; normal packages do not contain these artifacts.

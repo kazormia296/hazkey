@@ -1,18 +1,33 @@
-Third-party design references
-================================
+Third-party notices and design references
+==========================================
 
-Mozkey
-------
+Mozkey design reference
+-----------------------
 
 Project: https://github.com/koyasi777/mozkey
 
 The delayed live-conversion debounce in Grimodex IME was independently
-implemented with reference to Mozkey, an unofficial Mozc fork. No Mozkey
-source code, model files, or dictionary data are included in Grimodex IME.
-
-Mozkey contains Mozc-derived code under the BSD 3-Clause license as well as
-separately licensed dictionary data and bundled components. Its complete terms
-and notices are published at:
+implemented with reference to Mozkey, an unofficial Mozc fork. Standard
+Grimodex IME builds include no source code, model files, or dictionary data
+from that project.
 
 * https://github.com/koyasi777/mozkey/blob/main/LICENSE
 * https://github.com/koyasi777/mozkey/blob/main/THIRD_PARTY_NOTICES.md
+
+Optional fcitx-mozkey / Mozc sidecar
+------------------------------------
+
+Project: https://github.com/Masterisk-F/fcitx-mozkey
+
+Experimental builds made with `HAZKEY_SERVER_MOZC_ARTIFACT_DIR` additionally
+include a converter helper built from Masterisk-F/fcitx-mozkey revision
+462cbbf04886e32096bc318833e974ccc43d9fc8 and the fixed Mozc OSS dataset. Those
+builds install the complete fixed-input license set under
+`mozc-sidecar/` beside this file. Artifact import fails if any required notice
+is absent or has a different checksum.
+
+The fixed source contains Mozc-derived BSD 3-Clause code, separately licensed
+dictionary data, and statically linked components. The installed notice set
+includes the fixed upstream license and third-party notice, the OSS dictionary
+terms, and the licenses of the linked Abseil, Protocol Buffers, UTF8 Range, and
+Japanese usage dictionary inputs.

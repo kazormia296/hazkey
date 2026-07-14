@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: MIT
+
+load("//:build_defs.bzl", "mozc_cc_binary", "mozc_cc_test")
+load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+
+package(default_visibility = ["//visibility:private"])
+
+proto_library(
+    name = "mozc_sidecar_proto",
+    srcs = ["mozc_sidecar.proto"],
+)
+
+cc_proto_library(
+    name = "mozc_sidecar_cc_proto",
+    deps = [":mozc_sidecar_proto"],
+)
+
+mozc_cc_binary(
+    name = "fcitx5-grimodex-mozc-helper",
+    srcs = [
+        "mozc_sidecar_helper.cc",
+        "sha256.h",
+    ],
+    target_compatible_with = ["@platforms//os:linux"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":mozc_sidecar_cc_proto",
+        "//base/file:temp_dir",
+        "//base:init_mozc",
+        "//base:system_util",
+        "//base:util",
+        "//converter:converter_interface",
+        "//converter:segments",
+        "//engine:engine",
+        "//engine:eval_engine_factory",
+        "//request:conversion_request",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)
+
+mozc_cc_test(
+    name = "sha256_test",
+    size = "small",
+    srcs = [
+        "sha256_test.cc",
+        "sha256.h",
+    ],
+    target_compatible_with = ["@platforms//os:linux"],
+    deps = ["//testing:gunit_main"],
+)

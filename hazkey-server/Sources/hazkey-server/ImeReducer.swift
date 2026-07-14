@@ -606,6 +606,7 @@ final class ImeReducer {
                         && !session.policy.secureInput,
                     zenzaiEnabled: session.policy.zenzaiEnabled
                         && !session.policy.secureInput,
+                    secureInput: session.policy.secureInput,
                     leftContext: session.context.leftContext,
                     rightContext: session.context.rightContext,
                     suggestionListMode: session.policy.suggestionListMode,
@@ -738,6 +739,7 @@ final class ImeReducer {
                         && !session.policy.secureInput,
                     zenzaiEnabled: session.policy.zenzaiEnabled
                         && !session.policy.secureInput,
+                    secureInput: session.policy.secureInput,
                     leftContext: session.context.leftContext,
                     rightContext: session.context.rightContext,
                     suggestionListMode: session.policy.suggestionListMode,
@@ -960,6 +962,7 @@ final class ImeReducer {
         ConversionOptions(
             allowLearning: session.policy.allowsLearning && !session.policy.secureInput,
             zenzaiEnabled: session.policy.zenzaiEnabled && !session.policy.secureInput,
+            secureInput: session.policy.secureInput,
             leftContext: leftContext,
             rightContext: session.context.rightContext,
             suggestionListMode: session.policy.suggestionListMode,
@@ -1011,27 +1014,19 @@ final class ImeReducer {
         if !converter.supportsSegmentEditing {
             return resizeLegacySegment(delta)
         }
-        let totalCount = session.composingText.elements.count
         let oldSegments = session.segments
         let activeIndex = session.activeSegmentIndex ?? 0
         let prefixSegments: [CompositionSegment]
         let prefixTotal: Int
-        let newCount: Int
+        let currentCount: Int?
         if oldSegments.indices.contains(activeIndex) {
             prefixSegments = Array(oldSegments.prefix(activeIndex))
             prefixTotal = prefixSegments.reduce(0) { $0 + $1.inputCount }
-            let currentCount = oldSegments[activeIndex].inputCount
-            newCount = min(
-                max(currentCount + delta, 1),
-                totalCount - prefixTotal
-            )
-            guard newCount != currentCount else { return success() }
+            currentCount = oldSegments[activeIndex].inputCount
         } else {
             prefixSegments = []
             prefixTotal = 0
-            newCount = delta > 0
-                ? min(max(delta, 1), totalCount)
-                : min(max(totalCount + delta, 1), totalCount)
+            currentCount = nil
         }
 
         // A resize cannot affect converted text before the active boundary.
@@ -1043,6 +1038,41 @@ final class ImeReducer {
                 suffixLeftContext.append(selected.text)
             }
         }
+        let suffixElements = Array(
+            session.composingText.elements.dropFirst(prefixTotal)
+        )
+        let startingCursor = currentCount ?? (delta > 0 ? 0 : suffixElements.count)
+        let boundaryInput = CompositionInput(
+            elements: suffixElements,
+            cursor: startingCursor,
+            leftContext: suffixLeftContext,
+            mappedTableName: session.policy.inputTableName
+        )
+        let movedBoundary = converter.inputCursorPosition(
+            for: boundaryInput,
+            movingBy: delta
+        )
+        // The minimum segment is the first stable rendered boundary, which may
+        // span multiple raw Romaji keystrokes (for example `kyo`). Never clamp
+        // a movement to raw input index 1 because that can split a dependent
+        // sequence and make the converter reject an otherwise valid resize.
+        let firstStableBoundary = converter.inputCursorPosition(
+            for: CompositionInput(
+                elements: suffixElements,
+                cursor: 0,
+                leftContext: suffixLeftContext,
+                mappedTableName: session.policy.inputTableName
+            ),
+            movingBy: 1
+        )
+        let stableBoundary = movedBoundary > 0
+            ? movedBoundary
+            : firstStableBoundary
+        guard stableBoundary > 0 else { return success() }
+        let newCount = min(stableBoundary, suffixElements.count)
+        if let currentCount {
+            guard newCount != currentCount else { return success() }
+        }
         var preferredTextsByStart: [Int: String] = [:]
         var start = 0
         for segment in oldSegments {
@@ -1053,9 +1083,6 @@ final class ImeReducer {
         }
         endConverterComposition()
         do {
-            let suffixElements = Array(
-                session.composingText.elements.dropFirst(prefixTotal)
-            )
             let rebuiltSuffix = try buildSegments(
                 from: suffixElements,
                 forcedLeadingCounts: [newCount],

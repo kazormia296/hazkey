@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: MIT
+
+syntax = "proto3";
+
+package hazkey.mozc_sidecar;
+
+// Private, process-local protocol between hazkey-server and the optional
+// Mozc converter helper. This is deliberately separate from public Protocol
+// v2 so the reducer remains the sole owner of IME/session semantics.
+enum Operation {
+  OPERATION_UNSPECIFIED = 0;
+  OPERATION_CONVERT = 1;
+  OPERATION_PING = 2;
+}
+
+message Request {
+  uint32 protocol_version = 1;
+  uint64 request_id = 2;
+  Operation operation = 3;
+  string reading = 4;
+  uint32 target_key_size = 5;
+  uint32 max_candidates = 6;
+}
+
+message Candidate {
+  string value = 1;
+  string description = 2;
+  uint32 consumed_key_size = 3;
+}
+
+message Response {
+  uint32 protocol_version = 1;
+  uint64 request_id = 2;
+  bool ok = 3;
+  string error_message = 4;
+  repeated Candidate candidates = 5;
+  uint32 segment_key_size = 6;
+  string dataset_sha256 = 7;
+}

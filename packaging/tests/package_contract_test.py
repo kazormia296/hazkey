@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -49,6 +50,12 @@ PRODUCT_NETWORK_AUDITOR = (
 )
 AUR_RELEASE_RENDERER = (
     REPOSITORY_ROOT / "packaging/scripts/render_aur_release.py"
+)
+MOZC_ARTIFACT_VERIFIER = (
+    REPOSITORY_ROOT / "packaging/scripts/verify_mozc_artifact_bundle.py"
+)
+MOZC_ARTIFACT_BUILDER = (
+    REPOSITORY_ROOT / "tools/mozc/build_fixed_sidecar_bundle.py"
 )
 TOP_LEVEL_CMAKE = REPOSITORY_ROOT / "CMakeLists.txt"
 FCITX_CMAKE = REPOSITORY_ROOT / "fcitx5-hazkey/CMakeLists.txt"
@@ -350,6 +357,821 @@ class LinuxClientLifecycleContractTests(unittest.TestCase):
         self.assertIn("sessionClient_.close(session_, false)", connector)
 
 
+class MozcArtifactBundleContractTests(unittest.TestCase):
+    SOURCE_REVISION = "462cbbf04886e32096bc318833e974ccc43d9fc8"
+    SOURCE_TREE = "95365a39134949f5d68f565e1ce451085b5965a8"
+    BAZELISKRC_SHA256 = "59acd943a0d15254345f3e176f42786af2b4fba83b1657341cf56e017a7db19a"
+    MODULE_LOCK_SHA256 = "ab6b647b1c12072eee26ec2370fa928b2ac7c3146e72daf232010dfe254ed972"
+    OVERLAY_SHA256 = "26cf5430b39dcdc04c1f91a6ce473554c3f1ba3f04c2defdcf146f859b6776d6"
+    ELF_INTERPRETER = "/lib64/ld-linux-x86-64.so.2"
+    GLIBC_VERSION = "GLIBC_2.38"
+    GLIBCXX_VERSION = "GLIBCXX_3.4.32"
+    CXXABI_VERSION = "CXXABI_1.3.15"
+    LICENSE_NAMES = (
+        "MOZC-LICENSE",
+        "FCITX-MOZKEY-THIRD-PARTY-NOTICES.md",
+        "DICTIONARY-OSS-NOTICE.txt",
+        "ABSEIL-LICENSE",
+        "PROTOBUF-LICENSE",
+        "UTF8-RANGE-LICENSE",
+        "JAPANESE-USAGE-DICTIONARY-LICENSE",
+    )
+
+    @staticmethod
+    def _elf_helper(
+        *,
+        machine: int = 62,
+        interpreter: str = ELF_INTERPRETER,
+        glibc_version: str = GLIBC_VERSION,
+        glibcxx_version: str = GLIBCXX_VERSION,
+        cxxabi_version: str = CXXABI_VERSION,
+        marker: bytes = b"fixed helper fixture",
+    ) -> bytes:
+        strings = bytearray(b"\0")
+
+        def add_string(value: str) -> int:
+            offset = len(strings)
+            strings.extend(value.encode("ascii") + b"\0")
+            return offset
+
+        libc_name = add_string("libc.so.6")
+        glibc_name = add_string(glibc_version)
+        libstdcxx_name = add_string("libstdc++.so.6")
+        glibcxx_name = add_string(glibcxx_version)
+        cxxabi_name = add_string(cxxabi_version)
+
+        requirements = b"".join(
+            (
+                struct.pack("<HHIII", 1, 1, libc_name, 16, 32),
+                struct.pack("<IHHII", 0, 0, 0, glibc_name, 0),
+                struct.pack("<HHIII", 1, 2, libstdcxx_name, 16, 0),
+                struct.pack("<IHHII", 0, 0, 0, glibcxx_name, 16),
+                struct.pack("<IHHII", 0, 0, 0, cxxabi_name, 0),
+            )
+        )
+        interpreter_bytes = interpreter.encode("ascii") + b"\0"
+        program_offset = 64
+        interpreter_offset = program_offset + 56
+        string_offset = interpreter_offset + len(interpreter_bytes)
+        requirement_offset = string_offset + len(strings)
+        section_offset = (requirement_offset + len(requirements) + 7) & ~7
+
+        ident = bytearray(16)
+        ident[:4] = b"\x7fELF"
+        ident[4] = 2  # ELFCLASS64
+        ident[5] = 1  # ELFDATA2LSB
+        ident[6] = 1  # EV_CURRENT
+        header = bytes(ident) + struct.pack(
+            "<HHIQQQIHHHHHH",
+            3,
+            machine,
+            1,
+            0,
+            program_offset,
+            section_offset,
+            0,
+            64,
+            56,
+            1,
+            64,
+            3,
+            0,
+        )
+        program_header = struct.pack(
+            "<IIQQQQQQ",
+            3,
+            4,
+            interpreter_offset,
+            0,
+            0,
+            len(interpreter_bytes),
+            len(interpreter_bytes),
+            1,
+        )
+        padding = b"\0" * (
+            section_offset - requirement_offset - len(requirements)
+        )
+        null_section = bytes(64)
+        string_section = struct.pack(
+            "<IIQQQQIIQQ",
+            0,
+            3,
+            0,
+            0,
+            string_offset,
+            len(strings),
+            0,
+            0,
+            1,
+            0,
+        )
+        requirement_section = struct.pack(
+            "<IIQQQQIIQQ",
+            0,
+            0x6FFFFFFE,
+            0,
+            0,
+            requirement_offset,
+            len(requirements),
+            1,
+            2,
+            4,
+            16,
+        )
+        return b"".join(
+            (
+                header,
+                program_header,
+                interpreter_bytes,
+                bytes(strings),
+                requirements,
+                padding,
+                null_section,
+                string_section,
+                requirement_section,
+                marker,
+                b"\n",
+            )
+        )
+
+    @staticmethod
+    def _write_bundle(root: Path) -> tuple[Path, bytes, bytes]:
+        bundle = root / "bundle"
+        bundle.mkdir()
+        helper = MozcArtifactBundleContractTests._elf_helper()
+        data = b"fixed Mozc OSS data fixture\n"
+        helper_path = bundle / "fcitx5-grimodex-mozc-helper"
+        helper_path.write_bytes(helper)
+        helper_path.chmod(0o755)
+        (bundle / "mozc.data").write_bytes(data)
+        license_dir = bundle / "licenses"
+        license_dir.mkdir()
+        licenses = {
+            name: f"fixture {name}\n".encode()
+            for name in MozcArtifactBundleContractTests.LICENSE_NAMES
+        }
+        for name, payload in licenses.items():
+            (license_dir / name).write_bytes(payload)
+        manifest = {
+            "schema": "grimodex.mozc-artifact-bundle.v1",
+            "target": {
+                "system": "linux",
+                "architecture": "x86_64",
+                "elf": {
+                    "class": 64,
+                    "endianness": "little",
+                    "machine": "EM_X86_64",
+                },
+                "runtime": {
+                    "interpreter": MozcArtifactBundleContractTests.ELF_INTERPRETER,
+                    "required_symbol_versions": {
+                        "glibc": MozcArtifactBundleContractTests.GLIBC_VERSION,
+                        "glibcxx": MozcArtifactBundleContractTests.GLIBCXX_VERSION,
+                        "cxxabi": MozcArtifactBundleContractTests.CXXABI_VERSION,
+                    },
+                },
+            },
+            "source": {
+                "repository": "https://github.com/Masterisk-F/fcitx-mozkey",
+                "revision": MozcArtifactBundleContractTests.SOURCE_REVISION,
+                "tree": MozcArtifactBundleContractTests.SOURCE_TREE,
+                "bazel_version": "9.0.2",
+                "bazeliskrc_sha256": MozcArtifactBundleContractTests.BAZELISKRC_SHA256,
+                "module_lock_sha256": MozcArtifactBundleContractTests.MODULE_LOCK_SHA256,
+                "overlay_sha256": MozcArtifactBundleContractTests.OVERLAY_SHA256,
+            },
+            "artifacts": {
+                "fcitx5-grimodex-mozc-helper": {
+                    "sha256": hashlib.sha256(helper).hexdigest(),
+                    "size": len(helper),
+                },
+                "mozc.data": {
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "size": len(data),
+                },
+            },
+            "licenses": {
+                name: {
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "size": len(payload),
+                }
+                for name, payload in licenses.items()
+            },
+        }
+        (bundle / "manifest.json").write_text(
+            json.dumps(manifest),
+            encoding="utf-8",
+        )
+        return bundle, helper, data
+
+    @staticmethod
+    def _load_verifier_for_fixture(bundle: Path):
+        spec = importlib.util.spec_from_file_location(
+            "mozc_artifact_verifier_fixture",
+            MOZC_ARTIFACT_VERIFIER,
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        data = (bundle / "mozc.data").read_bytes()
+        module.FIXED_DATA_SIZE = len(data)
+        module.FIXED_DATA_SHA256 = hashlib.sha256(data).hexdigest()
+        helper = (bundle / "fcitx5-grimodex-mozc-helper").read_bytes()
+        module.FIXED_HELPER_SIZE = len(helper)
+        module.FIXED_HELPER_SHA256 = hashlib.sha256(helper).hexdigest()
+        module.LICENSE_HASHES = {
+            name: hashlib.sha256((bundle / "licenses" / name).read_bytes()).hexdigest()
+            for name in MozcArtifactBundleContractTests.LICENSE_NAMES
+        }
+        return module
+
+    @staticmethod
+    def _load_builder():
+        spec = importlib.util.spec_from_file_location(
+            "mozc_artifact_builder_fixture",
+            MOZC_ARTIFACT_BUILDER,
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    @staticmethod
+    def _verify(bundle: Path, stage: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                "python3",
+                str(MOZC_ARTIFACT_VERIFIER),
+                "--bundle",
+                str(bundle),
+                "--stage-root",
+                str(stage),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+    def test_verifier_stages_only_hash_matched_fixed_source_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            bundle, helper, data = self._write_bundle(root)
+            stage = root / "stage"
+
+            verifier = self._load_verifier_for_fixture(bundle)
+            generation = verifier.verify_and_stage(bundle, stage)
+
+            self.assertEqual(generation.parent, stage.resolve())
+            self.assertRegex(generation.name, r"^sha256-[0-9a-f]{64}$")
+            self.assertEqual(
+                (generation / "fcitx5-grimodex-mozc-helper").read_bytes(),
+                helper,
+            )
+            self.assertEqual((generation / "mozc.data").read_bytes(), data)
+            self.assertTrue(
+                (generation / "fcitx5-grimodex-mozc-helper").stat().st_mode
+                & 0o111
+            )
+            self.assertEqual(
+                {path.name for path in (generation / "licenses").iterdir()},
+                set(self.LICENSE_NAMES),
+            )
+
+            helper_inode = (generation / "fcitx5-grimodex-mozc-helper").stat().st_ino
+            repeated = verifier.verify_and_stage(bundle, stage)
+            self.assertEqual(repeated, generation)
+            self.assertEqual(
+                (repeated / "fcitx5-grimodex-mozc-helper").stat().st_ino,
+                helper_inode,
+            )
+            verifier.verify_staged_generation(generation)
+            ping_payload = (
+                b"\x08\x01\x10\x01\x18\x01\x3a\x40"
+                + verifier.FIXED_DATA_SHA256.encode("ascii")
+            )
+            ping_result = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=struct.pack(">I", len(ping_payload)) + ping_payload,
+                stderr=b"",
+            )
+            with mock.patch.object(
+                verifier.subprocess,
+                "run",
+                return_value=ping_result,
+            ):
+                self.assertEqual(
+                    verifier.verify_host_runtime(generation),
+                    generation.name,
+                )
+            failed_ping = subprocess.CompletedProcess(
+                args=[],
+                returncode=127,
+                stdout=b"",
+                stderr=b"missing runtime",
+            )
+            with mock.patch.object(
+                verifier.subprocess,
+                "run",
+                return_value=failed_ping,
+            ), self.assertRaisesRegex(
+                verifier.BundleVerificationError,
+                "GLIBC_2.38",
+            ):
+                verifier.verify_host_runtime(generation)
+
+            staged_helper = generation / "fcitx5-grimodex-mozc-helper"
+            staged_helper.chmod(0o644)
+            staged_helper.write_bytes(self._elf_helper(marker=b"tampered stage"))
+            with self.assertRaisesRegex(
+                verifier.BundleVerificationError,
+                "staged artifact",
+            ):
+                verifier.verify_and_stage(bundle, stage)
+            with mock.patch.object(
+                verifier,
+                "_require_linux_x86_64_elf",
+                side_effect=AssertionError("ELF parser ran before identity check"),
+            ) as elf_parser, self.assertRaisesRegex(
+                verifier.BundleVerificationError,
+                "staged artifact",
+            ):
+                verifier.verify_staged_generation(generation)
+            elf_parser.assert_not_called()
+
+    def test_verifier_fails_closed_on_identity_and_machine_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            bundle, _, _ = self._write_bundle(root)
+            verifier = self._load_verifier_for_fixture(bundle)
+            raw_mismatch_root = root / "raw-mismatch"
+            raw_mismatch_root.mkdir()
+            raw_mismatch_bundle, raw_helper, _ = self._write_bundle(
+                raw_mismatch_root
+            )
+            raw_verifier = self._load_verifier_for_fixture(raw_mismatch_bundle)
+            raw_helper_path = (
+                raw_mismatch_bundle / "fcitx5-grimodex-mozc-helper"
+            )
+            mutated_helper = bytearray(raw_helper)
+            mutated_helper[-1] ^= 0x01
+            raw_helper_path.write_bytes(mutated_helper)
+            raw_helper_path.chmod(0o755)
+            with mock.patch.object(
+                raw_verifier,
+                "_require_linux_x86_64_elf",
+                side_effect=AssertionError("ELF parser ran before identity check"),
+            ) as elf_parser, self.assertRaisesRegex(
+                raw_verifier.BundleVerificationError,
+                "SHA-256 mismatch",
+            ):
+                raw_verifier.verify_and_stage(
+                    raw_mismatch_bundle,
+                    raw_mismatch_root / "stage",
+                )
+            elf_parser.assert_not_called()
+
+            helper_path = bundle / "fcitx5-grimodex-mozc-helper"
+            arbitrary_helper = self._elf_helper(marker=b"self-consistent arbitrary")
+            helper_path.write_bytes(arbitrary_helper)
+            helper_path.chmod(0o755)
+            manifest_path = bundle / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            helper_entry = manifest["artifacts"]["fcitx5-grimodex-mozc-helper"]
+            helper_entry["size"] = len(arbitrary_helper)
+            helper_entry["sha256"] = hashlib.sha256(arbitrary_helper).hexdigest()
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            stage = root / "stage"
+
+            with self.assertRaisesRegex(
+                verifier.BundleVerificationError,
+                "helper identity",
+            ):
+                verifier.verify_and_stage(bundle, stage)
+            self.assertFalse(stage.exists())
+
+            wrong_root = root / "wrong-machine"
+            wrong_root.mkdir()
+            wrong_bundle, _, _ = self._write_bundle(wrong_root)
+            wrong_helper = self._elf_helper(machine=183)
+            wrong_helper_path = wrong_bundle / "fcitx5-grimodex-mozc-helper"
+            wrong_helper_path.write_bytes(wrong_helper)
+            wrong_helper_path.chmod(0o755)
+            wrong_manifest_path = wrong_bundle / "manifest.json"
+            wrong_manifest = json.loads(
+                wrong_manifest_path.read_text(encoding="utf-8")
+            )
+            wrong_entry = wrong_manifest["artifacts"][
+                "fcitx5-grimodex-mozc-helper"
+            ]
+            wrong_entry["size"] = len(wrong_helper)
+            wrong_entry["sha256"] = hashlib.sha256(wrong_helper).hexdigest()
+            wrong_manifest_path.write_text(
+                json.dumps(wrong_manifest),
+                encoding="utf-8",
+            )
+            wrong_verifier = self._load_verifier_for_fixture(wrong_bundle)
+            with self.assertRaisesRegex(
+                wrong_verifier.BundleVerificationError,
+                "EM_X86_64",
+            ):
+                wrong_verifier.verify_and_stage(
+                    wrong_bundle,
+                    wrong_root / "stage",
+                )
+
+            runtime_variants = {
+                "interpreter": self._elf_helper(interpreter="/lib64/ld-linux.so.2"),
+                "symbol-version": self._elf_helper(glibc_version="GLIBC_2.39"),
+            }
+            for label, runtime_helper in runtime_variants.items():
+                with self.subTest(runtime=label):
+                    runtime_root = root / f"wrong-runtime-{label}"
+                    runtime_root.mkdir()
+                    runtime_bundle, _, _ = self._write_bundle(runtime_root)
+                    runtime_helper_path = (
+                        runtime_bundle / "fcitx5-grimodex-mozc-helper"
+                    )
+                    runtime_helper_path.write_bytes(runtime_helper)
+                    runtime_helper_path.chmod(0o755)
+                    runtime_manifest_path = runtime_bundle / "manifest.json"
+                    runtime_manifest = json.loads(
+                        runtime_manifest_path.read_text(encoding="utf-8")
+                    )
+                    runtime_entry = runtime_manifest["artifacts"][
+                        "fcitx5-grimodex-mozc-helper"
+                    ]
+                    runtime_entry["size"] = len(runtime_helper)
+                    runtime_entry["sha256"] = hashlib.sha256(
+                        runtime_helper
+                    ).hexdigest()
+                    runtime_manifest_path.write_text(
+                        json.dumps(runtime_manifest),
+                        encoding="utf-8",
+                    )
+                    runtime_verifier = self._load_verifier_for_fixture(
+                        runtime_bundle
+                    )
+                    with self.assertRaisesRegex(
+                        runtime_verifier.BundleVerificationError,
+                        "runtime ABI",
+                    ):
+                        runtime_verifier.verify_and_stage(
+                            runtime_bundle,
+                            runtime_root / "stage",
+                        )
+
+            pathological_helper = bytearray(self._elf_helper())
+            section_offset = struct.unpack_from("<Q", pathological_helper, 40)[0]
+            requirement_section = section_offset + 2 * 64
+            requirement_offset = struct.unpack_from(
+                "<Q", pathological_helper, requirement_section + 24
+            )[0]
+            struct.pack_into("<H", pathological_helper, requirement_offset + 2, 0xffff)
+            builder = self._load_builder()
+            for parser, error_type, arguments in (
+                (
+                    verifier._inspect_elf_runtime_contract,
+                    verifier.BundleVerificationError,
+                    (bytes(pathological_helper), "pathological-helper"),
+                ),
+                (
+                    builder._inspect_elf_runtime_contract,
+                    builder.BuildError,
+                    (bytes(pathological_helper),),
+                ),
+            ):
+                with self.subTest(parser=parser.__module__), self.assertRaisesRegex(
+                    error_type,
+                    "work budget",
+                ):
+                    parser(*arguments)
+
+    def test_verifier_rejects_unmanifested_bundle_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            bundle, _, _ = self._write_bundle(root)
+            (bundle / "unlocked-dictionary.tsv").write_text("mutable input")
+
+            result = self._verify(bundle, root / "stage")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unknown=unlocked-dictionary.tsv", result.stderr)
+
+    def test_verifier_rejects_a_different_source_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            bundle, _, _ = self._write_bundle(root)
+            manifest_path = bundle / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["source"]["revision"] = "0" * 40
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self._verify(bundle, root / "stage")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unexpected source revision", result.stderr)
+
+    def test_verifier_rejects_an_oversized_helper_before_copying(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            bundle, _, _ = self._write_bundle(root)
+            verifier = self._load_verifier_for_fixture(bundle)
+            manifest_path = bundle / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["artifacts"]["fcitx5-grimodex-mozc-helper"]["size"] = (
+                verifier.MAX_HELPER_BYTES + 1
+            )
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with self.assertRaisesRegex(verifier.BundleVerificationError, "helper identity"):
+                verifier.verify_and_stage(bundle, root / "stage")
+            self.assertFalse((root / "stage").exists())
+
+    def test_cmake_import_is_disabled_by_default_and_installs_private_paths(self) -> None:
+        cmake = SERVER_CMAKE.read_text(encoding="utf-8")
+
+        self.assertIn('set(HAZKEY_SERVER_MOZC_ARTIFACT_DIR "" CACHE PATH', cmake)
+        self.assertIn("verified-mozc-artifacts", cmake)
+        self.assertIn('--stage-root "${_HAZKEY_SERVER_MOZC_STAGING_ROOT}"', cmake)
+        self.assertGreaterEqual(cmake.count("--verify-host-runtime"), 2)
+        for requirement in (
+            "/lib64/ld-linux-x86-64.so.2",
+            "GLIBC_2.38",
+            "GLIBCXX_3.4.32",
+            "CXXABI_1.3.15",
+        ):
+            self.assertIn(requirement, cmake)
+        self.assertIn('CMAKE_SYSTEM_NAME STREQUAL "Linux"', cmake)
+        self.assertIn('CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64"', cmake)
+        self.assertLess(cmake.index("install(CODE"), cmake.index("# install hazkey-server"))
+        self.assertIn("fcitx5-grimodex-mozc-helper", cmake)
+        self.assertIn("${CMAKE_INSTALL_FULL_DATADIR}/fcitx5-grimodex/mozc", cmake)
+        for manifest_path in (INSTALL_MANIFEST, UNINSTALL_MANIFEST):
+            self.assertIn(
+                "optional:/usr/lib/{,*/}fcitx5-grimodex/"
+                "fcitx5-grimodex-mozc-helper",
+                manifest_path.read_text(encoding="utf-8"),
+            )
+
+    def test_builder_contract_matches_the_import_verifier(self) -> None:
+        builder = self._load_builder()
+        verifier_spec = importlib.util.spec_from_file_location(
+            "mozc_artifact_verifier_contract",
+            MOZC_ARTIFACT_VERIFIER,
+        )
+        assert verifier_spec is not None and verifier_spec.loader is not None
+        verifier = importlib.util.module_from_spec(verifier_spec)
+        verifier_spec.loader.exec_module(verifier)
+
+        for name in (
+            "SCHEMA",
+            "SOURCE_REPOSITORY",
+            "SOURCE_REVISION",
+            "SOURCE_TREE",
+            "BAZEL_VERSION",
+            "BAZELISKRC_SHA256",
+            "MODULE_LOCK_SHA256",
+            "OVERLAY_SHA256",
+            "TARGET_CONTRACT",
+            "FIXED_HELPER_SIZE",
+            "FIXED_HELPER_SHA256",
+            "FIXED_DATA_SIZE",
+            "FIXED_DATA_SHA256",
+            "LICENSE_HASHES",
+            "MAX_HELPER_BYTES",
+            "MAX_LICENSE_BYTES",
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(getattr(builder, name), getattr(verifier, name))
+        self.assertEqual(set(builder.LICENSE_LOCATIONS), set(self.LICENSE_NAMES))
+        self.assertEqual(
+            builder.LICENSE_LOCATIONS["FCITX-MOZKEY-THIRD-PARTY-NOTICES.md"],
+            ("source", Path("THIRD_PARTY_NOTICES.md")),
+        )
+        builder.verify_overlay()
+
+    def test_builder_emits_an_atomic_verifier_compatible_fixture(self) -> None:
+        builder = self._load_builder()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            inputs, helper, data = self._write_bundle(root)
+            license_sources = {
+                name: inputs / "licenses" / name for name in self.LICENSE_NAMES
+            }
+            fixture_hashes = {
+                name: hashlib.sha256(path.read_bytes()).hexdigest()
+                for name, path in license_sources.items()
+            }
+            output = root / "emitted"
+
+            manifest = builder.emit_bundle(
+                output,
+                helper=inputs / "fcitx5-grimodex-mozc-helper",
+                data=inputs / "mozc.data",
+                licenses=license_sources,
+                expected_helper_size=len(helper),
+                expected_helper_sha256=hashlib.sha256(helper).hexdigest(),
+                expected_data_size=len(data),
+                expected_data_sha256=hashlib.sha256(data).hexdigest(),
+                license_hashes=fixture_hashes,
+            )
+
+            self.assertEqual(
+                manifest["artifacts"]["fcitx5-grimodex-mozc-helper"]["sha256"],
+                hashlib.sha256(helper).hexdigest(),
+            )
+            verifier = self._load_verifier_for_fixture(output)
+            generation = verifier.verify_and_stage(output, root / "verified")
+            self.assertEqual(
+                (generation / "fcitx5-grimodex-mozc-helper").read_bytes(),
+                helper,
+            )
+
+            with self.assertRaisesRegex(builder.BuildError, "replace existing"):
+                builder.emit_bundle(
+                    output,
+                    helper=inputs / "fcitx5-grimodex-mozc-helper",
+                    data=inputs / "mozc.data",
+                    licenses=license_sources,
+                    expected_helper_size=len(helper),
+                    expected_helper_sha256=hashlib.sha256(helper).hexdigest(),
+                    expected_data_size=len(data),
+                    expected_data_sha256=hashlib.sha256(data).hexdigest(),
+                    license_hashes=fixture_hashes,
+                )
+
+    def test_builder_does_not_publish_a_wrong_b0_dataset(self) -> None:
+        builder = self._load_builder()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            inputs, helper, data = self._write_bundle(root)
+            license_sources = {
+                name: inputs / "licenses" / name for name in self.LICENSE_NAMES
+            }
+            fixture_hashes = {
+                name: hashlib.sha256(path.read_bytes()).hexdigest()
+                for name, path in license_sources.items()
+            }
+            output = root / "must-not-exist"
+
+            with self.assertRaisesRegex(builder.BuildError, "fixed B0"):
+                builder.emit_bundle(
+                    output,
+                    helper=inputs / "fcitx5-grimodex-mozc-helper",
+                    data=inputs / "mozc.data",
+                    licenses=license_sources,
+                    expected_helper_size=len(helper),
+                    expected_helper_sha256=hashlib.sha256(helper).hexdigest(),
+                    expected_data_size=len(data),
+                    expected_data_sha256="0" * 64,
+                    license_hashes=fixture_hashes,
+                )
+            self.assertFalse(output.exists())
+            self.assertFalse(any(root.glob(".must-not-exist-*")))
+
+            arbitrary_helper = self._elf_helper(marker=b"different helper")
+            helper_path = inputs / "fcitx5-grimodex-mozc-helper"
+            helper_path.write_bytes(arbitrary_helper)
+            helper_path.chmod(0o755)
+            with self.assertRaisesRegex(builder.BuildError, "fixed linux-x86_64"):
+                builder.emit_bundle(
+                    root / "wrong-helper",
+                    helper=helper_path,
+                    data=inputs / "mozc.data",
+                    licenses=license_sources,
+                    expected_helper_size=len(helper),
+                    expected_helper_sha256=hashlib.sha256(helper).hexdigest(),
+                    expected_data_size=len(data),
+                    expected_data_sha256=hashlib.sha256(data).hexdigest(),
+                    license_hashes=fixture_hashes,
+                )
+
+            wrong_machine = self._elf_helper(machine=183)
+            helper_path.write_bytes(wrong_machine)
+            helper_path.chmod(0o755)
+            with self.assertRaisesRegex(builder.BuildError, "EM_X86_64"):
+                builder.emit_bundle(
+                    root / "wrong-machine",
+                    helper=helper_path,
+                    data=inputs / "mozc.data",
+                    licenses=license_sources,
+                    expected_helper_size=len(wrong_machine),
+                    expected_helper_sha256=hashlib.sha256(wrong_machine).hexdigest(),
+                    expected_data_size=len(data),
+                    expected_data_sha256=hashlib.sha256(data).hexdigest(),
+                    license_hashes=fixture_hashes,
+                )
+
+    def test_builder_bazel_plan_is_nonpersistent_and_lockfile_closed(self) -> None:
+        builder = self._load_builder()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source"
+            output_base = root / "output-base"
+            source.mkdir()
+            output_base.mkdir()
+            commands = []
+
+            def fake_run(argv, *, cwd, capture_output=True):
+                command = [str(value) for value in argv]
+                commands.append((command, cwd, capture_output))
+                if "version" in command:
+                    return f"bazel {builder.BAZEL_VERSION}"
+                if "info" in command:
+                    return str(output_base)
+                return ""
+
+            with mock.patch.object(builder, "_run_checked", side_effect=fake_run):
+                self.assertEqual(
+                    builder._build_with_bazel(
+                        Path("/fixture/bazelisk"),
+                        root / "bazel-root",
+                        source,
+                    ),
+                    output_base,
+                )
+
+            self.assertEqual(len(commands), 4)
+            for command, cwd, _ in commands:
+                self.assertIn("--batch", command)
+                self.assertIn("--output_user_root=" + str(root / "bazel-root"), command)
+                self.assertIn(
+                    "--noexperimental_collect_system_network_usage",
+                    command,
+                )
+                self.assertEqual(cwd, source)
+            build_command = next(command for command, _, _ in commands if "build" in command)
+            self.assertIn("--stamp=no", build_command)
+            self.assertIn("--lockfile_mode=error", build_command)
+            for target in builder.BUILD_TARGETS:
+                self.assertIn(target, build_command)
+            test_command = next(command for command, _, _ in commands if "test" in command)
+            self.assertIn("--stamp=no", test_command)
+            self.assertIn("--lockfile_mode=error", test_command)
+            self.assertIn("--test_output=errors", test_command)
+            for target in builder.TEST_TARGETS:
+                self.assertIn(target, test_command)
+
+    def test_builder_verifies_revision_tree_and_generated_module_lock(self) -> None:
+        builder = self._load_builder()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            checkout = Path(temporary_directory) / "checkout"
+            source = checkout / "src"
+            source.mkdir(parents=True)
+            (checkout / ".gitignore").write_text(
+                "MODULE.bazel.lock\n",
+                encoding="utf-8",
+            )
+            (checkout / "README.md").write_text("fixed tree\n", encoding="utf-8")
+            bazeliskrc = b"USE_BAZEL_VERSION=fixture-bazel\n"
+            (source / ".bazeliskrc").write_bytes(bazeliskrc)
+
+            subprocess.run(["git", "init", "-q", checkout], check=True)
+            subprocess.run(
+                ["git", "-C", checkout, "config", "user.email", "ci@example.invalid"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", checkout, "config", "user.name", "CI"],
+                check=True,
+            )
+            subprocess.run(["git", "-C", checkout, "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", checkout, "commit", "-q", "-m", "fixture"],
+                check=True,
+            )
+            revision = subprocess.run(
+                ["git", "-C", checkout, "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            tree = subprocess.run(
+                ["git", "-C", checkout, "rev-parse", "HEAD^{tree}"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            module_lock = b"fixed generated module lock\n"
+            (source / "MODULE.bazel.lock").write_bytes(module_lock)
+
+            with mock.patch.multiple(
+                builder,
+                SOURCE_REVISION=revision,
+                SOURCE_TREE=tree,
+                BAZEL_VERSION="fixture-bazel",
+                BAZELISKRC_SHA256=hashlib.sha256(bazeliskrc).hexdigest(),
+                MODULE_LOCK_SHA256=hashlib.sha256(module_lock).hexdigest(),
+            ):
+                builder.verify_checkout(checkout)
+                (checkout / "README.md").write_text(
+                    "dirty tree\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(builder.BuildError, "changes"):
+                    builder.verify_checkout(checkout)
+
+
 class PackageMetadataContractTests(unittest.TestCase):
     def test_release_gates_watch_every_staged_install_input(self) -> None:
         release_workflow = BUILD_WORKFLOW.read_text(encoding="utf-8")
@@ -363,12 +1185,17 @@ class PackageMetadataContractTests(unittest.TestCase):
             "hazkey-settings/**",
             "linux-shared/**",
             "protocol/**",
+            "tools/**",
+            "third_party/**",
             "LICENSE",
             "NOTICE.md",
             "THIRDPARTYLICENSE",
         ):
             with self.subTest(path_filter=path_filter):
-                self.assertIn(f'- "{path_filter}"', package_workflow)
+                expected = f'- "{path_filter}"'
+                self.assertIn(expected, release_workflow)
+                self.assertIn(expected, package_workflow)
+                self.assertIn(expected, integration_workflow)
 
         self.assertIn("pull_request:", integration_workflow)
         self.assertIn("pull_request:", release_workflow)

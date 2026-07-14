@@ -130,6 +130,19 @@ let builtInInputTables = [
     }
 }
 
+enum HazkeyConverterBackend: Equatable, Sendable {
+    case hazkey
+    case mozc
+
+    init(environment: [String: String]) {
+        // The experimental process backend is exact-match opt-in. Unknown
+        // values retain the in-process Hazkey backend.
+        self = environment["FCITX5_GRIMODEX_CONVERTER"] == "mozc"
+            ? .mozc
+            : .hazkey
+    }
+}
+
 class HazkeyServerConfig {
     var profiles: [Hazkey_Config_Profile]
     var currentProfile: Hazkey_Config_Profile
@@ -141,6 +154,9 @@ class HazkeyServerConfig {
     private let zenzaiModelPathProvider: () -> URL?
     private let zenzaiRuntimeGenerationProvider: () -> UUID
     private let zenzaiBackendAvailableOverride: Bool?
+    let converterBackend: HazkeyConverterBackend
+    let mozcHelperPath: String
+    let mozcDataPath: String
 
     var grimodexScopeMode: GrimodexScopeMode {
         switch currentProfile.grimodexScopeMode {
@@ -161,11 +177,17 @@ class HazkeyServerConfig {
         },
         zenzaiModelPathProvider: @escaping () -> URL? = { getZenzaiModelPath() },
         zenzaiRuntimeGenerationProvider: @escaping () -> UUID = { UUID() },
-        zenzaiBackendAvailableOverride: Bool? = nil
+        zenzaiBackendAvailableOverride: Bool? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.zenzaiModelPathProvider = zenzaiModelPathProvider
         self.zenzaiRuntimeGenerationProvider = zenzaiRuntimeGenerationProvider
         self.zenzaiBackendAvailableOverride = zenzaiBackendAvailableOverride
+        self.converterBackend = HazkeyConverterBackend(environment: environment)
+        self.mozcHelperPath = environment["FCITX5_GRIMODEX_MOZC_HELPER"]
+            ?? (systemLibraryPath + "/fcitx5-grimodex-mozc-helper")
+        self.mozcDataPath = environment["FCITX5_GRIMODEX_MOZC_DATA"]
+            ?? (systemResourcePath + "/mozc/mozc.data")
         do {
             profiles = try Self.loadConfig()
         } catch {

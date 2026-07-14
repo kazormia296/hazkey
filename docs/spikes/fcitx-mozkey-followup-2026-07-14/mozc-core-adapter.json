@@ -2,8 +2,8 @@
   "schema": "grimodex.mozc-core-adapter-feasibility.v1",
   "spiked_at": "2026-07-14",
   "source_ref": "462cbbf04886e32096bc318833e974ccc43d9fc8",
-  "workspace_modified_by_smoke": false,
-  "smoke": {
+  "initial_smoke": {
+    "workspace_modified": false,
     "temporary_build_files": {
       "build_loc": 20,
       "cpp_loc": 81,
@@ -36,18 +36,32 @@
       "sha256": "b9884362e37772f772a0d28d1e12622455c14353497b3435deed60aa7e592c5e"
     }
   },
-  "recommended_boundary": {
-    "core": "Mozc ConverterInterface in a long-lived private sidecar",
-    "session_owner": "Hazkey ImeReducer and external Protocol v2",
-    "transport": "private length-prefixed protobuf between Swift and the sidecar",
-    "swift_port": "KanaKanjiConverting",
-    "rejected_boundary": "Mozc SessionHandler, because it would duplicate session, composer, keymap, watchdog, and commit state"
+  "implemented_slice": {
+    "status": "implemented_opt_in",
+    "selection": {
+      "environment": "FCITX5_GRIMODEX_CONVERTER",
+      "accepted_value": "mozc",
+      "matching": "exact and case-sensitive",
+      "default_and_unknown_values": "hazkey",
+      "helper_override": "FCITX5_GRIMODEX_MOZC_HELPER",
+      "data_override": "FCITX5_GRIMODEX_MOZC_DATA"
+    },
+    "boundary": {
+      "core": "Mozc ConverterInterface in a long-lived private sidecar",
+      "session_owner": "Hazkey ImeReducer and external Protocol v2",
+      "transport": "private length-prefixed protobuf between Swift and the sidecar",
+      "swift_port": "KanaKanjiConverting",
+      "private_protocol": "protocol/mozc_sidecar.proto",
+      "public_protocol_changed": false,
+      "rejected_boundary": "Mozc SessionHandler, because it would duplicate session, composer, keymap, watchdog, and commit state"
+    }
   },
   "safety_profile": {
-    "learning": "enable_user_history_for_conversion=false and incognito_mode=true; no FinishConversion, sync, or history mutation in S0. This intentionally does not satisfy the current partial-commit learning counters.",
-    "secure_input": "do not send reading or context to the sidecar; purge local maps and helper buffers",
-    "failure": "on helper crash or EOF, retain the reading, report converterUnavailable, and respawn on the next request",
-    "stale_candidates": "the existing reducer generation/revision guards reject them before a core call"
+    "learning": "verified hard-off: session policy allowsLearning=false and zenzaiEnabled=false; helper uses enable_user_history_for_conversion=false and incognito_mode=true; no learning wrapper is used",
+    "secure_input": "verified focused behavior: no core request and no context transmission; purge closes pipes and terminates the helper",
+    "handshake": "verified: each new helper must answer a reading-free PING with the expected protocol and fixed dataset SHA before the first CONVERT is written",
+    "failure": "verified: after the helper observes one CONVERT and exits before replying, that request is not replayed; composition remains editable and the next independent request respawns the helper",
+    "stale_candidates": "verified: existing reducer generation/revision guards reject stale actions before a core call"
   },
   "learning_parity": {
     "existing_partial_commit_expected_learning": {
@@ -65,31 +79,132 @@
     "status": "intentional S0 product-contract gap; restore the existing counters or obtain an explicit product decision before default switching"
   },
   "protocol_v2_scenarios": {
-    "evidence_level": "design responsibility mapping only; none of the nine end-to-end scenarios was executed with the Mozc core",
+    "evidence_level": "real Mozc Swift adapter plus fake Mozc core passed all 9 locked scenarios and all 26 visible/session steps through the versioned compatibility presentation path; a separate supportsSegmentEditing=true reducer integration passed natural segmentation, resize round-trip, and partial commit; neither proves full product parity or all scenarios against the actual C++ helper",
+    "locked_scenarios_passed": 9,
+    "locked_scenarios_total": 9,
+    "visible_session_steps_passed": 26,
+    "visible_session_steps_total": 26,
+    "actual_helper_scope": "natural conversion and segment resize smoke only",
     "composing-basic": "adapter and reducer",
-    "cursor-editing": "Swift EGC surface mapper",
-    "escape-backspace": "discard local Mozc Segments",
+    "cursor-editing": "shared Swift EGC surface mapper",
+    "escape-backspace": "discard local conversion state",
     "partial-commit": "exactly-once reducer effect, remove prefix, then reconvert; learning is intentionally off in S0",
-    "secure-input": "secure no-call and purge",
-    "segment-editing": "native segments and ResizeSegment",
+    "secure-input": "secure no-call and helper termination on purge",
+    "segment-editing": "locked snapshot compatibility plus a dedicated production segmented reducer integration using native segments and ResizeSegment",
     "server-failure": "sidecar supervision with reducer-owned composition",
     "stale-candidate": "existing reducer generation guard",
     "unicode-caret": "caret remains Swift-owned"
   },
   "external_protocol_v2_extension": {
     "expected_required": false,
-    "verified": false
+    "verified": true,
+    "public_protocol_changed": false,
+    "private_protocol": "protocol/mozc_sidecar.proto"
   },
-  "estimate": {
+  "fixed_bundle": {
+    "target": {
+      "system": "linux",
+      "architecture": "x86_64",
+      "elf_class": 64,
+      "endianness": "little",
+      "machine": "EM_X86_64",
+      "runtime": {
+        "interpreter": "/lib64/ld-linux-x86-64.so.2",
+        "required_symbol_versions": {
+          "glibc": "GLIBC_2.38",
+          "glibcxx": "GLIBCXX_3.4.32",
+          "cxxabi": "CXXABI_1.3.15"
+        }
+      }
+    },
+    "source": {
+      "repository": "https://github.com/Masterisk-F/fcitx-mozkey",
+      "revision": "462cbbf04886e32096bc318833e974ccc43d9fc8",
+      "tree": "95365a39134949f5d68f565e1ce451085b5965a8",
+      "bazel_version": "9.0.2",
+      "module_lock_sha256": "ab6b647b1c12072eee26ec2370fa928b2ac7c3146e72daf232010dfe254ed972",
+      "overlay_sha256": "26cf5430b39dcdc04c1f91a6ce473554c3f1ba3f04c2defdcf146f859b6776d6"
+    },
+    "artifacts": {
+      "helper": {
+        "bytes": 5695048,
+        "sha256": "8676275bb47aefe963c8b82047cc66fb7a5140caec72d1ebbfa17556b281577d"
+      },
+      "mozc_data": {
+        "bytes": 18887468,
+        "sha256": "b9884362e37772f772a0d28d1e12622455c14353497b3435deed60aa7e592c5e"
+      },
+      "fixed_notice_files": 7
+    },
+    "verification": [
+      "strict bundle verifier pinned the helper size and SHA outside the manifest and rejected helpers whose ELF64 little-endian EM_X86_64 or runtime ABI contract did not match",
+      "strict import atomically published an exact content-addressed sha256 generation and verify-only passed",
+      "repeat import reused the exact generation while a tampered generation failed closed",
+      "CMake strict import and dataset-authenticated host runtime PING passed",
+      "normal cached-dependency release build passed",
+      "59 packaging contract tests passed"
+    ],
+    "focused_swift_tests": {
+      "total": 22,
+      "normal_passed": 21,
+      "normal_optional_skipped": 1,
+      "actual_bundle_passed": 22,
+      "added_coverage": [
+        "stable Romaji resize",
+        "active profile writer shutdown and private TMPDIR cleanup"
+      ]
+    },
+    "full_swift_regression": {
+      "total": 257,
+      "optional_skipped": 6,
+      "failures": 0,
+      "execution": "normal host permissions"
+    },
+    "staged_generation": "sha256-ad277af2ad5a634f23c7b84b7f346b02f341905f10fcfa6eb9912db78a0866cb",
+    "actual_helper_smoke": {
+      "natural": {
+        "reading": "きょうはいしゃにいく",
+        "first_segment_key_size": 4,
+        "top_candidate": "今日は"
+      },
+      "resize": {
+        "reading": "きょうは",
+        "target_key_size": 3,
+        "segment_key_size": 3,
+        "top_candidate": "今日"
+      },
+      "status": "passed"
+    }
+  },
+  "clean_builder": {
+    "fixed_inputs_verified": [
+      "source revision and tree",
+      "Bazel 9.0.2",
+      "bazeliskrc SHA-256",
+      "MODULE.bazel.lock SHA-256",
+      "five-file overlay digest"
+    ],
+    "output_contract": "built helper must match the fixed size/SHA, ELF interpreter, and GNU runtime symbol-version maxima before bundle publication",
+    "network_namespace_compatibility": "Bazel system network usage profiling is disabled without weakening the outer no-network sandbox",
+    "restricted_no_network_run": "stopped after 747 processes when an uncached zip_code_ken_all archive could not be fetched",
+    "clean_offline_bundle_production_proven": false,
+    "status": "artifact emit/import contracts are tested, but a fully clean offline build requires a complete fixed repository cache"
+  },
+  "historical_preimplementation_estimate": {
     "files": "8-10",
     "handwritten_loc": "750-1050",
     "product_parity_additional_loc": "400-700"
   },
-  "shortest_slice": [
-    "Pin the upstream source and add helper convert, convertFirstSegment, and purge operations with learning hard-off.",
-    "Add Swift transport and select it only with FCITX5_GRIMODEX_CONVERTER=mozc; retain Hazkey as the default.",
-    "Reuse the surface mapper, enforce secure no-call, and respawn after helper failure.",
-    "Run the nine visible/session semantic scenarios against a fake core with a dedicated learning-off expectation; do not count this as full product parity.",
-    "Add the generic project/personal dictionary overlay and repeat the paired process benchmark before considering a default switch."
-  ]
+  "remaining_gates": [
+    "restore or explicitly retire partial-commit learning parity 1/1/1/0",
+    "add a generic project and personal dictionary candidate overlay",
+    "run a 100-500 item blind corpus with B1 or an immutable B2 snapshot",
+    "measure warm latency, steady RSS, and recovery at the same long-lived server and IPC boundary"
+  ],
+  "comparison_limitations": {
+    "dictionary": "project and personal dictionary state is not overlaid onto Mozc candidates",
+    "server_process": "Mozc session open still constructs two Hazkey KanaKanjiConverter instances and a HazkeySessionEnvironment, so server startup/RSS is not a clean Mozc-only versus Hazkey-only comparison",
+    "historical_process_ratio": "the 6.31 ratio belongs to different backend harnesses and is not product key-latency evidence",
+    "default_decision": "keep Hazkey as default; use Mozc only as the opt-in comparison implementation"
+  }
 }

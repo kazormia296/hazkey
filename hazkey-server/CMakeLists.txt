@@ -29,6 +29,71 @@ option(HAZKEY_SERVER_ZENZAI_TRAIT "Enable Zenzai trait in AzooKeyKanaKanjiConver
 set(HAZKEY_SERVER_SYSTEM_RESOURCE_PATH "${CMAKE_INSTALL_FULL_DATADIR}" CACHE PATH "System Resource path")
 set(HAZKEY_SERVER_SYSTEM_LIBRARY_PATH "${CMAKE_INSTALL_FULL_LIBDIR}" CACHE PATH "System Resource path")
 option(HAZKEY_SERVER_INSTALL_DICTIONARY "Install dictionary" ON)
+set(HAZKEY_SERVER_MOZC_ARTIFACT_DIR "" CACHE PATH
+    "Verified Mozc sidecar artifact bundle to import (empty disables the import)")
+
+if(NOT HAZKEY_SERVER_MOZC_ARTIFACT_DIR STREQUAL "")
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux"
+       OR NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+        message(FATAL_ERROR
+            "The fixed Mozc sidecar artifact is supported only on Linux x86_64")
+    endif()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    get_filename_component(
+        _HAZKEY_SERVER_MOZC_ARTIFACT_DIR
+        "${HAZKEY_SERVER_MOZC_ARTIFACT_DIR}"
+        ABSOLUTE
+        BASE_DIR "${CMAKE_CURRENT_BINARY_DIR}"
+    )
+    set(_HAZKEY_SERVER_MOZC_STAGING_ROOT
+        "${CMAKE_CURRENT_BINARY_DIR}/verified-mozc-artifacts")
+    set(_HAZKEY_SERVER_MOZC_VERIFIER
+        "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/scripts/verify_mozc_artifact_bundle.py")
+    execute_process(
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${_HAZKEY_SERVER_MOZC_VERIFIER}"
+            --bundle "${_HAZKEY_SERVER_MOZC_ARTIFACT_DIR}"
+            --stage-root "${_HAZKEY_SERVER_MOZC_STAGING_ROOT}"
+        RESULT_VARIABLE _HAZKEY_SERVER_MOZC_VERIFY_RESULT
+        OUTPUT_VARIABLE _HAZKEY_SERVER_MOZC_VERIFY_OUTPUT
+        ERROR_VARIABLE _HAZKEY_SERVER_MOZC_VERIFY_ERROR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_STRIP_TRAILING_WHITESPACE
+    )
+    if(NOT _HAZKEY_SERVER_MOZC_VERIFY_RESULT EQUAL 0)
+        message(FATAL_ERROR
+            "Mozc artifact bundle verification failed:\n"
+            "${_HAZKEY_SERVER_MOZC_VERIFY_ERROR}")
+    endif()
+    set(_HAZKEY_SERVER_MOZC_STAGING_DIR
+        "${_HAZKEY_SERVER_MOZC_VERIFY_OUTPUT}")
+    if(_HAZKEY_SERVER_MOZC_STAGING_DIR STREQUAL ""
+       OR NOT IS_DIRECTORY "${_HAZKEY_SERVER_MOZC_STAGING_DIR}")
+        message(FATAL_ERROR
+            "Mozc artifact verifier did not return a staged generation path")
+    endif()
+    execute_process(
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${_HAZKEY_SERVER_MOZC_VERIFIER}"
+            --verify-host-runtime "${_HAZKEY_SERVER_MOZC_STAGING_DIR}"
+        RESULT_VARIABLE _HAZKEY_SERVER_MOZC_RUNTIME_RESULT
+        ERROR_VARIABLE _HAZKEY_SERVER_MOZC_RUNTIME_ERROR
+        OUTPUT_QUIET
+        ERROR_STRIP_TRAILING_WHITESPACE
+    )
+    if(NOT _HAZKEY_SERVER_MOZC_RUNTIME_RESULT EQUAL 0)
+        message(FATAL_ERROR
+            "The fixed Mozc helper cannot run on this host. It requires "
+            "Linux x86_64 with /lib64/ld-linux-x86-64.so.2, GLIBC_2.38, "
+            "GLIBCXX_3.4.32, and CXXABI_1.3.15:\n"
+            "${_HAZKEY_SERVER_MOZC_RUNTIME_ERROR}")
+    endif()
+    message(STATUS
+        "Verified fixed Mozc artifact generation: "
+        "${_HAZKEY_SERVER_MOZC_STAGING_DIR}")
+endif()
 
 # TODO: check path reliability
 set(HAZKEY_SERVER_LIBLLAMA_BINDIR "${CMAKE_BINARY_DIR}/bin" CACHE PATH "Llama.cpp library directory" )
@@ -124,10 +189,42 @@ endif()
 
 # ---- install ---- #
 
+if(NOT HAZKEY_SERVER_MOZC_ARTIFACT_DIR STREQUAL "")
+    # Revalidate the exact content-addressed generation and host runtime before
+    # any server or sidecar destination is modified. This catches build-tree or
+    # runtime changes after configure.
+    install(CODE "
+        execute_process(
+            COMMAND \"${Python3_EXECUTABLE}\"
+                    \"${_HAZKEY_SERVER_MOZC_VERIFIER}\"
+                    --verify-host-runtime \"${_HAZKEY_SERVER_MOZC_STAGING_DIR}\"
+            RESULT_VARIABLE _HAZKEY_SERVER_MOZC_INSTALL_VERIFY_RESULT
+            ERROR_VARIABLE _HAZKEY_SERVER_MOZC_INSTALL_VERIFY_ERROR
+        )
+        if(NOT _HAZKEY_SERVER_MOZC_INSTALL_VERIFY_RESULT EQUAL 0)
+            message(FATAL_ERROR
+                \"Mozc staged generation verification failed before install: \${_HAZKEY_SERVER_MOZC_INSTALL_VERIFY_ERROR}\")
+        endif()
+    ")
+endif()
+
 # install hazkey-server
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/swift-build/${SWIFT_BUILD_TYPE}/hazkey-server
         RENAME fcitx5-grimodex-server
         DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR}/fcitx5-grimodex)
+
+if(NOT HAZKEY_SERVER_MOZC_ARTIFACT_DIR STREQUAL "")
+    install(PROGRAMS
+        "${_HAZKEY_SERVER_MOZC_STAGING_DIR}/fcitx5-grimodex-mozc-helper"
+        DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR}/fcitx5-grimodex)
+    install(FILES
+        "${_HAZKEY_SERVER_MOZC_STAGING_DIR}/mozc.data"
+        DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/fcitx5-grimodex/mozc)
+    install(DIRECTORY
+        "${_HAZKEY_SERVER_MOZC_STAGING_DIR}/licenses/"
+        DESTINATION
+            ${CMAKE_INSTALL_FULL_DATADIR}/licenses/fcitx5-grimodex/mozc-sidecar)
+endif()
 
 # SwiftPM resource accessors resolve these bundles next to the executable at
 # runtime. Installing only the executable leaves a build-machine fallback path

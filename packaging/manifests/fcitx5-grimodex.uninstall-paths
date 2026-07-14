@@ -5,6 +5,7 @@ required:/usr/lib/{,*/}fcitx5/fcitx5-grimodex.so
 required:/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-server
 required:/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-settings
 required:/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-model
+optional:/usr/lib/{,*/}fcitx5-grimodex/fcitx5-grimodex-mozc-helper
 required:/usr/lib/{,*/}fcitx5-grimodex/AzooKeyKanaKanjiConverter_EfficientNGram.resources/tokenizer/tokenizer.json
 optional:/usr/lib/{,*/}fcitx5-grimodex/AzooKeyKanaKanjiConverter_EfficientNGram.resources/**
 required:/usr/lib/{,*/}fcitx5-grimodex/swift-transformers_Hub.resources/gpt2_tokenizer_config.json
@@ -21,6 +22,7 @@ required:/usr/share/licenses/fcitx5-grimodex/THIRDPARTYLICENSE
 optional:/usr/share/licenses/fcitx5-grimodex/third-party/azookey-dictionary/**
 optional:/usr/share/licenses/fcitx5-grimodex/third-party/azookey-emoji/**
 optional:/usr/share/licenses/fcitx5-grimodex/third-party/llama.cpp/**
+optional:/usr/share/licenses/fcitx5-grimodex/mozc-sidecar/**
 optional:/usr/share/licenses/fcitx5-grimodex/third-party/protobuf/**
 optional:/usr/share/licenses/fcitx5-grimodex/third-party/swift-packages/**
 optional:/usr/share/licenses/fcitx5-grimodex/third-party/swift-runtime/**

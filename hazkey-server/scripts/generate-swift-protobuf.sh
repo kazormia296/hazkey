@@ -17,4 +17,4 @@ cd "$repo_root/protocol"
   --proto_path=. \
   "--plugin=protoc-gen-swift=$PROTOC_GEN_SWIFT" \
   "--swift_out=$output" \
-  base.proto commands.proto config.proto
+  base.proto commands.proto config.proto mozc_sidecar.proto

@@ -8,6 +8,10 @@ struct ConversionOptions: Equatable, Sendable {
 
     let allowLearning: Bool
     let zenzaiEnabled: Bool
+    /// Privacy boundary for out-of-process converters. This is separate from
+    /// learning/Zenzai because a normal learning-off composition may still be
+    /// sent to a converter while secure input must never cross that boundary.
+    let secureInput: Bool
     let leftContext: String
     let rightContext: String
     let suggestionListMode: ImeSuggestionListMode
@@ -16,6 +20,7 @@ struct ConversionOptions: Equatable, Sendable {
     init(
         allowLearning: Bool,
         zenzaiEnabled: Bool,
+        secureInput: Bool = false,
         leftContext: String,
         rightContext: String,
         suggestionListMode: ImeSuggestionListMode,
@@ -23,6 +28,7 @@ struct ConversionOptions: Equatable, Sendable {
     ) {
         self.allowLearning = allowLearning
         self.zenzaiEnabled = zenzaiEnabled
+        self.secureInput = secureInput
         self.leftContext = leftContext
         self.rightContext = rightContext
         self.suggestionListMode = suggestionListMode
@@ -41,6 +47,7 @@ struct ConversionOptions: Equatable, Sendable {
     static let `default` = ConversionOptions(
         allowLearning: true,
         zenzaiEnabled: true,
+        secureInput: false,
         leftContext: "",
         rightContext: "",
         suggestionListMode: .predictive,

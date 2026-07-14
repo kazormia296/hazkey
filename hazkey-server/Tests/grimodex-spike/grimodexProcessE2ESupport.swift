@@ -153,6 +153,12 @@ final class GrimodexProcessHarness {
     logHandle = handle
 
     var environment = ProcessInfo.processInfo.environment
+    // Product E2E remains a Hazkey-default gate even when a developer's shell
+    // opts into the Mozc comparison backend. Mozc process behavior has a
+    // dedicated hermetic fixture suite.
+    environment.removeValue(forKey: "FCITX5_GRIMODEX_CONVERTER")
+    environment.removeValue(forKey: "FCITX5_GRIMODEX_MOZC_HELPER")
+    environment.removeValue(forKey: "FCITX5_GRIMODEX_MOZC_DATA")
     environment["HOME"] = homeURL.path
     environment["GRIMODEX_IME_ROOT"] = grimodexRootURL.path
     environment["XDG_RUNTIME_DIR"] = runtimeURL.path

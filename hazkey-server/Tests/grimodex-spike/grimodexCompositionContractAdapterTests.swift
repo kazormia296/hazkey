@@ -111,7 +111,14 @@ private struct ContractScenario: Decodable {
   }
 }
 
-private final class ContractFixtureConverter: KanaKanjiConverting {
+private protocol ContractScenarioConverting: KanaKanjiConverting {
+  var completed: Int { get }
+  var updated: Int { get }
+  var committed: Int { get }
+  var forgotten: Int { get }
+}
+
+private final class ContractFixtureConverter: ContractScenarioConverting {
   enum FixtureError: Error { case requestedFailure }
 
   let shouldFail: Bool
@@ -161,8 +168,137 @@ private final class ContractFixtureConverter: KanaKanjiConverting {
   func stopComposition() {}
 }
 
+private final class ContractMozcCore: MozcCoreConverting {
+  enum FixtureError: Error { case requestedFailure }
+
+  let shouldFail: Bool
+
+  init(shouldFail: Bool) {
+    self.shouldFail = shouldFail
+  }
+
+  func convert(
+    reading: String,
+    targetKeySize: Int?,
+    maxCandidates: Int
+  ) throws -> MozcCoreConversion {
+    if shouldFail { throw FixtureError.requestedFailure }
+    let keySize = targetKeySize ?? min(2, reading.unicodeScalars.count)
+    let prefix = String(reading.unicodeScalars.prefix(keySize))
+    return MozcCoreConversion(
+      candidates: [
+        MozcCoreCandidate(
+          value: "変換",
+          description: nil,
+          consumedKeySize: keySize
+        ),
+        MozcCoreCandidate(
+          value: prefix,
+          description: "reading",
+          consumedKeySize: keySize
+        ),
+      ],
+      segmentKeySize: keySize
+    )
+  }
+
+  func purgeSensitiveState() {}
+}
+
+/// Runs the locked cross-platform fixture through the real Mozc adapter and a
+/// fake process contract. This wrapper keeps the versioned v1 snapshots on
+/// their compatibility path; production segmentation is exercised by the
+/// dedicated Mozc reducer integration test.
+private final class ContractMozcAdapter: ContractScenarioConverting {
+  private let adapter: MozcKanaKanjiConverterAdapter
+  let completed = 0
+  let updated = 0
+  let committed = 0
+  let forgotten = 0
+
+  init(shouldFail: Bool) {
+    adapter = MozcKanaKanjiConverterAdapter(
+      core: ContractMozcCore(shouldFail: shouldFail)
+    )
+  }
+
+  func display(for composition: CompositionInput) -> CompositionDisplay {
+    adapter.display(for: composition)
+  }
+
+  func inputCursorPosition(
+    for composition: CompositionInput,
+    movingBy offset: Int
+  ) -> Int {
+    adapter.inputCursorPosition(for: composition, movingBy: offset)
+  }
+
+  func candidates(
+    for composition: CompositionInput,
+    options: ConversionOptions
+  ) throws -> ConversionOutput {
+    if composition.targetCount == nil {
+      return try adapter.segmentCandidates(for: composition, options: options)
+    }
+    return try adapter.candidates(for: composition, options: options)
+  }
+
+  func realtimeCandidates(
+    for composition: CompositionInput,
+    options: ConversionOptions
+  ) throws -> RealtimeConversionOutput {
+    try adapter.realtimeCandidates(for: composition, options: options)
+  }
+
+  func predictions(
+    for composition: CompositionInput,
+    options: ConversionOptions
+  ) throws -> ConversionOutput {
+    try adapter.predictions(for: composition, options: options)
+  }
+
+  func setCompletedData(_ candidate: ConverterCandidate) {}
+  func updateLearningData(_ candidate: ConverterCandidate) {}
+  func commitLearning() {}
+  func forget(_ candidate: ConverterCandidate) {}
+  func stopComposition() { adapter.stopComposition() }
+  func purgeSensitiveState() { adapter.purgeSensitiveState() }
+}
+
 final class GrimodexCompositionContractAdapterTests: XCTestCase {
   func testAllLockedCompositionBehaviorScenariosRunThroughTheLinuxReducer() throws {
+    try runLockedScenarios(
+      converterFactory: {
+        ContractFixtureConverter(
+          shouldFail: $0.converterFault == "converter_throws"
+        )
+      },
+      expectedLearning: { $0.expectedLearning }
+    )
+  }
+
+  func testAllLockedCompositionBehaviorScenariosRunThroughMozcAdapter() throws {
+    try runLockedScenarios(
+      converterFactory: {
+        ContractMozcAdapter(
+          shouldFail: $0.converterFault == "converter_throws"
+        )
+      },
+      expectedLearning: { _ in
+        ContractScenario.ExpectedLearning(
+          completed: 0,
+          updated: 0,
+          committed: 0,
+          forgotten: 0
+        )
+      }
+    )
+  }
+
+  private func runLockedScenarios(
+    converterFactory: (ContractScenario) -> any ContractScenarioConverting,
+    expectedLearning: (ContractScenario) -> ContractScenario.ExpectedLearning
+  ) throws {
     let root = try XCTUnwrap(Bundle.module.resourceURL)
       .appendingPathComponent("Fixtures/composition-behavior-v1/scenarios")
     let urls = try FileManager.default.contentsOfDirectory(
@@ -189,9 +325,7 @@ final class GrimodexCompositionContractAdapterTests: XCTestCase {
       session.phase = ImePhase(rawValue: scenario.initial.phase) ?? .idle
       session.revision = scenario.initial.revision
       session.composingText.insert(scenario.initial.composition, inputStyle: .direct)
-      let converter = ContractFixtureConverter(
-        shouldFail: scenario.converterFault == "converter_throws"
-      )
+      let converter = converterFactory(scenario)
       let reducer = ImeReducer(
         session: session,
         converter: converter
@@ -236,10 +370,11 @@ final class GrimodexCompositionContractAdapterTests: XCTestCase {
         }
       }
 
-      XCTAssertEqual(converter.completed, scenario.expectedLearning.completed, scenario.scenarioID)
-      XCTAssertEqual(converter.updated, scenario.expectedLearning.updated, scenario.scenarioID)
-      XCTAssertEqual(converter.committed, scenario.expectedLearning.committed, scenario.scenarioID)
-      XCTAssertEqual(converter.forgotten, scenario.expectedLearning.forgotten, scenario.scenarioID)
+      let learning = expectedLearning(scenario)
+      XCTAssertEqual(converter.completed, learning.completed, scenario.scenarioID)
+      XCTAssertEqual(converter.updated, learning.updated, scenario.scenarioID)
+      XCTAssertEqual(converter.committed, learning.committed, scenario.scenarioID)
+      XCTAssertEqual(converter.forgotten, learning.forgotten, scenario.scenarioID)
     }
 
     XCTAssertEqual(observed, required)

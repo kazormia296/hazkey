@@ -126,6 +126,7 @@ final class HazkeySessionRegistry {
     private let revisionProviderFactory: RevisionProviderFactory
     private let dicdataStoreFactory: DicdataStoreFactory
     private let userDictionaryStore: UserDictionaryStore
+    private let mozcCore: (any MozcCoreConverting)?
     private let learningRevisionStore = HazkeyLearningRevisionStore()
     private let zenzaiRuntimeDiagnosticsStore = ZenzaiRuntimeDiagnosticsStore()
     private let maximumSessions: Int
@@ -147,6 +148,7 @@ final class HazkeySessionRegistry {
         },
         dicdataStoreFactory: DicdataStoreFactory? = nil,
         userDictionaryStore: UserDictionaryStore? = nil,
+        mozcCore: (any MozcCoreConverting)? = nil,
         maximumSessions: Int = 128,
         maximumSessionsPerOwner: Int = 16,
         idleTimeout: TimeInterval = 30 * 60,
@@ -162,6 +164,14 @@ final class HazkeySessionRegistry {
             persistenceURL: HazkeyServerConfig.getDataDirectory()
                 .appendingPathComponent("user-dictionary-v1.json")
         )
+        if serverConfig.converterBackend == .mozc {
+            self.mozcCore = mozcCore ?? MozcSidecarClient(
+                helperPath: serverConfig.mozcHelperPath,
+                dataPath: serverConfig.mozcDataPath
+            )
+        } else {
+            self.mozcCore = nil
+        }
         self.maximumSessions = max(1, maximumSessions)
         self.maximumSessionsPerOwner = max(
             1,
@@ -174,7 +184,9 @@ final class HazkeySessionRegistry {
             environment.clearProfileLearningData()
         }
         zenzaiRuntimeDiagnosticsStore.reset(
-            decision: serverConfig.zenzaiRuntimeDecision(zenzaiAllowed: true)
+            decision: serverConfig.zenzaiRuntimeDecision(
+                zenzaiAllowed: serverConfig.converterBackend != .mozc
+            )
         )
     }
 
@@ -240,6 +252,7 @@ final class HazkeySessionRegistry {
         let liveConversionDelayMilliseconds = supportsScheduledLiveConversion
             ? environment.grimodexLiveConversionDelayMilliseconds
             : 0
+        let usesMozc = serverConfig.converterBackend == .mozc
         let semanticSession = CompositionSession(
             sessionID: sessionID,
             context: SessionContext(
@@ -248,9 +261,13 @@ final class HazkeySessionRegistry {
                 projectRevision: appliedRevision?.generation ?? 0
             ),
             policy: PinnedCompositionPolicy(
-                allowsLearning: environment.grimodexAllowsLearning,
+                allowsLearning: usesMozc
+                    ? false
+                    : environment.grimodexAllowsLearning,
                 secureInput: environment.grimodexSecureInput,
-                zenzaiEnabled: !environment.grimodexSecureInput,
+                zenzaiEnabled: usesMozc
+                    ? false
+                    : !environment.grimodexSecureInput,
                 projectRevision: appliedRevision?.generation ?? 0,
                 autoConvertMode: environment.grimodexAutoConvertMode,
                 liveConversionDelayMilliseconds: liveConversionDelayMilliseconds,
@@ -265,50 +282,72 @@ final class HazkeySessionRegistry {
             )
         )
         let zenzaiRuntimeDiagnosticsStore = self.zenzaiRuntimeDiagnosticsStore
-        let productionConverter = HazkeyKanaKanjiConverterAdapter(
-            converter: converter,
-            boundaryConverter: environment.boundaryConverter,
-            optionsProvider: { [environment] options in
-                var requestOptions = environment.baseConvertRequestOptions
-                requestOptions.zenzaiMode = environment.serverConfig.genZenzaiMode(
-                    leftContext: options.leftContext,
-                    rightContext: options.rightContext,
-                    projectConditions: environment.grimodexActiveConditions,
-                    zenzaiAllowed: options.zenzaiEnabled
-                )
-                return requestOptions
-            },
-            mappedInputStyleProvider: { [environment] in
-                .mapped(id: .tableName(environment.currentTableName))
-            },
-            projectDictionaryIndexProvider: { [environment] in
-                environment.grimodexProjectDictionaryIndex
-            },
-            zenzaiDiagnosticsReporter: { [environment] options, status in
-                zenzaiRuntimeDiagnosticsStore.record(
-                    decision: environment.serverConfig.zenzaiRuntimeDecision(
-                        zenzaiAllowed: options.zenzaiEnabled
-                    ),
-                    converterStatus: status
-                )
+        let productionConverter: any KanaKanjiConverting
+        if usesMozc {
+            guard let mozcCore else {
+                preconditionFailure("Mozc backend selected without a core supervisor")
             }
-        )
+            productionConverter = MozcKanaKanjiConverterAdapter(
+                core: mozcCore,
+                mappedInputStyleProvider: { [environment] in
+                    .mapped(id: .tableName(environment.currentTableName))
+                }
+            )
+        } else {
+            productionConverter = HazkeyKanaKanjiConverterAdapter(
+                converter: converter,
+                boundaryConverter: environment.boundaryConverter,
+                optionsProvider: { [environment] options in
+                    var requestOptions = environment.baseConvertRequestOptions
+                    requestOptions.zenzaiMode = environment.serverConfig.genZenzaiMode(
+                        leftContext: options.leftContext,
+                        rightContext: options.rightContext,
+                        projectConditions: environment.grimodexActiveConditions,
+                        zenzaiAllowed: options.zenzaiEnabled
+                    )
+                    return requestOptions
+                },
+                mappedInputStyleProvider: { [environment] in
+                    .mapped(id: .tableName(environment.currentTableName))
+                },
+                projectDictionaryIndexProvider: { [environment] in
+                    environment.grimodexProjectDictionaryIndex
+                },
+                zenzaiDiagnosticsReporter: { [environment] options, status in
+                    zenzaiRuntimeDiagnosticsStore.record(
+                        decision: environment.serverConfig.zenzaiRuntimeDecision(
+                            zenzaiAllowed: options.zenzaiEnabled
+                        ),
+                        converterStatus: status
+                    )
+                }
+            )
+        }
+        let reducerConverter: any KanaKanjiConverting = if usesMozc {
+            productionConverter
+        } else {
+            LearningSynchronizedKanaKanjiConverter(
+                base: productionConverter,
+                revisionStore: learningRevisionStore
+            )
+        }
         let semanticController = ImeV2SessionController(
             reducer: ImeReducer(
                 session: semanticSession,
-                converter: LearningSynchronizedKanaKanjiConverter(
-                    base: productionConverter,
-                    revisionStore: learningRevisionStore
-                ),
+                converter: reducerConverter,
                 stagedLearningEnabled: supportsStagedLearningResolution
             ),
             policyProvider: { [environment] in
                 environment.refreshGrimodexIntegration()
                 let revision = environment.grimodexAppliedRevision
                 return PinnedCompositionPolicy(
-                    allowsLearning: environment.grimodexAllowsLearning,
+                    allowsLearning: usesMozc
+                        ? false
+                        : environment.grimodexAllowsLearning,
                     secureInput: environment.grimodexSecureInput,
-                    zenzaiEnabled: !environment.grimodexSecureInput,
+                    zenzaiEnabled: usesMozc
+                        ? false
+                        : !environment.grimodexSecureInput,
                     projectRevision: revision?.generation ?? 0,
                     autoConvertMode: environment.grimodexAutoConvertMode,
                     liveConversionDelayMilliseconds: supportsScheduledLiveConversion
@@ -395,7 +434,9 @@ final class HazkeySessionRegistry {
 
     func reinitializeAll() {
         zenzaiRuntimeDiagnosticsStore.reset(
-            decision: serverConfig.zenzaiRuntimeDecision(zenzaiAllowed: true)
+            decision: serverConfig.zenzaiRuntimeDecision(
+                zenzaiAllowed: serverConfig.converterBackend != .mozc
+            )
         )
         for session in sessions.values {
             session.environment.reinitializeConfiguration()
