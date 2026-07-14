@@ -478,6 +478,23 @@ final class GrimodexMozcSidecarTests: XCTestCase {
   }
 
   func testProtocolV2RealServerDoesNotReplayEOFAndRecoversFreshRequest() throws {
+    try assertProtocolV2RealServerRecoversAfterSidecarFailure(
+      faultName: "eof",
+      fixtureMode: "eof_after_convert_once"
+    )
+  }
+
+  func testProtocolV2RealServerDoesNotReplayTimeoutAndRecoversFreshRequest() throws {
+    try assertProtocolV2RealServerRecoversAfterSidecarFailure(
+      faultName: "timeout",
+      fixtureMode: "timeout_after_convert_once"
+    )
+  }
+
+  private func assertProtocolV2RealServerRecoversAfterSidecarFailure(
+    faultName: String,
+    fixtureMode: String
+  ) throws {
     guard
       let executablePath = ProcessInfo.processInfo.environment[
         "GRIMODEX_PROCESS_E2E_SERVER"
@@ -485,10 +502,11 @@ final class GrimodexMozcSidecarTests: XCTestCase {
       !executablePath.isEmpty
     else {
       throw XCTSkip(
-        "Set GRIMODEX_PROCESS_E2E_SERVER to run the Mozc EOF process recovery test"
+        "Set GRIMODEX_PROCESS_E2E_SERVER to run the Mozc \(faultName) process recovery test"
       )
     }
-    let fixture = try makeProcessFixture(mode: "eof_after_convert_once")
+    let fixture = try makeProcessFixture(mode: fixtureMode)
+    let expectedStallCount = fixtureMode == "timeout_after_convert_once" ? 1 : 0
     defer { try? FileManager.default.removeItem(at: fixture.directory) }
     let snapshotFixture = try GrimodexProcessSnapshotFixture()
     defer { snapshotFixture.remove() }
@@ -513,12 +531,14 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     }
     let client = try GrimodexProcessClient.connect(to: server.socketURL)
     defer { client.close() }
-    let session = try client.openSessionInfo(program: "mozc-eof-recovery")
+    let session = try client.openSessionInfo(
+      program: "mozc-\(faultName)-recovery"
+    )
     XCTAssertEqual(session.protocolVersion, 2)
 
     let inserted = try client.transactV2(
       sessionID: session.sessionID,
-      requestID: "mozc-eof-insert",
+      requestID: "mozc-\(faultName)-insert",
       expectedRevision: 0
     ) {
       $0.insertText = Hazkey_Commands_InsertText.with { $0.text = "かな" }
@@ -529,7 +549,7 @@ final class GrimodexMozcSidecarTests: XCTestCase {
 
     let failed = try client.transactV2(
       sessionID: session.sessionID,
-      requestID: "mozc-eof-convert",
+      requestID: "mozc-\(faultName)-convert",
       expectedRevision: insertedSnapshot.revision
     ) {
       $0.startConversion = .init()
@@ -544,6 +564,7 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     XCTAssertTrue(server.isRunning)
     XCTAssertEqual(try lineCount(fixture.marker), 1)
     XCTAssertEqual(try lineCount(fixture.conversions), 1)
+    XCTAssertEqual(try lineCount(fixture.stalls), expectedStallCount)
     let rootsAfterFailure = try recordedTemporaryRoots(in: fixture)
     XCTAssertEqual(rootsAfterFailure.count, 1)
     let failedRoot = try XCTUnwrap(rootsAfterFailure.first)
@@ -551,7 +572,7 @@ final class GrimodexMozcSidecarTests: XCTestCase {
 
     let duplicate = try client.transactV2(
       sessionID: session.sessionID,
-      requestID: "mozc-eof-convert",
+      requestID: "mozc-\(faultName)-convert",
       expectedRevision: insertedSnapshot.revision
     ) {
       $0.startConversion = .init()
@@ -559,10 +580,11 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     XCTAssertEqual(try duplicate.serializedData(), try failed.serializedData())
     XCTAssertEqual(try lineCount(fixture.marker), 1)
     XCTAssertEqual(try lineCount(fixture.conversions), 1)
+    XCTAssertEqual(try lineCount(fixture.stalls), expectedStallCount)
 
     let recovered = try client.transactV2(
       sessionID: session.sessionID,
-      requestID: "mozc-eof-convert-retry",
+      requestID: "mozc-\(faultName)-convert-retry",
       expectedRevision: failedSnapshot.revision
     ) {
       $0.startConversion = .init()
@@ -571,8 +593,10 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     let recoveredSnapshot = recovered.handleImeActionResult.snapshot
     XCTAssertEqual(recoveredSnapshot.phase, .previewing)
     XCTAssertEqual(recoveredSnapshot.candidateWindow.items.first?.text, "仮名")
+    XCTAssertGreaterThan(recoveredSnapshot.revision, failedSnapshot.revision)
     XCTAssertEqual(try lineCount(fixture.marker), 2)
     XCTAssertEqual(try lineCount(fixture.conversions), 2)
+    XCTAssertEqual(try lineCount(fixture.stalls), expectedStallCount)
     XCTAssertTrue(server.isRunning)
 
     let temporaryRoots = try recordedTemporaryRoots(in: fixture)
@@ -974,6 +998,7 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     let data: URL
     let marker: URL
     let conversions: URL
+    let stalls: URL
     let temporaryRoots: URL
   }
 
@@ -1006,6 +1031,7 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     let data = directory.appendingPathComponent("mozc.data")
     let marker = directory.appendingPathComponent("launches.txt")
     let conversions = directory.appendingPathComponent("conversions.txt")
+    let stalls = directory.appendingPathComponent("stalls.txt")
     let temporaryRoots = directory.appendingPathComponent("temporary-roots.txt")
     try Data("fixture".utf8).write(to: data)
     let script = """
@@ -1015,6 +1041,7 @@ final class GrimodexMozcSidecarTests: XCTestCase {
       MODE = "\(mode)"
       MARKER = "\(marker.path)"
       CONVERSIONS = "\(conversions.path)"
+      STALLS = "\(stalls.path)"
       TEMPORARY_ROOTS = "\(temporaryRoots.path)"
       SHA = "\(MozcSidecarClient.fixedB0DatasetSHA256)"
 
@@ -1142,6 +1169,13 @@ final class GrimodexMozcSidecarTests: XCTestCase {
                   and os.path.getsize(MARKER) == len("launch\\n")):
               sys.exit(0)
 
+          if (MODE == "timeout_after_convert_once"
+                  and os.path.getsize(MARKER) == len("launch\\n")):
+              with open(STALLS, "a", encoding="utf-8") as f:
+                  f.write("stall\\n")
+              while True:
+                  time.sleep(60)
+
           key_size = target or len(reading)
           response_key_size = (
               max(1, key_size - 1)
@@ -1180,6 +1214,7 @@ final class GrimodexMozcSidecarTests: XCTestCase {
       data: data,
       marker: marker,
       conversions: conversions,
+      stalls: stalls,
       temporaryRoots: temporaryRoots
     )
   }
