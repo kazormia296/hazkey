@@ -1,0 +1,15 @@
+{"id":"sentence-weather","candidates":["今日はいい天気です"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"term-japanese-input","candidates":["日本語入力"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"proper-yamanashi-museum","candidates":["山梨県立美術館"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"suffix-shiga-direction","candidates":["滋賀方面"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"verb-append","candidates":["追記したい"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"mixed-main-merge","candidates":["mainにマージしました"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"mixed-github-particle","candidates":["githubには"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"syntax-particle","candidates":["には"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"syntax-colloquial","candidates":["してたの"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"idiom-close-at-hand","candidates":["肌見放さず"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"particle-tea","candidates":["お茶入りません"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"compound-interpersonal","candidates":["対人スキル"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"compound-sleep-call","candidates":["値落ち通話"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"expressive-very","candidates":["めっちゃ"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}
+{"id":"ambiguity-rainbow","candidates":["虹"],"backend":"fcitx-mozkey-core","source_ref":"462cbbf04886e32096bc318833e974ccc43d9fc8","dictionary":"mozc-oss-clean-checkout"}

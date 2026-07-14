@@ -1,0 +1,123 @@
+{
+  "schema": "grimodex.ime-base-spike-capability.v1",
+  "target": {
+    "repository": "Masterisk-F/fcitx-mozkey",
+    "source_ref": "462cbbf04886e32096bc318833e974ccc43d9fc8",
+    "fcitx_pool_policy": "No"
+  },
+  "contract": {
+    "id": "composition-behavior-v1",
+    "scenario_count": 9,
+    "step_count": 26,
+    "execution_status": "source-prediction-only"
+  },
+  "scenarios": [
+    {
+      "id": "composing-basic",
+      "criticality": "required",
+      "core": "supported",
+      "fcitx": "supported",
+      "grimodex_observability": "missing",
+      "predicted_result": "partial",
+      "missing": ["revision", "effect_id"],
+      "evidence": ["src/protocol/commands.proto", "src/session/session.cc"]
+    },
+    {
+      "id": "cursor-editing",
+      "criticality": "required",
+      "core": "supported",
+      "fcitx": "supported",
+      "grimodex_observability": "missing",
+      "predicted_result": "fail",
+      "missing": ["extended_grapheme_cluster_cursor"],
+      "evidence": ["src/protocol/commands.proto", "src/unix/fcitx5/mozc_state.cc"]
+    },
+    {
+      "id": "escape-backspace",
+      "criticality": "required",
+      "core": "supported",
+      "fcitx": "supported",
+      "grimodex_observability": "sufficient",
+      "predicted_result": "pass",
+      "missing": [],
+      "evidence": ["src/session/session.cc", "src/unix/fcitx5/mozc_state.cc"]
+    },
+    {
+      "id": "partial-commit",
+      "criticality": "required",
+      "core": "supported",
+      "fcitx": "supported",
+      "grimodex_observability": "missing",
+      "predicted_result": "partial",
+      "missing": ["learning_effect_metadata", "effect_id"],
+      "evidence": ["src/protocol/commands.proto", "src/session/session.cc"]
+    },
+    {
+      "id": "secure-input",
+      "criticality": "hard-gate",
+      "core": "partial",
+      "fcitx": "missing",
+      "grimodex_observability": "missing",
+      "predicted_result": "fail",
+      "missing": ["input_field_type_propagation", "project_revoke", "sensitive_state_purge"],
+      "evidence": ["src/protocol/commands.proto", "src/unix/fcitx5/mozc_state.cc"]
+    },
+    {
+      "id": "segment-editing",
+      "criticality": "required",
+      "core": "supported",
+      "fcitx": "supported",
+      "grimodex_observability": "missing",
+      "predicted_result": "partial",
+      "missing": ["candidate_generation"],
+      "evidence": ["src/protocol/commands.proto", "src/session/session.cc"]
+    },
+    {
+      "id": "server-failure",
+      "criticality": "hard-gate",
+      "core": "partial",
+      "fcitx": "partial",
+      "grimodex_observability": "missing",
+      "predicted_result": "fail",
+      "missing": ["request_id", "checkpoint", "effect_deduplication", "exact_once_commit"],
+      "evidence": ["src/protocol/commands.proto", "src/unix/fcitx5/mozc_state.cc"]
+    },
+    {
+      "id": "stale-candidate",
+      "criticality": "hard-gate",
+      "core": "missing",
+      "fcitx": "missing",
+      "grimodex_observability": "missing",
+      "predicted_result": "fail",
+      "missing": ["candidate_generation", "expected_revision", "no_mutation_on_stale"],
+      "evidence": ["src/protocol/commands.proto", "src/unix/fcitx5/mozc_response_parser.cc"]
+    },
+    {
+      "id": "unicode-caret",
+      "criticality": "required",
+      "core": "partial",
+      "fcitx": "partial",
+      "grimodex_observability": "missing",
+      "predicted_result": "fail",
+      "missing": ["extended_grapheme_cluster_offsets"],
+      "evidence": ["src/protocol/commands.proto", "src/unix/fcitx5/mozc_response_parser.cc"]
+    }
+  ],
+  "project_invariants": [
+    {"id": "strict-snapshot-validation", "status": "missing"},
+    {"id": "consumer-handshake-heartbeat", "status": "missing"},
+    {"id": "grimodex-only-application-scope", "status": "missing"},
+    {"id": "session-project-dictionary-layer", "status": "missing"},
+    {"id": "composition-generation-pin", "status": "missing"},
+    {"id": "secure-immediate-purge", "status": "missing"},
+    {"id": "protected-surface-provenance", "status": "missing"},
+    {"id": "stale-generation-no-mutation", "status": "missing"}
+  ],
+  "decision": {
+    "quality": "promising",
+    "performance": "promising",
+    "contract": "hard-gate-failed",
+    "dictionary_reproducibility": "failed",
+    "recommendation": "keep-hazkey-base; investigate a Mozc conversion-core adapter only"
+  }
+}

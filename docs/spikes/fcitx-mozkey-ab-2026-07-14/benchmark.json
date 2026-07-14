@@ -1,0 +1,70 @@
+{
+  "schema": "grimodex.ime-base-ab-benchmark.v1",
+  "measured_at": "2026-07-14",
+  "environment": {
+    "os": "Arch Linux",
+    "architecture": "x86_64",
+    "scope": "Fcitx, IPC, rendering, and Zenzai excluded; backend timing and RSS measurement scopes differ"
+  },
+  "corpus": {
+    "path": "hazkey-server/Tests/grimodex-spike/Fixtures/ime-base-ab-v1/conversion-quality-v1.tsv",
+    "cases": 15
+  },
+  "quality": {
+    "metric": "top1 exact match",
+    "hazkey": {
+      "source_ref": "8e8ce85cca10ee6a02008322628f3f8a965a62db",
+      "probe_harness": "hazkey-server/Sources/hazkey-server/ABProbe.swift (working-tree spike; conversion logic unchanged)",
+      "version": "0.2.1",
+      "dictionary": "azooKey_dictionary_storage/Dictionary",
+      "dictionary_fingerprint": "sha256:cee9210b8dc92a30e8b4e600c416db70a51fed1199f6b4c3659aba821ef4024c",
+      "hits": 10,
+      "rate": 0.6666666666666666
+    },
+    "fcitx_mozkey": {
+      "source_ref": "462cbbf04886e32096bc318833e974ccc43d9fc8",
+      "dictionary": "standard Mozc OSS dictionary from a clean checkout",
+      "hits": 12,
+      "rate": 0.8,
+      "rate_delta_vs_hazkey": 0.13333333333333341
+    },
+    "wins": {
+      "hazkey": 0,
+      "fcitx_mozkey": 2,
+      "ties": 13
+    }
+  },
+  "performance": {
+    "workload": "15 cases x 100 conversions x 5 process runs",
+    "comparability": "reference only; backend latency and RSS values are not directly comparable",
+    "hazkey": {
+      "measurement_scope": "converter-call latency samples emitted by ABProbe",
+      "warmups_per_case": 5,
+      "measured_conversions": 7500,
+      "mean_ms_per_conversion": 4.244566532533334,
+      "median_ms_per_conversion": 3.4951869999999996,
+      "p95_ms_per_conversion": 10.355204,
+      "mean_summed_converter_call_ms_per_1500_conversions": 6366.8497988,
+      "rss_reference": {
+        "method": "maximum of ABProbe before/after RSS snapshots",
+        "value_kib": 52312
+      }
+    },
+    "fcitx_mozkey": {
+      "measurement_scope": "CLI process wall clock from /usr/bin/time, including startup, data loading, and test-harness overhead",
+      "measured_conversions": 7500,
+      "mean_cli_wall_clock_ms_per_1500_cases": 782.2,
+      "cli_wall_clock_ms_per_case_equivalent": 0.522,
+      "rss_reference": {
+        "method": "CLI process maximum RSS from /usr/bin/time -f %M",
+        "value_mib": 29.6
+      }
+    }
+  },
+  "limitations": [
+    "The two backends use different engine-specific benchmark executables and measurement boundaries; latency and RSS ratios are intentionally not reported.",
+    "The fcitx-mozkey clean checkout does not contain the author's generated daily dictionary.",
+    "fcitx-mozkey Top-K candidate lists were not captured, so only Top-1 is compared.",
+    "The 15-case corpus is a decision spike, not a representative language benchmark."
+  ]
+}

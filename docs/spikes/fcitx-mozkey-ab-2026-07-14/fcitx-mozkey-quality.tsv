@@ -1,0 +1,16 @@
+# label	key	value	command
+ab-1-sentence-weather	きょうはいいてんきです	今日はいい天気です	Conversion Expected
+ab-1-term-japanese-input	にほんごにゅうりょく	日本語入力	Conversion Expected
+ab-1-proper-yamanashi-museum	やまなしけんりつびじゅつかん	山梨県立美術館	Conversion Expected
+ab-1-suffix-shiga-direction	しがほうめん	滋賀方面	Conversion Expected
+ab-1-verb-append	ついきしたい	追記したい	Conversion Expected
+ab-1-mixed-main-merge	mainにまーじしました	mainにマージしました	Conversion Expected
+ab-1-mixed-github-particle	githubには	githubには	Conversion Expected
+ab-1-syntax-particle	には	には	Conversion Expected
+ab-1-syntax-colloquial	してたの	してたの	Conversion Expected
+ab-1-idiom-close-at-hand	はだみはなさず	肌身離さず	Conversion Expected
+ab-1-particle-tea	おちゃはいりません	お茶はいりません	Conversion Expected
+ab-1-compound-interpersonal	たいじんすきる	対人スキル	Conversion Expected
+ab-1-compound-sleep-call	ねおちつうわ	寝落ち通話	Conversion Expected
+ab-1-expressive-very	めっちゃ	めっちゃ	Conversion Expected
+ab-1-ambiguity-rainbow	にじ	虹	Conversion Expected
