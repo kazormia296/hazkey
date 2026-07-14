@@ -176,8 +176,9 @@ struct Hazkey_OpenSession: Sendable {
   mutating func clearClient() {self._client = nil}
 
   /// Client capabilities understood by the server. Bit 0 means the client
-  /// can apply SCHEDULE_LIVE_CONVERSION effects. An omitted value identifies
-  /// a pre-debounce client and makes the server preserve immediate conversion.
+  /// can apply SCHEDULE_LIVE_CONVERSION effects. Bit 1 means it understands
+  /// pending_learning and explicitly resolves the staged-learning undo
+  /// window. Missing bits preserve the corresponding legacy immediate mode.
   var clientFeatureBits: UInt64 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()

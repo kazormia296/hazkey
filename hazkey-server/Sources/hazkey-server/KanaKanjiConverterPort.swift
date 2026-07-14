@@ -1,18 +1,50 @@
 import Foundation
 
 struct ConversionOptions: Equatable, Sendable {
+    /// Matches the settings UI's supported range. Keeping the converter-side
+    /// bound here prevents a malformed config or recovery policy from turning
+    /// `N_best` into an unbounded allocation request.
+    static let supportedSuggestionListLimits = 1...10
+
     let allowLearning: Bool
     let zenzaiEnabled: Bool
     let leftContext: String
     let rightContext: String
     let suggestionListMode: ImeSuggestionListMode
+    let suggestionListLimit: Int
+
+    init(
+        allowLearning: Bool,
+        zenzaiEnabled: Bool,
+        leftContext: String,
+        rightContext: String,
+        suggestionListMode: ImeSuggestionListMode,
+        suggestionListLimit: Int = 9
+    ) {
+        self.allowLearning = allowLearning
+        self.zenzaiEnabled = zenzaiEnabled
+        self.leftContext = leftContext
+        self.rightContext = rightContext
+        self.suggestionListMode = suggestionListMode
+        self.suggestionListLimit = Self.clampSuggestionListLimit(
+            suggestionListLimit
+        )
+    }
+
+    static func clampSuggestionListLimit(_ value: Int) -> Int {
+        min(
+            max(value, supportedSuggestionListLimits.lowerBound),
+            supportedSuggestionListLimits.upperBound
+        )
+    }
 
     static let `default` = ConversionOptions(
         allowLearning: true,
         zenzaiEnabled: true,
         leftContext: "",
         rightContext: "",
-        suggestionListMode: .predictive
+        suggestionListMode: .predictive,
+        suggestionListLimit: 9
     )
 }
 
@@ -179,6 +211,10 @@ protocol KanaKanjiConverting: AnyObject {
     func discardStagedLearning(_ token: ConverterLearningToken)
     func forget(_ candidate: ConverterCandidate)
     func stopComposition()
+    /// Stops conversion and removes every retained converter candidate.
+    /// Secure-input and other privacy boundaries use this instead of the
+    /// rollback-preserving `stopComposition()` path.
+    func purgeSensitiveState()
 }
 
 extension KanaKanjiConverting {
@@ -244,6 +280,10 @@ extension KanaKanjiConverting {
     func commitStagedLearning(_ token: ConverterLearningToken) {}
 
     func discardStagedLearning(_ token: ConverterLearningToken) {}
+
+    func purgeSensitiveState() {
+        stopComposition()
+    }
 }
 
 final class NoopKanaKanjiConverter: KanaKanjiConverting {
@@ -386,6 +426,13 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
     var autoConvertMode: ImeAutoConvertMode
     var liveConversionDelayMilliseconds: UInt32
     var suggestionListMode: ImeSuggestionListMode
+    var suggestionListLimit: Int
+    /// `false` only while decoding a checkpoint written before the suggestion
+    /// limit became composition-pinned. The decoded semantic fallback remains
+    /// 9 for standalone Codable compatibility; restore can distinguish that
+    /// fallback from an explicitly pinned value and rebind it to the current
+    /// session configuration.
+    var suggestionListLimitWasPresentInEncodedPolicy = true
     var auxTextMode: ImeAuxTextMode
     var directCommitTargets: DirectCommitTargetSet
     var projectRevision: UInt64
@@ -400,6 +447,7 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         autoConvertMode: .disabled,
         liveConversionDelayMilliseconds: 228,
         suggestionListMode: .predictive,
+        suggestionListLimit: 9,
         auxTextMode: .whenCursorNotAtEnd,
         directCommitTargets: [],
         inputTableName: nil,
@@ -413,6 +461,7 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         case autoConvertMode
         case liveConversionDelayMilliseconds
         case suggestionListMode
+        case suggestionListLimit
         case auxTextMode
         case directCommitTargets
         case projectRevision
@@ -428,6 +477,7 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         autoConvertMode: ImeAutoConvertMode = .disabled,
         liveConversionDelayMilliseconds: UInt32 = 228,
         suggestionListMode: ImeSuggestionListMode = .predictive,
+        suggestionListLimit: Int = 9,
         auxTextMode: ImeAuxTextMode = .whenCursorNotAtEnd,
         directCommitTargets: DirectCommitTargetSet = [],
         inputTableName: String? = nil,
@@ -439,6 +489,10 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
         self.autoConvertMode = autoConvertMode
         self.liveConversionDelayMilliseconds = liveConversionDelayMilliseconds
         self.suggestionListMode = suggestionListMode
+        self.suggestionListLimit = ConversionOptions.clampSuggestionListLimit(
+            suggestionListLimit
+        )
+        suggestionListLimitWasPresentInEncodedPolicy = true
         self.auxTextMode = auxTextMode
         self.directCommitTargets = directCommitTargets
         self.projectRevision = projectRevision
@@ -463,6 +517,27 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
             ImeSuggestionListMode.self,
             forKey: .suggestionListMode
         ) ?? .predictive
+        let decodedSuggestionListLimit: Int
+        if container.contains(.suggestionListLimit) {
+            suggestionListLimitWasPresentInEncodedPolicy = true
+            decodedSuggestionListLimit = try container.decode(
+                Int.self,
+                forKey: .suggestionListLimit
+            )
+        } else {
+            suggestionListLimitWasPresentInEncodedPolicy = false
+            decodedSuggestionListLimit = 9
+        }
+        guard ConversionOptions.supportedSuggestionListLimits.contains(
+            decodedSuggestionListLimit
+        ) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .suggestionListLimit,
+                in: container,
+                debugDescription: "suggestionListLimit must be between 1 and 10"
+            )
+        }
+        suggestionListLimit = decodedSuggestionListLimit
         auxTextMode = try container.decodeIfPresent(
             ImeAuxTextMode.self,
             forKey: .auxTextMode
@@ -480,5 +555,11 @@ struct PinnedCompositionPolicy: Equatable, Codable, Sendable {
             [String: PinnedKeymapRule].self,
             forKey: .keymap
         ) ?? [:]
+    }
+
+    mutating func rebindLegacySuggestionListLimit(to currentValue: Int) {
+        guard !suggestionListLimitWasPresentInEncodedPolicy else { return }
+        suggestionListLimit = ConversionOptions.clampSuggestionListLimit(currentValue)
+        suggestionListLimitWasPresentInEncodedPolicy = true
     }
 }

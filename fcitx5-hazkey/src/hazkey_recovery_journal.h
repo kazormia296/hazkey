@@ -10,6 +10,11 @@ struct HazkeyJournalEntry {
     std::string requestID;
     std::string serializedAction;
     uint64_t expectedRevision = 0;
+    std::string sessionID;
+    // Once an entry has touched the wire, its request ID, action, and expected
+    // revision form one immutable idempotency key. Only never-sent entries may
+    // be rebased behind an earlier replay.
+    bool sent = false;
 };
 
 /// In-memory journal used by the addon while a session is reconnecting.  It
@@ -19,7 +24,19 @@ class HazkeyRecoveryJournal {
    public:
     explicit HazkeyRecoveryJournal(std::size_t limit = 64) : limit_(limit) {}
 
-    void record(HazkeyJournalEntry entry);
+    // The journal is fail-closed: capacity pressure must never evict an older
+    // semantic action and invert the order observed by the application.
+    bool record(HazkeyJournalEntry entry);
+    bool replace(const std::string& requestID, HazkeyJournalEntry entry);
+    bool markSent(const std::string& requestID);
+    bool rebaseUnsent(const std::string& requestID,
+                      std::string serializedAction,
+                      uint64_t expectedRevision,
+                      std::string sessionID);
+    bool rebindSent(const std::string& requestID,
+                    std::string serializedAction,
+                    uint64_t expectedRevision,
+                    std::string sessionID);
     void acknowledge(const std::string& requestID);
     void confirmSnapshot(std::string serializedSnapshot);
     void clear();

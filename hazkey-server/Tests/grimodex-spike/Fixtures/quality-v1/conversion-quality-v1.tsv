@@ -11,7 +11,7 @@ guard-regardless	かかわらず	関わらず	syntax	built-in guard
 guard-continuation	ひきつづき	引き続き	syntax	built-in guard
 guard-approximation	おおむね	概ね	syntax	built-in guard
 guard-each	おのおの	各々	syntax	built-in guard
-protected-url	https://example.com/api	全部置換しない	protected	ASCII URL stays visible
-protected-path	/tmp/cache.json	全部置換しない	protected	ASCII path stays visible
+protected-url	https://example.com/api	https://example.com/api	protected	ASCII URL stays visible
+protected-path	/tmp/cache.json	/tmp/cache.json	protected	ASCII path stays visible
 protected-symbol	foo?bar	foo?bar	protected	ASCII punctuation style
 boundary-particle	かなは	かなは	boundary	clause split baseline

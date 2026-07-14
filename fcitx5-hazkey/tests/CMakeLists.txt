@@ -51,6 +51,7 @@ target_include_directories(
     PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../src"
 )
+target_compile_options(hazkey-session-client-test PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(hazkey-session-client-test PRIVATE hazkey-session-protocol)
 
 add_test(NAME hazkey-session-client-test COMMAND hazkey-session-client-test)
@@ -67,6 +68,35 @@ target_include_directories(
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src"
 )
 add_test(NAME hazkey-socket-io-test COMMAND hazkey-socket-io-test)
+
+add_executable(
+    hazkey-server-connector-test
+    hazkey_server_connector_test.cpp
+    ../src/hazkey_server_connector.cpp
+    ../src/hazkey_session_client.cpp
+    ../src/hazkey_socket_io.cpp
+    ../src/hazkey_effect_ledger.cpp
+    ../src/hazkey_recovery_journal.cpp
+)
+target_compile_features(hazkey-server-connector-test PRIVATE cxx_std_20)
+target_compile_definitions(
+    hazkey-server-connector-test PRIVATE HAZKEY_ENABLE_TEST_HOOKS=1
+)
+target_compile_options(hazkey-server-connector-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(
+    hazkey-server-connector-test
+    PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../linux-shared"
+)
+target_link_libraries(
+    hazkey-server-connector-test
+    PRIVATE
+    hazkey-session-protocol
+    Fcitx5::Core
+    Fcitx5::Utils
+)
+add_test(NAME hazkey-server-connector-test COMMAND hazkey-server-connector-test)
 
 add_executable(
     grimodex-product-identity-test

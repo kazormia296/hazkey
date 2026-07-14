@@ -34,7 +34,13 @@ struct ImeV2Negotiation: Equatable, Codable, Sendable {
 
 enum ImeV2ClientFeatures {
     static let scheduleLiveConversionEffect: UInt64 = 1 << 0
-    static let current = scheduleLiveConversionEffect
+    /// The client understands `SessionSnapshot.pendingLearning` and sends an
+    /// explicit resolution after the short application-level undo window.
+    /// Servers must retain the legacy immediate-learning behavior when this
+    /// bit is absent so mixed-version upgrades cannot learn text that an old
+    /// client has already removed from the application.
+    static let stagedLearningResolution: UInt64 = 1 << 1
+    static let current = scheduleLiveConversionEffect | stagedLearningResolution
 }
 
 final class ImeV2SessionController {
@@ -60,6 +66,13 @@ final class ImeV2SessionController {
         reducer.invalidateCandidatesForExternalDictionaryChange()
     }
 
+    /// Resolves learning that belongs to text already accepted by the client
+    /// before the registry tears the session down. This bypasses request
+    /// caching because no client response can be delivered after teardown.
+    func finalizePendingLearning(commit: Bool) {
+        reducer.finalizePendingLearning(commit: commit)
+    }
+
     func handle(_ request: ImeV2Request) -> ImeV2Response {
         guard !request.requestID.isEmpty,
               request.requestID.utf8.count <= 128 else {
@@ -69,32 +82,17 @@ final class ImeV2SessionController {
                 snapshot: snapshot
             )
         }
-        prepareCompositionIfNeeded(for: request.action)
         let result = reducer.reduce(
             request.action,
             requestID: request.requestID,
-            expectedRevision: request.expectedRevision
+            expectedRevision: request.expectedRevision,
+            compositionStartPolicyProvider: policyProvider
         )
         return ImeV2Response(
             status: result.status,
             message: result.message,
             snapshot: result.snapshot
         )
-    }
-
-    private func prepareCompositionIfNeeded(for action: ImeAction) {
-        let beginsComposition: Bool
-        switch action {
-        case .insertText, .reconvert, .beginUnicodeInput:
-            beginsComposition = true
-        default:
-            beginsComposition = false
-        }
-        guard beginsComposition,
-              reducer.session.phase == .idle,
-              reducer.session.composingText.isEmpty,
-              let policyProvider else { return }
-        reducer.pinCompositionPolicy(policyProvider())
     }
 
     func handle(_ request: Hazkey_Commands_HandleImeAction) -> Hazkey_ResponseEnvelope {

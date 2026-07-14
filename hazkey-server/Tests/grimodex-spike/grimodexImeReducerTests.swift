@@ -468,7 +468,7 @@ final class GrimodexImeReducerTests: XCTestCase {
     XCTAssertEqual(converter.learningUpdates, 1)
   }
 
-  func testSecureBoundaryDropsCompositionContextAndCheckpointState() {
+  func testSecureBoundaryDropsCompositionContextAndCheckpointState() throws {
     let reducer = ImeReducer()
     _ = reducer.reduce(
       .updateContext(leftContext: "private-left", rightContext: "private-right"),
@@ -499,6 +499,17 @@ final class GrimodexImeReducerTests: XCTestCase {
     XCTAssertEqual(exited.snapshot.phase, .idle)
     XCTAssertTrue(exited.snapshot.preedit.isEmpty)
     XCTAssertTrue(reducer.session.composingText.isEmpty)
+    let recovery = try XCTUnwrap(exited.snapshot.recovery)
+    XCTAssertEqual(recovery.revision, exited.snapshot.revision)
+    XCTAssertEqual(recovery.phase, .idle)
+    XCTAssertTrue(recovery.composition.isEmpty)
+    XCTAssertEqual(recovery.leftContext, "")
+    XCTAssertEqual(recovery.rightContext, "")
+    XCTAssertFalse(recovery.policy.secureInput)
+    XCTAssertNil(recovery.reconversionReplacement)
+    XCTAssertEqual(recovery.unicodeInputBuffer, "")
+    XCTAssertNil(recovery.phaseBeforeUnicodeInput)
+    XCTAssertEqual(reducer.session.recoveryCheckpoint, recovery)
   }
 
   func testStaleRevisionDoesNotMutateTheSession() {

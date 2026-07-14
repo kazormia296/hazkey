@@ -47,6 +47,7 @@ set(PROJECT_SOURCES
     mainwindow.h
     mainwindow.ui
     controllers/tab_context.h
+    controllers/direct_commit_targets.h
     controllers/warning_widget_factory.cpp
     controllers/warning_widget_factory.h
     controllers/user_interface_tab_controller.cpp
@@ -202,6 +203,12 @@ install(CODE "
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(grimodex-settings-direct-commit-targets-test
+        tests/direct_commit_targets_test.cpp)
+    target_include_directories(grimodex-settings-direct-commit-targets-test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME grimodex-settings-direct-commit-targets
+        COMMAND grimodex-settings-direct-commit-targets-test)
     add_executable(grimodex-settings-product-paths-test
         tests/settings_product_paths_test.cpp)
     target_include_directories(grimodex-settings-product-paths-test PRIVATE

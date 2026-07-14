@@ -43,6 +43,13 @@ private final class LearningClearProbe: @unchecked Sendable {
 }
 
 final class GrimodexSessionRegistryTests: XCTestCase {
+  func testSessionRemovalReasonsChooseSafeLearningDisposition() {
+    XCTAssertFalse(HazkeySessionRemovalReason.socketDisconnect.commitsPendingLearning)
+    XCTAssertTrue(HazkeySessionRemovalReason.explicitClose.commitsPendingLearning)
+    XCTAssertTrue(HazkeySessionRemovalReason.capacityEviction.commitsPendingLearning)
+    XCTAssertTrue(HazkeySessionRemovalReason.idleTimeout.commitsPendingLearning)
+  }
+
   func testEachSessionOwnsIndependentCompositionState() {
     let config = HazkeyServerConfig()
     let registry = HazkeySessionRegistry(serverConfig: config)

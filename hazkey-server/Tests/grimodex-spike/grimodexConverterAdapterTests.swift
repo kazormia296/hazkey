@@ -298,9 +298,7 @@ final class GrimodexConverterAdapterTests: XCTestCase {
     let adapter = HazkeyKanaKanjiConverterAdapter(
       converter: converters.primary,
       boundaryConverter: converters.boundary,
-      optionsProvider: { _ in requestOptions },
-      predictionConfigurationProvider: { (false, 1) },
-      suggestionListModeProvider: { .normal }
+      optionsProvider: { _ in requestOptions }
     )
     let elements = "かな".map {
       CompositionElement(text: String($0), inputStyle: .direct)
@@ -312,7 +310,14 @@ final class GrimodexConverterAdapterTests: XCTestCase {
         cursor: elements.count,
         leftContext: ""
       ),
-      options: .default
+      options: ConversionOptions(
+        allowLearning: true,
+        zenzaiEnabled: true,
+        leftContext: "",
+        rightContext: "",
+        suggestionListMode: .normal,
+        suggestionListLimit: 1
+      )
     )
 
     XCTAssertEqual(output.candidates.count, 1)

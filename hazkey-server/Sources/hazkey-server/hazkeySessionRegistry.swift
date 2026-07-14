@@ -90,6 +90,25 @@ enum HazkeySessionOpenError: Error, Equatable {
     case resourceExhausted
 }
 
+enum HazkeySessionRemovalReason: Equatable {
+    case explicitClose
+    case socketDisconnect
+    case capacityEviction
+    case idleTimeout
+
+    var commitsPendingLearning: Bool {
+        switch self {
+        case .socketDisconnect:
+            // A cancellation decision may be journaled client-side but not yet
+            // delivered when the socket disappears. Committing here would
+            // invert Backspace/Ctrl-Z and learn text already removed by the app.
+            return false
+        case .explicitClose, .capacityEviction, .idleTimeout:
+            return true
+        }
+    }
+}
+
 final class HazkeySessionRegistry {
     typealias RevisionProviderFactory =
         (GrimodexClientContext) -> any GrimodexRevisionProviding
@@ -190,7 +209,7 @@ final class HazkeySessionRegistry {
             guard let leastRecentlyUsed = leastRecentlyUsedSession(ownerFd: ownerFd) else {
                 break
             }
-            removeSession(sessionID: leastRecentlyUsed)
+            removeSession(sessionID: leastRecentlyUsed, reason: .capacityEviction)
         }
         while sessions.count >= maximumSessions {
             // Preserve every foreign owner's active composition. A requester
@@ -199,7 +218,7 @@ final class HazkeySessionRegistry {
             guard let leastRecentlyUsed = leastRecentlyUsedSession(ownerFd: ownerFd) else {
                 return .failure(.resourceExhausted)
             }
-            removeSession(sessionID: leastRecentlyUsed)
+            removeSession(sessionID: leastRecentlyUsed, reason: .capacityEviction)
         }
         let sessionID = UUID().uuidString.lowercased()
         let store = dicdataStoreFactory()
@@ -216,6 +235,8 @@ final class HazkeySessionRegistry {
         let appliedRevision = environment.grimodexAppliedRevision
         let supportsScheduledLiveConversion =
             clientFeatureBits & ImeV2ClientFeatures.scheduleLiveConversionEffect != 0
+        let supportsStagedLearningResolution =
+            clientFeatureBits & ImeV2ClientFeatures.stagedLearningResolution != 0
         let liveConversionDelayMilliseconds = supportsScheduledLiveConversion
             ? environment.grimodexLiveConversionDelayMilliseconds
             : 0
@@ -234,6 +255,9 @@ final class HazkeySessionRegistry {
                 autoConvertMode: environment.grimodexAutoConvertMode,
                 liveConversionDelayMilliseconds: liveConversionDelayMilliseconds,
                 suggestionListMode: environment.grimodexSuggestionListMode,
+                suggestionListLimit: Int(
+                    environment.serverConfig.currentProfile.numSuggestions
+                ),
                 auxTextMode: environment.grimodexAuxTextMode,
                 directCommitTargets: environment.grimodexDirectCommitTargets,
                 inputTableName: environment.currentTableName,
@@ -257,17 +281,6 @@ final class HazkeySessionRegistry {
             mappedInputStyleProvider: { [environment] in
                 .mapped(id: .tableName(environment.currentTableName))
             },
-            predictionConfigurationProvider: { [environment] in
-                let profile = environment.serverConfig.currentProfile
-                return (
-                    profile.suggestionListMode
-                        == .suggestionListShowPredictiveResults,
-                    Int(profile.numSuggestions)
-                )
-            },
-            suggestionListModeProvider: { [environment] in
-                environment.grimodexSuggestionListMode
-            },
             projectDictionaryIndexProvider: { [environment] in
                 environment.grimodexProjectDictionaryIndex
             },
@@ -286,7 +299,8 @@ final class HazkeySessionRegistry {
                 converter: LearningSynchronizedKanaKanjiConverter(
                     base: productionConverter,
                     revisionStore: learningRevisionStore
-                )
+                ),
+                stagedLearningEnabled: supportsStagedLearningResolution
             ),
             policyProvider: { [environment] in
                 environment.refreshGrimodexIntegration()
@@ -301,6 +315,9 @@ final class HazkeySessionRegistry {
                         ? environment.grimodexLiveConversionDelayMilliseconds
                         : 0,
                     suggestionListMode: environment.grimodexSuggestionListMode,
+                    suggestionListLimit: Int(
+                        environment.serverConfig.currentProfile.numSuggestions
+                    ),
                     auxTextMode: environment.grimodexAuxTextMode,
                     directCommitTargets: environment.grimodexDirectCommitTargets,
                     inputTableName: environment.currentTableName,
@@ -363,7 +380,7 @@ final class HazkeySessionRegistry {
         guard let session = sessions[sessionID], session.ownerFd == ownerFd else {
             return false
         }
-        removeSession(sessionID: sessionID)
+        removeSession(sessionID: sessionID, reason: .explicitClose)
         return true
     }
 
@@ -372,7 +389,7 @@ final class HazkeySessionRegistry {
             session.ownerFd == ownerFd ? sessionID : nil
         }
         for sessionID in ownedSessionIDs {
-            _ = close(sessionID: sessionID, ownerFd: ownerFd)
+            removeSession(sessionID: sessionID, reason: .socketDisconnect)
         }
     }
 
@@ -392,6 +409,10 @@ final class HazkeySessionRegistry {
             return
         }
         for session in sessions.values {
+            // A staged transaction was derived from the history that is about
+            // to be deleted. Discard it first so the next client action cannot
+            // resurrect cleared learning data.
+            session.semanticController.finalizePendingLearning(commit: false)
             session.environment.clearProfileLearningData()
         }
         _ = learningRevisionStore.recordCommit()
@@ -431,6 +452,7 @@ final class HazkeySessionRegistry {
 
     func saveAll() {
         for session in sessions.values {
+            session.semanticController.finalizePendingLearning(commit: true)
             session.environment.close()
         }
     }
@@ -464,12 +486,18 @@ final class HazkeySessionRegistry {
             session.lastAccess < cutoff ? sessionID : nil
         }
         for sessionID in expired {
-            removeSession(sessionID: sessionID)
+            removeSession(sessionID: sessionID, reason: .idleTimeout)
         }
     }
 
-    private func removeSession(sessionID: String) {
+    private func removeSession(
+        sessionID: String,
+        reason: HazkeySessionRemovalReason
+    ) {
         guard let session = sessions.removeValue(forKey: sessionID) else { return }
+        session.semanticController.finalizePendingLearning(
+            commit: reason.commitsPendingLearning
+        )
         session.environment.close()
     }
 

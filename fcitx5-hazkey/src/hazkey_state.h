@@ -29,6 +29,7 @@ class HazkeyEngine;
 class HazkeyState : public InputContextProperty {
    public:
     HazkeyState(HazkeyEngine* engine, InputContext* ic);
+    ~HazkeyState() override;
 
     void commitPreedit();
     void keyEvent(KeyEvent& keyEvent);
@@ -49,7 +50,9 @@ class HazkeyState : public InputContextProperty {
     void forgetV2Candidate(int index);
     bool reconvertV2Selection();
     void updateSurroundingTextV2();
-    void notifyPendingLearningCancellation();
+    bool resolvePendingLearning(bool commit);
+    bool flushDeferredActions(bool tryConnect = false,
+                              bool requireSuccess = true);
     void scheduleLiveConversion(uint64_t effectID, uint32_t delayMs,
                                 uint64_t scheduledRevision);
     void cancelLiveConversionTimer();
