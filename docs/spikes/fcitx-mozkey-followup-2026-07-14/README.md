@@ -16,9 +16,10 @@
   統合検証し、fixed B0 actual helperでも自然変換と文節resizeを通過した。公開Protocol v2は
   変更していない。
 - fixed Mozc sidecarを同じSwift executable / `candidates()`境界で測ったwarm latencyでも
-  Bが明確に優位だった。meanは5.77倍、p95は5.79倍高速だった。ただしTop-10は
-  14/15から12/15へ低下し、daily辞書、product dictionary overlay、learning parity、
-  長寿命server/IPC境界が未完のため、default切替の根拠にはしない。
+  Bが明確に優位だった。meanは5.77倍、p95は5.79倍高速だった。実serverの
+  Protocol v2 `startConversion`往復でも、単一A→B runではmean 13.90倍、p95 15.12倍の
+  差が残った。ただしTop-10は14/15から12/15へ低下し、daily辞書、product dictionary
+  overlay、learning parity、実server境界の故障回復が未完のため、default切替の根拠にはしない。
 - fcitx-mozkeyのfull daily辞書は固定source SHAだけでは再現できない。B1のoffline
   syntax guardは再現できたが、生成辞書を組み込んだ品質測定は未実施である。
 
@@ -33,7 +34,10 @@
 | 同条件median | 5,228.2 ms | 838.5 ms | 交互実行5 cycleで傾向は安定 |
 | 同条件max (n=5) | 5,292.6 ms | 858.6 ms | Bが優位。tail推定値ではない |
 | child process max RSS | 51,352 KiB | 30,448 KiB | A/B=1.69 |
-| 既存Protocol v2との接続 | native | real adapter + fake coreで互換9/9 scenario、26/26 steps。本番segmented reducerとactual helperも別途検証 | 公開Protocol v2変更なし。full parityではない |
+| Protocol v2 `startConversion` mean、各1,500変換 | 16.719 ms | 1.203 ms | 単一A→B runでA/B=13.90。steady-state signal |
+| 同p95 | 38.733 ms | 2.561 ms | A/B=15.12 |
+| 実server endpoint PSS観測最大 | 62,381 KiB | 70,752 KiB | Bは13.4%増。現行product overhead込み |
+| 既存Protocol v2との接続 | native | actual helperで実server 1,500変換を完走 | 公開Protocol v2変更なし。full parityではない |
 | 辞書再現性 | repo固定 | clean OSSのみ固定 | full dailyはlock前提 |
 
 ## 最新: 実adapter境界のwarm A/B
@@ -85,6 +89,68 @@ Fcitx→Protocol v2→server全体のsoakではない。
 
 集約値、resource fingerprint、candidate fingerprint、測定条件は
 [`runtime-ab-summary.json`](./runtime-ab-summary.json)に固定した。
+
+## 最新: 長寿命server / Protocol v2境界
+
+direct adapterだけでなく、隔離した実`hazkey-server`、Unix socket framing、Protocol v2
+session/revision、response protobuf decodeを通すopt-in benchmarkを追加した。各backendで
+server、client、sessionを1つずつ維持し、15件×100 iterationを処理した。
+
+計測区間は、readingをcomposingへ投入した後の`startConversion` request 1往復だけである。
+reset、insert、helper初回起動/PING、RSS/PSS取得は計測外とした。warmupは各case 5回、
+learning、Zenzai、自動変換はProtocol経由で両backendともoffに固定した。候補列の一致は
+反復中のdrift検出にだけ使い、このcandidate windowは選択中segmentを表すため品質スコアには
+流用しない。
+
+| 指標 | Hazkey server | Mozc server + helper | Hazkey / Mozc |
+|---|---:|---:|---:|
+| mean | 16.719 ms | 1.203 ms | 13.90 |
+| median | 10.928 ms | 1.076 ms | 10.16 |
+| p95 | 38.733 ms | 2.561 ms | 15.12 |
+| max | 43.027 ms | 5.044 ms | 8.53 |
+| endpoint total PSS観測最大 | 62,381 KiB | 70,752 KiB | 0.88 |
+
+Mozcのendpoint total PSS観測最大は13.4%多かった。PSSはwarmup後と全変換後に
+server→helperの順で取得した2 endpoint snapshotの比較であり、実行中peakや厳密な同時値ではない。
+Mozc serverはbefore/afterで同じhelper PIDとexpected executable pathを示し、private server
+停止後にhelperも終了した。Hazkey serverのbefore/afterにはchild processがなかった。
+server executable、corpus、dictionary、helper、dataのidentity、確定済み計測器commit
+`be7824b678338f34a19f5700c9fd4798564e3974`、全3,000 latency sampleは
+[`protocol-v2-backend-benchmark.json`](./protocol-v2-backend-benchmark.json)に固定した。
+
+これはsteady-stateの実server/IPC境界を埋める結果だが、今回はHazkey→Mozcの単一runであり、
+CPU affinityはhostの`0-11`を継承してpinしておらず、交互5 cycleのpaired推定ではない。
+また、Fcitx key dispatch、snapshot rendering、GUIは含まない。
+現行Mozc sessionはserver内に未使用のHazkey converterも構築するため、PSSはcleanな
+Mozc-only coreの値ではなく現在のproduct実装全体の値である。kill/EOF/timeoutの実server
+故障注入とFcitxを含むsoakも別gateとして残る。
+
+再実行時は、検証済みread-only runtime generationを明示する。
+
+```bash
+RUNTIME=/path/to/mozc-runtime-generation
+SOURCE_REF=<full-40-character-commit>
+TOOLCHAIN='Swift version 6.3.3 (swift-6.3.3-RELEASE)'
+
+env \
+  SWIFT_SCRATCH_PATH="$PWD/build-grimodex/hazkey-server/swift-build" \
+  LD_LIBRARY_PATH="$PWD/build-grimodex/bin" \
+  GGML_BACKEND_DIR="$PWD/build-grimodex/bin" \
+  GRIMODEX_PROCESS_E2E_SERVER="$PWD/build-grimodex/hazkey-server/swift-build/x86_64-unknown-linux-gnu/release/hazkey-server" \
+  FCITX5_GRIMODEX_DICTIONARY="$PWD/hazkey-server/azooKey_dictionary_storage/Dictionary" \
+  GRIMODEX_PROCESS_E2E_MOZC_HELPER="$RUNTIME/fcitx5-grimodex-mozc-helper" \
+  GRIMODEX_PROCESS_E2E_MOZC_DATA="$RUNTIME/mozc.data" \
+  GRIMODEX_PROCESS_E2E_AB_WARMUPS=5 \
+  GRIMODEX_PROCESS_E2E_AB_ITERATIONS=100 \
+  GRIMODEX_PROCESS_E2E_AB_SOURCE_REF="$SOURCE_REF" \
+  GRIMODEX_PROCESS_E2E_AB_BUILD_CONFIGURATION=release \
+  GRIMODEX_PROCESS_E2E_AB_TOOLCHAIN="$TOOLCHAIN" \
+  GRIMODEX_PROCESS_E2E_AB_OUTPUT="$PWD/protocol-v2-backend-benchmark.json" \
+  hazkey-server/scripts/swift-test.sh --configuration release \
+    --traits ZenzaiSupport \
+    -Xlinker -L"$PWD/build-grimodex/bin" \
+    --filter GrimodexProcessBackendBenchmarkTests
+```
 
 ## 実行中Mozc runtimeの現物確認
 
@@ -392,12 +458,14 @@ full rebaseではなく、実装済みのopt-in sliceを比較器として使う
 5. **未完:** 現行partial-commit learning期待値`1/1/1/0`のparityまたは廃止判断
 6. **未完:** project/personal dictionaryのgeneric candidate overlay
 7. **未完:** B1またはlocked B2で100〜500件のblind実利用corpus
-8. **部分完了:** 同じadapter境界のwarm latency、PSS、150,000変換soakは完了。
-   長寿命server / IPC境界と故障注入は未完
+8. **部分完了:** 同じadapter境界のwarm latency、PSS、150,000変換soakに加え、
+   長寿命server / Protocol v2境界のsteady-state 1,500変換は完了。実server故障注入、
+   Fcitx込みsoak、交互cycleは未完
 
 現在のMozc session openでもHazkey用`KanaKanjiConverter`を2個生成し、
 `HazkeySessionEnvironment`を構築・refreshする。このため現状のserver全体startup/RSSは
-Mozc-only対Hazkey-onlyのclean A/Bではない。前段の6.31倍process結果と今回の5.77倍
-adapter結果はともに明確な速度シグナルだが、実製品server/IPC境界の倍率としては使わない。
+Mozc-only対Hazkey-onlyのclean A/Bではない。前段の6.31倍process結果、5.77倍adapter結果、
+今回の単一run 13.90倍Protocol v2結果はいずれも明確な速度シグナルだが、最後の値も
+交互cycleを経た一般化可能な倍率とは扱わない。
 
 ここまで満たす前はHazkeyをdefaultとし、Mozc coreはopt-in比較実装に留める。

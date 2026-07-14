@@ -122,6 +122,10 @@ python3 packaging/tests/package_contract_test.py
 Swiftテスト用ラッパーは、固定済みのAzooKey依存を解決し、リポジトリで
 管理する互換性・性能パッチをコンパイル前に適用します。CMakeとSwiftPMの
 作業ディレクトリを共有する場合は`SWIFT_SCRATCH_PATH`を指定してください。
+実server / Protocol v2境界のHazkey対Mozc比較は、検証済みread-only Mozc runtimeを
+明示して実行するopt-in testです。環境変数と実測結果は
+[fcitx-mozkey A/B follow-up](docs/spikes/fcitx-mozkey-followup-2026-07-14/README.md#最新-長寿命server--protocol-v2境界)
+に固定しています。
 
 ## ライセンス
 
