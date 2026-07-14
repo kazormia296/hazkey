@@ -17,8 +17,11 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
+import stat
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -57,6 +60,8 @@ MOZC_ARTIFACT_VERIFIER = (
 MOZC_ARTIFACT_BUILDER = (
     REPOSITORY_ROOT / "tools/mozc/build_fixed_sidecar_bundle.py"
 )
+MOZC_RUNTIME_SCRIPT = REPOSITORY_ROOT / "scripts/grimodex-ime_mozc.sh"
+DEFAULT_RUNTIME_SCRIPT = REPOSITORY_ROOT / "scripts/grimodex-ime.sh"
 TOP_LEVEL_CMAKE = REPOSITORY_ROOT / "CMakeLists.txt"
 FCITX_CMAKE = REPOSITORY_ROOT / "fcitx5-hazkey/CMakeLists.txt"
 FCITX_SOURCE_CMAKE = REPOSITORY_ROOT / "fcitx5-hazkey/src/CMakeLists.txt"
@@ -698,6 +703,120 @@ class MozcArtifactBundleContractTests(unittest.TestCase):
                 verifier.verify_staged_generation(generation)
             elf_parser.assert_not_called()
 
+    def test_installed_runtime_verifier_pings_hash_matched_private_copies(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            bundle, _, _ = self._write_bundle(root)
+            verifier = self._load_verifier_for_fixture(bundle)
+            helper = bundle / "fcitx5-grimodex-mozc-helper"
+            data = bundle / "mozc.data"
+            ping_payload = (
+                b"\x08\x01\x10\x01\x18\x01\x3a\x40"
+                + verifier.FIXED_DATA_SHA256.encode("ascii")
+            )
+            ping_result = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=struct.pack(">I", len(ping_payload)) + ping_payload,
+                stderr=b"",
+            )
+
+            with mock.patch.object(
+                verifier.subprocess,
+                "run",
+                return_value=ping_result,
+            ) as runtime:
+                self.assertEqual(
+                    verifier.verify_installed_runtime(helper, data),
+                    verifier.FIXED_DATA_SHA256,
+                )
+            command = runtime.call_args.args[0]
+            self.assertNotEqual(command[0], str(helper))
+            self.assertNotEqual(command[1], f"--data_file={data}")
+
+            data.write_bytes(b"x" * verifier.FIXED_DATA_SIZE)
+            with mock.patch.object(
+                verifier,
+                "_require_linux_x86_64_elf",
+                side_effect=AssertionError("ELF parser ran before data identity check"),
+            ) as elf_parser, mock.patch.object(
+                verifier.subprocess,
+                "run",
+            ) as runtime, self.assertRaisesRegex(
+                verifier.BundleVerificationError,
+                "installed artifact identity mismatch",
+            ):
+                verifier.verify_installed_runtime(helper, data)
+            elf_parser.assert_not_called()
+            runtime.assert_not_called()
+
+    def test_prepared_runtime_survives_source_replacement_and_fails_closed(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            bundle, helper_bytes, _ = self._write_bundle(root)
+            verifier = self._load_verifier_for_fixture(bundle)
+            helper = bundle / "fcitx5-grimodex-mozc-helper"
+            data = bundle / "mozc.data"
+            runtime_root = root / "runtime"
+            ping_payload = (
+                b"\x08\x01\x10\x01\x18\x01\x3a\x40"
+                + verifier.FIXED_DATA_SHA256.encode("ascii")
+            )
+            ping_result = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=struct.pack(">I", len(ping_payload)) + ping_payload,
+                stderr=b"",
+            )
+
+            with mock.patch.object(
+                verifier.subprocess,
+                "run",
+                return_value=ping_result,
+            ):
+                generation = verifier.prepare_installed_runtime(
+                    helper,
+                    data,
+                    runtime_root,
+                )
+                helper_inode = (
+                    generation / "fcitx5-grimodex-mozc-helper"
+                ).stat().st_ino
+                helper.write_bytes(b"replaced after preparation")
+                helper.chmod(0o755)
+                repeated = verifier.prepare_installed_runtime(
+                    helper,
+                    data,
+                    runtime_root,
+                )
+
+            self.assertEqual(repeated, generation)
+            self.assertEqual(
+                (generation / "fcitx5-grimodex-mozc-helper").read_bytes(),
+                helper_bytes,
+            )
+            self.assertEqual(
+                (generation / "fcitx5-grimodex-mozc-helper").stat().st_ino,
+                helper_inode,
+            )
+            self.assertEqual(stat.S_IMODE(runtime_root.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(generation.stat().st_mode), 0o555)
+
+            generation.chmod(0o755)
+            prepared_helper = generation / "fcitx5-grimodex-mozc-helper"
+            prepared_helper.chmod(0o755)
+            prepared_helper.write_bytes(b"tampered prepared helper")
+            generation.chmod(0o555)
+            with self.assertRaisesRegex(
+                verifier.BundleVerificationError,
+                "prepared runtime artifact",
+            ):
+                verifier.prepare_installed_runtime(helper, data, runtime_root)
+
     def test_verifier_fails_closed_on_identity_and_machine_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -912,6 +1031,333 @@ class MozcArtifactBundleContractTests(unittest.TestCase):
                 "fcitx5-grimodex-mozc-helper",
                 manifest_path.read_text(encoding="utf-8"),
             )
+
+    def test_mozc_runtime_script_is_an_exact_and_isolated_opt_in(self) -> None:
+        script = MOZC_RUNTIME_SCRIPT.read_text(encoding="utf-8")
+        default_script = DEFAULT_RUNTIME_SCRIPT.read_text(encoding="utf-8")
+        top_level_cmake = TOP_LEVEL_CMAKE.read_text(encoding="utf-8")
+        syntax = subprocess.run(
+            ["bash", "-n", str(MOZC_RUNTIME_SCRIPT)],
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+        help_result = subprocess.run(
+            [str(MOZC_RUNTIME_SCRIPT), "--help"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn(
+            "Usage: scripts/grimodex-ime_mozc.sh <command>", help_result.stdout
+        )
+
+        self.assertIn(
+            'BUILD_DIR=${BUILD_DIR:-"${REPO_ROOT}/build-grimodex-mozc"}', script
+        )
+        self.assertIn(
+            '-DHAZKEY_SERVER_MOZC_ARTIFACT_DIR="${artifact_dir}"', script
+        )
+        self.assertIn("export FCITX5_GRIMODEX_CONVERTER=mozc", script)
+        self.assertIn("--prepare-installed-runtime", script)
+        self.assertIn("fcitx5-grimodex-mozc-helper", script)
+        self.assertIn("fcitx5-grimodex/mozc/mozc.data", script)
+        self.assertIn("elif [[ ${prefix} == / ]]", script)
+        for directory in ("BINDIR", "LIBDIR", "DATADIR"):
+            self.assertIn(f"GRIMODEX_INSTALL_FULL_{directory}", top_level_cmake)
+        self.assertLess(
+            script.index("--prepare-installed-runtime"),
+            script.index('nohup "${SERVER}" --replace'),
+        )
+        self.assertLess(
+            script.index("export FCITX5_GRIMODEX_CONVERTER=mozc"),
+            script.index('nohup "${SERVER}" --replace'),
+        )
+        self.assertLess(
+            script.index("export FCITX5_GRIMODEX_CONVERTER=mozc"),
+            script.index("fcitx5 -rd"),
+        )
+        self.assertNotIn("FCITX5_GRIMODEX_CONVERTER=mozc", default_script)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            environment = os.environ.copy()
+            environment["BUILD_DIR"] = temporary_directory
+            environment.pop("MOZC_ARTIFACT_DIR", None)
+            environment.pop("HAZKEY_SERVER_MOZC_ARTIFACT_DIR", None)
+            missing_bundle = subprocess.run(
+                [str(MOZC_RUNTIME_SCRIPT), "build"],
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(missing_bundle.returncode, 2)
+        self.assertIn("Mozc artifact bundle is required", missing_bundle.stderr)
+
+    def test_mozc_runtime_script_propagates_paths_and_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            build_dir = root / "build"
+            install_prefix = root / "install root"
+            command_dir = root / "commands"
+            config_home = root / "config"
+            build_dir.mkdir()
+            command_dir.mkdir()
+            config_home.mkdir()
+
+            server = install_prefix / "custom-bin/fcitx5-grimodex-server"
+            helper = (
+                install_prefix
+                / "lib/x86_64-linux-gnu/fcitx5-grimodex/"
+                "fcitx5-grimodex-mozc-helper"
+            )
+            data = install_prefix / "share/fcitx5-grimodex/mozc/mozc.data"
+            server.parent.mkdir(parents=True)
+            helper.parent.mkdir(parents=True)
+            data.parent.mkdir(parents=True)
+            helper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            helper.chmod(0o755)
+            data.write_bytes(b"fixed test data")
+
+            server.write_text(
+                """#!/usr/bin/env bash
+{
+    printf 'CONVERTER=%s\\n' "${FCITX5_GRIMODEX_CONVERTER:-}"
+    printf 'HELPER=%s\\n' "${FCITX5_GRIMODEX_MOZC_HELPER:-}"
+    printf 'DATA=%s\\n' "${FCITX5_GRIMODEX_MOZC_DATA:-}"
+    printf 'ARGS=%s\\n' "$*"
+    printf 'PID=%s\\n' "$$"
+} >"${MOCK_SERVER_ENV_LOG:?}"
+exec /bin/sleep 30
+""",
+                encoding="utf-8",
+            )
+            server.chmod(0o755)
+
+            fcitx = command_dir / "fcitx5"
+            fcitx.write_text(
+                """#!/usr/bin/env bash
+{
+    printf 'CONVERTER=%s\\n' "${FCITX5_GRIMODEX_CONVERTER:-}"
+    printf 'HELPER=%s\\n' "${FCITX5_GRIMODEX_MOZC_HELPER:-}"
+    printf 'DATA=%s\\n' "${FCITX5_GRIMODEX_MOZC_DATA:-}"
+    printf 'ARGS=%s\\n' "$*"
+} >"${MOCK_FCITX_ENV_LOG:?}"
+""",
+                encoding="utf-8",
+            )
+            remote = command_dir / "fcitx5-remote"
+            remote.write_text(
+                """#!/usr/bin/env bash
+if [[ ${1:-} == -n ]]; then
+    printf 'grimodex\\n'
+fi
+""",
+                encoding="utf-8",
+            )
+            short_sleep = command_dir / "sleep"
+            short_sleep.write_text(
+                "#!/usr/bin/env bash\nexec /bin/sleep 0.1\n", encoding="utf-8"
+            )
+            for command in (fcitx, remote, short_sleep):
+                command.chmod(0o755)
+
+            runtime_verifier = root / "runtime-verifier.py"
+            runtime_verifier.write_text(
+                """import json
+import os
+from pathlib import Path
+import shutil
+import sys
+
+with open(os.environ["MOCK_VERIFIER_LOG"], "w", encoding="utf-8") as output:
+    json.dump(sys.argv[1:], output)
+arguments = sys.argv[1:]
+source_helper = Path(arguments[arguments.index("--helper") + 1])
+source_data = Path(arguments[arguments.index("--data") + 1])
+generation = Path(arguments[arguments.index("--runtime-root") + 1]) / "sha256-test-runtime"
+generation.mkdir(parents=True)
+shutil.copyfile(source_helper, generation / "fcitx5-grimodex-mozc-helper")
+shutil.copyfile(source_data, generation / "mozc.data")
+(generation / "fcitx5-grimodex-mozc-helper").chmod(0o555)
+(generation / "mozc.data").chmod(0o444)
+source_helper.write_text("replaced after preparation\\n", encoding="utf-8")
+print(generation)
+""",
+                encoding="utf-8",
+            )
+
+            (build_dir / "CMakeCache.txt").write_text(
+                "\n".join(
+                    (
+                        f"CMAKE_INSTALL_PREFIX:PATH={install_prefix}",
+                        "CMAKE_INSTALL_BINDIR:PATH=custom-bin",
+                        "CMAKE_INSTALL_LIBDIR:PATH=lib/x86_64-linux-gnu",
+                        "CMAKE_INSTALL_DATAROOTDIR:PATH=share",
+                        "CMAKE_INSTALL_DATADIR:PATH=",
+                        f"GRIMODEX_INSTALL_FULL_BINDIR:INTERNAL={server.parent}",
+                        f"GRIMODEX_INSTALL_FULL_LIBDIR:INTERNAL={install_prefix / 'lib/x86_64-linux-gnu'}",
+                        f"GRIMODEX_INSTALL_FULL_DATADIR:INTERNAL={install_prefix / 'share'}",
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            server_environment_log = root / "server.env"
+            fcitx_environment_log = root / "fcitx.env"
+            verifier_log = root / "verifier.json"
+            runtime_root = root / "runtime"
+            environment = os.environ.copy()
+            for name in (
+                "GRIMODEX_SERVER",
+                "FCITX5_GRIMODEX_MOZC_HELPER",
+                "FCITX5_GRIMODEX_MOZC_DATA",
+                "INSTALL_PREFIX",
+            ):
+                environment.pop(name, None)
+            environment.update(
+                {
+                    "BUILD_DIR": str(build_dir),
+                    "PATH": f"{command_dir}{os.pathsep}{environment['PATH']}",
+                    "XDG_CONFIG_HOME": str(config_home),
+                    "GRIMODEX_RESTART_LOG": str(root / "restart.log"),
+                    "GRIMODEX_MOZC_VERIFIER": str(runtime_verifier),
+                    "GRIMODEX_MOZC_RUNTIME_ROOT": str(runtime_root),
+                    "PYTHON3": sys.executable,
+                    "MOCK_SERVER_ENV_LOG": str(server_environment_log),
+                    "MOCK_FCITX_ENV_LOG": str(fcitx_environment_log),
+                    "MOCK_VERIFIER_LOG": str(verifier_log),
+                }
+            )
+
+            result = subprocess.run(
+                [str(MOZC_RUNTIME_SCRIPT), "restart"],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            server_environment = dict(
+                line.split("=", 1)
+                for line in server_environment_log.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            )
+            fcitx_environment = dict(
+                line.split("=", 1)
+                for line in fcitx_environment_log.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            )
+            verifier_arguments = json.loads(verifier_log.read_text(encoding="utf-8"))
+            try:
+                os.kill(int(server_environment["PID"]), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            prepared_helper = (
+                runtime_root
+                / "sha256-test-runtime/fcitx5-grimodex-mozc-helper"
+            )
+            prepared_data = runtime_root / "sha256-test-runtime/mozc.data"
+            expected_environment = {
+                "CONVERTER": "mozc",
+                "HELPER": str(prepared_helper),
+                "DATA": str(prepared_data),
+            }
+            for name, value in expected_environment.items():
+                self.assertEqual(server_environment[name], value)
+                self.assertEqual(fcitx_environment[name], value)
+            self.assertEqual(server_environment["ARGS"], "--replace")
+            self.assertEqual(fcitx_environment["ARGS"], "-rd")
+            self.assertEqual(
+                verifier_arguments,
+                [
+                    "--prepare-installed-runtime",
+                    "--helper",
+                    str(helper),
+                    "--data",
+                    str(data),
+                    "--runtime-root",
+                    str(runtime_root),
+                ],
+            )
+            self.assertEqual(
+                helper.read_text(encoding="utf-8"),
+                "replaced after preparation\n",
+            )
+            self.assertEqual(
+                prepared_helper.read_text(encoding="utf-8"),
+                "#!/bin/sh\nexit 0\n",
+            )
+            self.assertIn("Requested converter backend: mozc", result.stdout)
+
+    def test_mozc_runtime_script_rejects_an_early_server_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            command_dir = root / "commands"
+            config_home = root / "config"
+            command_dir.mkdir()
+            config_home.mkdir()
+            for name in ("fcitx5", "fcitx5-remote"):
+                (command_dir / name).symlink_to("/bin/true")
+            short_sleep = command_dir / "sleep"
+            short_sleep.write_text(
+                "#!/usr/bin/env bash\nexec /bin/sleep 0.1\n", encoding="utf-8"
+            )
+            short_sleep.chmod(0o755)
+            helper = root / "fcitx5-grimodex-mozc-helper"
+            helper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            helper.chmod(0o755)
+            data = root / "mozc.data"
+            data.write_bytes(b"fixed test data")
+            runtime_verifier = root / "runtime-verifier.py"
+            runtime_verifier.write_text(
+                """from pathlib import Path
+import shutil
+import sys
+
+arguments = sys.argv[1:]
+source_helper = Path(arguments[arguments.index("--helper") + 1])
+source_data = Path(arguments[arguments.index("--data") + 1])
+generation = Path(arguments[arguments.index("--runtime-root") + 1]) / "prepared"
+generation.mkdir(parents=True)
+shutil.copyfile(source_helper, generation / "fcitx5-grimodex-mozc-helper")
+shutil.copyfile(source_data, generation / "mozc.data")
+(generation / "fcitx5-grimodex-mozc-helper").chmod(0o555)
+(generation / "mozc.data").chmod(0o444)
+print(generation)
+""",
+                encoding="utf-8",
+            )
+
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "PATH": f"{command_dir}{os.pathsep}{environment['PATH']}",
+                    "XDG_CONFIG_HOME": str(config_home),
+                    "GRIMODEX_SERVER": "/bin/false",
+                    "FCITX5_GRIMODEX_MOZC_HELPER": str(helper),
+                    "FCITX5_GRIMODEX_MOZC_DATA": str(data),
+                    "GRIMODEX_RESTART_LOG": str(root / "restart.log"),
+                    "GRIMODEX_MOZC_VERIFIER": str(runtime_verifier),
+                    "GRIMODEX_MOZC_RUNTIME_ROOT": str(root / "runtime"),
+                    "PYTHON3": sys.executable,
+                }
+            )
+            result = subprocess.run(
+                [str(MOZC_RUNTIME_SCRIPT), "restart"],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Mozc server exited during startup", result.stderr)
+            self.assertNotIn("Requested converter backend", result.stdout)
 
     def test_builder_contract_matches_the_import_verifier(self) -> None:
         builder = self._load_builder()

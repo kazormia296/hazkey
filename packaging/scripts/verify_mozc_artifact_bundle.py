@@ -88,6 +88,7 @@ HOST_RUNTIME_TIMEOUT_SECONDS = 5
 STAGED_HELPER_MODE = 0o555
 STAGED_FILE_MODE = 0o444
 STAGED_DIRECTORY_MODE = 0o755
+PREPARED_RUNTIME_DIRECTORY_MODE = 0o555
 
 
 class BundleVerificationError(RuntimeError):
@@ -810,9 +811,7 @@ def verify_staged_generation(
     return identifier
 
 
-def verify_host_runtime(generation_dir: Path) -> str:
-    """Prove that the fixed helper can load and complete its private PING."""
-    identifier = verify_staged_generation(generation_dir)
+def _run_fixed_helper_ping(helper: Path, data: Path) -> None:
     request_payload = b"\x08\x01\x10\x01\x18\x02"
     request_frame = struct.pack(">I", len(request_payload)) + request_payload
     response_payload = (
@@ -820,8 +819,6 @@ def verify_host_runtime(generation_dir: Path) -> str:
         + FIXED_DATA_SHA256.encode("ascii")
     )
     expected_response = struct.pack(">I", len(response_payload)) + response_payload
-    helper = generation_dir / "fcitx5-grimodex-mozc-helper"
-    data = generation_dir / "mozc.data"
     try:
         with tempfile.TemporaryDirectory(prefix="grimodex-mozc-runtime-") as runtime:
             result = subprocess.run(
@@ -862,7 +859,256 @@ def verify_host_runtime(generation_dir: Path) -> str:
         raise BundleVerificationError(
             "fixed helper runtime PING returned an invalid response"
         )
+
+
+def verify_host_runtime(generation_dir: Path) -> str:
+    """Prove that the fixed staged helper can complete its private PING."""
+    identifier = verify_staged_generation(generation_dir)
+    _run_fixed_helper_ping(
+        generation_dir / "fcitx5-grimodex-mozc-helper",
+        generation_dir / "mozc.data",
+    )
     return identifier
+
+
+def _copy_fixed_runtime_artifact(
+    source_path: Path,
+    destination_path: Path,
+    *,
+    expected_size: int,
+    expected_sha256: str,
+    maximum_size: int,
+    executable: bool,
+) -> None:
+    descriptor, metadata = _open_regular_file(source_path)
+    try:
+        if metadata.st_size != expected_size:
+            raise BundleVerificationError(
+                f"installed artifact identity mismatch: {source_path.name}"
+            )
+        if executable and not (metadata.st_mode & 0o111):
+            raise BundleVerificationError(
+                f"installed helper is not executable: {source_path}"
+            )
+        with os.fdopen(os.dup(descriptor), "rb") as source, destination_path.open(
+            "xb"
+        ) as destination:
+            actual_size, actual_sha256 = _hash_stream(
+                source,
+                maximum_size=maximum_size,
+                destination=destination,
+            )
+    finally:
+        os.close(descriptor)
+    if actual_size != expected_size or actual_sha256 != expected_sha256:
+        raise BundleVerificationError(
+            f"installed artifact identity mismatch: {source_path.name}"
+        )
+    destination_path.chmod(0o500 if executable else 0o400)
+
+
+def verify_installed_runtime(helper_path: Path, data_path: Path) -> str:
+    """Copy, identify, ABI-check, and PING installed fixed artifacts."""
+    with tempfile.TemporaryDirectory(prefix="grimodex-mozc-installed-") as temporary:
+        runtime_dir = Path(temporary)
+        helper = runtime_dir / "fcitx5-grimodex-mozc-helper"
+        data = runtime_dir / "mozc.data"
+        _copy_fixed_runtime_artifact(
+            helper_path,
+            helper,
+            expected_size=FIXED_HELPER_SIZE,
+            expected_sha256=FIXED_HELPER_SHA256,
+            maximum_size=MAX_HELPER_BYTES,
+            executable=True,
+        )
+        _copy_fixed_runtime_artifact(
+            data_path,
+            data,
+            expected_size=FIXED_DATA_SIZE,
+            expected_sha256=FIXED_DATA_SHA256,
+            maximum_size=FIXED_DATA_SIZE,
+            executable=False,
+        )
+        descriptor, _ = _open_regular_file(helper)
+        try:
+            _require_linux_x86_64_elf(descriptor, helper.name)
+        finally:
+            os.close(descriptor)
+        _run_fixed_helper_ping(helper, data)
+    return FIXED_DATA_SHA256
+
+
+def _prepared_runtime_identifier() -> str:
+    return _content_identifier(
+        [
+            {
+                "path": "fcitx5-grimodex-mozc-helper",
+                "mode": STAGED_HELPER_MODE,
+                "size": FIXED_HELPER_SIZE,
+                "sha256": FIXED_HELPER_SHA256,
+            },
+            {
+                "path": "mozc.data",
+                "mode": STAGED_FILE_MODE,
+                "size": FIXED_DATA_SIZE,
+                "sha256": FIXED_DATA_SHA256,
+            },
+        ]
+    )
+
+
+def verify_prepared_runtime(
+    generation_dir: Path,
+    *,
+    require_generation_name: bool = True,
+) -> str:
+    if generation_dir.is_symlink() or not generation_dir.is_dir():
+        raise BundleVerificationError(
+            "prepared runtime must be a regular, non-symlink directory"
+        )
+    if stat.S_IMODE(generation_dir.stat(follow_symlinks=False).st_mode) != (
+        PREPARED_RUNTIME_DIRECTORY_MODE
+    ):
+        raise BundleVerificationError("prepared runtime has an invalid mode")
+    try:
+        contents = {entry.name for entry in generation_dir.iterdir()}
+    except OSError as error:
+        raise BundleVerificationError(
+            f"cannot list prepared runtime: {error}"
+        ) from error
+    if contents != set(ARTIFACT_NAMES):
+        raise BundleVerificationError("prepared runtime has invalid contents")
+
+    expected_artifacts = {
+        "fcitx5-grimodex-mozc-helper": (
+            STAGED_HELPER_MODE,
+            FIXED_HELPER_SIZE,
+            FIXED_HELPER_SHA256,
+            MAX_HELPER_BYTES,
+        ),
+        "mozc.data": (
+            STAGED_FILE_MODE,
+            FIXED_DATA_SIZE,
+            FIXED_DATA_SHA256,
+            FIXED_DATA_SIZE,
+        ),
+    }
+    for name, (expected_mode, expected_size, expected_hash, maximum_size) in (
+        expected_artifacts.items()
+    ):
+        descriptor, metadata = _open_regular_file(generation_dir / name)
+        try:
+            if metadata.st_nlink != 1:
+                raise BundleVerificationError(
+                    f"prepared runtime artifact must not be hard-linked: {name}"
+                )
+            if stat.S_IMODE(metadata.st_mode) != expected_mode:
+                raise BundleVerificationError(
+                    f"prepared runtime artifact has an invalid mode: {name}"
+                )
+            if metadata.st_size != expected_size:
+                raise BundleVerificationError(
+                    f"prepared runtime artifact identity mismatch: {name}"
+                )
+            with os.fdopen(os.dup(descriptor), "rb") as source:
+                actual_size, actual_hash = _hash_stream(
+                    source,
+                    maximum_size=maximum_size,
+                )
+        finally:
+            os.close(descriptor)
+        if actual_size != expected_size or actual_hash != expected_hash:
+            raise BundleVerificationError(
+                f"prepared runtime artifact identity mismatch: {name}"
+            )
+
+    helper = generation_dir / "fcitx5-grimodex-mozc-helper"
+    data = generation_dir / "mozc.data"
+    descriptor, _ = _open_regular_file(helper)
+    try:
+        _require_linux_x86_64_elf(descriptor, helper.name)
+    finally:
+        os.close(descriptor)
+    identifier = _prepared_runtime_identifier()
+    if require_generation_name and generation_dir.name != identifier:
+        raise BundleVerificationError(
+            f"prepared runtime name mismatch: expected {identifier}"
+        )
+    _run_fixed_helper_ping(helper, data)
+    return identifier
+
+
+def _prepare_runtime_root(runtime_root: Path) -> Path:
+    if runtime_root.is_symlink():
+        raise BundleVerificationError("runtime root must not be a symlink")
+    root = runtime_root.expanduser().resolve(strict=False)
+    created = not root.exists()
+    try:
+        root.mkdir(parents=True, mode=0o700, exist_ok=True)
+    except OSError as error:
+        raise BundleVerificationError(f"cannot create runtime root: {error}") from error
+    if created:
+        root.chmod(0o700)
+    metadata = root.stat(follow_symlinks=False)
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.getuid():
+        raise BundleVerificationError("runtime root must be a user-owned directory")
+    if stat.S_IMODE(metadata.st_mode) != 0o700:
+        raise BundleVerificationError("runtime root must have mode 0700")
+    return root
+
+
+def prepare_installed_runtime(
+    helper_path: Path,
+    data_path: Path,
+    runtime_root: Path,
+) -> Path:
+    root = _prepare_runtime_root(runtime_root)
+    identifier = _prepared_runtime_identifier()
+    generation = root / identifier
+    if generation.exists() or generation.is_symlink():
+        verify_prepared_runtime(generation)
+        return generation
+
+    temporary_dir = Path(
+        tempfile.mkdtemp(prefix=".mozc-runtime-", dir=root)
+    )
+    try:
+        _copy_fixed_runtime_artifact(
+            helper_path,
+            temporary_dir / "fcitx5-grimodex-mozc-helper",
+            expected_size=FIXED_HELPER_SIZE,
+            expected_sha256=FIXED_HELPER_SHA256,
+            maximum_size=MAX_HELPER_BYTES,
+            executable=True,
+        )
+        _copy_fixed_runtime_artifact(
+            data_path,
+            temporary_dir / "mozc.data",
+            expected_size=FIXED_DATA_SIZE,
+            expected_sha256=FIXED_DATA_SHA256,
+            maximum_size=FIXED_DATA_SIZE,
+            executable=False,
+        )
+        (temporary_dir / "fcitx5-grimodex-mozc-helper").chmod(
+            STAGED_HELPER_MODE
+        )
+        (temporary_dir / "mozc.data").chmod(STAGED_FILE_MODE)
+        temporary_dir.chmod(PREPARED_RUNTIME_DIRECTORY_MODE)
+        verify_prepared_runtime(temporary_dir, require_generation_name=False)
+        try:
+            temporary_dir.rename(generation)
+        except OSError as error:
+            if error.errno not in {errno.EEXIST, errno.ENOTEMPTY}:
+                raise
+            verify_prepared_runtime(generation)
+            return generation
+        _fsync_directory(root)
+        verify_prepared_runtime(generation)
+        return generation
+    finally:
+        if temporary_dir.exists():
+            _make_cleanup_writable(temporary_dir)
+            shutil.rmtree(temporary_dir, ignore_errors=True)
 
 
 def _make_cleanup_writable(path: Path) -> None:
@@ -1025,7 +1271,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     action.add_argument("--bundle", type=Path)
     action.add_argument("--verify-only", type=Path)
     action.add_argument("--verify-host-runtime", type=Path)
+    action.add_argument("--verify-installed-runtime", action="store_true")
+    action.add_argument("--prepare-installed-runtime", action="store_true")
     parser.add_argument("--stage-root", type=Path)
+    parser.add_argument("--runtime-root", type=Path)
+    parser.add_argument("--helper", type=Path)
+    parser.add_argument("--data", type=Path)
     args = parser.parse_args(argv)
     if args.bundle is not None and args.stage_root is None:
         parser.error("--bundle requires --stage-root")
@@ -1033,6 +1284,26 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         parser.error("--verify-only does not accept --stage-root")
     if args.verify_host_runtime is not None and args.stage_root is not None:
         parser.error("--verify-host-runtime does not accept --stage-root")
+    if args.verify_installed_runtime:
+        if args.stage_root is not None:
+            parser.error("--verify-installed-runtime does not accept --stage-root")
+        if args.helper is None or args.data is None:
+            parser.error("--verify-installed-runtime requires --helper and --data")
+        if args.runtime_root is not None:
+            parser.error("--verify-installed-runtime does not accept --runtime-root")
+    elif args.prepare_installed_runtime:
+        if args.stage_root is not None:
+            parser.error("--prepare-installed-runtime does not accept --stage-root")
+        if args.helper is None or args.data is None or args.runtime_root is None:
+            parser.error(
+                "--prepare-installed-runtime requires --helper, --data, and --runtime-root"
+            )
+    elif args.helper is not None or args.data is not None:
+        parser.error(
+            "--helper and --data require an installed-runtime action"
+        )
+    elif args.runtime_root is not None:
+        parser.error("--runtime-root requires --prepare-installed-runtime")
     return args
 
 
@@ -1045,6 +1316,15 @@ def main(argv: list[str] | None = None) -> int:
         elif args.verify_host_runtime is not None:
             verify_host_runtime(args.verify_host_runtime)
             generation = args.verify_host_runtime.resolve()
+        elif args.verify_installed_runtime:
+            verify_installed_runtime(args.helper, args.data)
+            generation = args.helper.resolve()
+        elif args.prepare_installed_runtime:
+            generation = prepare_installed_runtime(
+                args.helper,
+                args.data,
+                args.runtime_root,
+            )
         else:
             generation = verify_and_stage(args.bundle, args.stage_root)
     except (BundleVerificationError, OSError) as error:
