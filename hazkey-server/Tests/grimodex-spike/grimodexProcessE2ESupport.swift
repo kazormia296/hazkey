@@ -484,6 +484,13 @@ final class GrimodexProcessClient {
       ) {
         $0.cancel = .init()
       }
+      if response.status == .staleRevision {
+        // Dictionary/config mutations invalidate every active candidate set
+        // and return the new authoritative snapshot. `transactV2` has already
+        // cached that revision, so retry the reset without treating the
+        // expected optimistic-concurrency conflict as a transport failure.
+        continue
+      }
       try requireSuccess(response, operation: "reset v2 composition")
     }
     guard snapshots[sessionID]?.phase == .idle else {
@@ -572,12 +579,16 @@ final class GrimodexProcessClient {
   }
 
   func candidates(sessionID: String) throws -> [String] {
+    try confirmedSnapshot(sessionID: sessionID).candidateWindow.items.map(\.text)
+  }
+
+  func confirmedSnapshot(sessionID: String) throws -> Hazkey_SessionSnapshot {
     guard let snapshot = snapshots[sessionID] else {
       throw GrimodexProcessE2EError.invalidResponse(
         "No confirmed v2 snapshot exists for session"
       )
     }
-    return snapshot.candidateWindow.items.map(\.text)
+    return snapshot
   }
 
   func setScope(_ mode: Hazkey_Config_Profile.GrimodexScopeMode) throws {

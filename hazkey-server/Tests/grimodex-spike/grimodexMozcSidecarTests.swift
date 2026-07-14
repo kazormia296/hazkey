@@ -199,9 +199,172 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     XCTAssertEqual(output.candidates.first?.consumingCount, 2)
   }
 
-  func testSecureAndPredictionPathsDoNotCallCoreAndPurgeTerminatesIt() throws {
+  func testDictionaryOverlayRanksScopedProjectAndPersonalBeforeMozc() throws {
+    let core = RecordingMozcCore()
+    core.handler = { request in
+      XCTAssertEqual(request.reading, "かな")
+      XCTAssertEqual(request.targetKeySize, 2)
+      return MozcCoreConversion(
+        candidates: [
+          MozcCoreCandidate(
+            value: "カ\u{3099}",
+            description: "duplicate",
+            consumedKeySize: 2
+          ),
+          MozcCoreCandidate(
+            value: "Mozc候補",
+            description: "Mozc",
+            consumedKeySize: 2
+          ),
+        ],
+        segmentKeySize: 2
+      )
+    }
+    let projectIndex = GrimodexProjectDictionaryIndex(entries: [
+      projectEntry(
+        ruby: "カナ",
+        word: "低優先",
+        priority: 1,
+        entryID: "project-low"
+      ),
+      projectEntry(
+        ruby: "カナ",
+        word: "ガ",
+        priority: 3,
+        entryID: "project-high"
+      ),
+    ])
+    let userStore = UserDictionaryStore(entries: [
+      UserDictionaryEntry(
+        id: "personal",
+        reading: "かな",
+        surface: "個人候補",
+        partOfSpeech: "noun"
+      ),
+      UserDictionaryEntry(
+        id: "personal-duplicate",
+        reading: "かな",
+        surface: "カ\u{3099}",
+        partOfSpeech: "noun"
+      ),
+    ])
+    let adapter = MozcKanaKanjiConverterAdapter(
+      core: core,
+      projectDictionaryIndexProvider: { projectIndex },
+      userDictionaryIndexProvider: { userStore.candidateIndexSnapshot }
+    )
+
+    let output = try adapter.segmentCandidates(
+      for: directInput("かな"),
+      options: .default
+    )
+
+    XCTAssertEqual(
+      output.candidates.map(\.text),
+      ["ガ", "低優先", "個人候補", "Mozc候補"]
+    )
+    XCTAssertEqual(
+      output.candidates.map(\.provenance),
+      [.projectDictionary, .projectDictionary, .personalDictionary, .standard]
+    )
+    XCTAssertEqual(output.pageSize, 4)
+    XCTAssertEqual(core.requests.count, 1)
+
+    let limited = try adapter.segmentCandidates(
+      for: directInput("かな"),
+      options: ConversionOptions(
+        allowLearning: false,
+        zenzaiEnabled: false,
+        leftContext: "",
+        rightContext: "",
+        suggestionListMode: .normal,
+        suggestionListLimit: 2
+      )
+    )
+    XCTAssertEqual(limited.candidates.map(\.text), ["ガ", "低優先"])
+    XCTAssertEqual(limited.pageSize, 2)
+    XCTAssertEqual(core.requests.count, 2)
+  }
+
+  func testLongestDictionaryPrefixOwnsNaturalSegmentButResizeStaysAuthoritative() throws {
+    let core = RecordingMozcCore()
+    core.handler = { request in
+      let keySize = try XCTUnwrap(request.targetKeySize)
+      return MozcCoreConversion(
+        candidates: [
+          MozcCoreCandidate(
+            value: "core-\(keySize)",
+            description: "Mozc",
+            consumedKeySize: keySize
+          )
+        ],
+        segmentKeySize: keySize
+      )
+    }
+    let projectIndex = GrimodexProjectDictionaryIndex(entries: [
+      projectEntry(
+        ruby: "セツナ",
+        word: "刹那",
+        priority: 3,
+        entryID: "project-short"
+      )
+    ])
+    let userStore = UserDictionaryStore(entries: [
+      UserDictionaryEntry(
+        id: "personal-long",
+        reading: "せつなで",
+        surface: "刹那で",
+        partOfSpeech: "noun"
+      )
+    ])
+    let adapter = MozcKanaKanjiConverterAdapter(
+      core: core,
+      projectDictionaryIndexProvider: { projectIndex },
+      userDictionaryIndexProvider: { userStore.candidateIndexSnapshot }
+    )
+    let input = directInput("せつなです")
+
+    let natural = try adapter.segmentCandidates(for: input, options: .default)
+    XCTAssertEqual(natural.candidates.first?.text, "刹那で")
+    XCTAssertEqual(natural.candidates.first?.consumingCount, 4)
+
+    let resized = CompositionInput(
+      elements: input.elements,
+      cursor: input.cursor,
+      leftContext: "",
+      targetCount: 3
+    )
+    let forced = try adapter.candidates(for: resized, options: .default)
+    XCTAssertEqual(forced.candidates.first?.text, "刹那")
+    XCTAssertEqual(forced.candidates.first?.consumingCount, 3)
+    XCTAssertEqual(core.requests.map(\.targetKeySize), [4, 3] as [Int?])
+  }
+
+  func testEmptyDictionaryOverlayLeavesLongNaturalConversionUnforced() throws {
     let core = RecordingMozcCore()
     let adapter = MozcKanaKanjiConverterAdapter(core: core)
+    let input = directInput(String(repeating: "あ", count: 128))
+
+    let output = try adapter.segmentCandidates(for: input, options: .default)
+
+    XCTAssertEqual(core.requests.count, 1)
+    XCTAssertNil(core.requests.first?.targetKeySize)
+    XCTAssertEqual(output.candidates.first?.consumingCount, 128)
+  }
+
+  func testSecureAndPredictionPathsDoNotCallCoreAndPurgeTerminatesIt() throws {
+    let core = RecordingMozcCore()
+    let adapter = MozcKanaKanjiConverterAdapter(
+      core: core,
+      projectDictionaryIndexProvider: {
+        XCTFail("secure input must not read the project dictionary overlay")
+        return .empty
+      },
+      userDictionaryIndexProvider: {
+        XCTFail("secure input must not read the personal dictionary overlay")
+        return .empty
+      }
+    )
     let input = directInput("秘密")
     let secure = ConversionOptions(
       allowLearning: false,
@@ -475,6 +638,133 @@ final class GrimodexMozcSidecarTests: XCTestCase {
       registry.zenzaiRuntimeDiagnostics().status,
       .policyDisabled
     )
+  }
+
+  func testProtocolV2RealServerOverlaysScopedProjectAndLivePersonalDictionary() throws {
+    guard
+      let executablePath = ProcessInfo.processInfo.environment[
+        "GRIMODEX_PROCESS_E2E_SERVER"
+      ],
+      !executablePath.isEmpty
+    else {
+      throw XCTSkip(
+        "Set GRIMODEX_PROCESS_E2E_SERVER to run the Mozc dictionary overlay test"
+      )
+    }
+    let sidecarFixture = try makeProcessFixture(mode: "ok")
+    defer { try? FileManager.default.removeItem(at: sidecarFixture.directory) }
+    let snapshotFixture = try GrimodexProcessSnapshotFixture()
+    defer { snapshotFixture.remove() }
+    try snapshotFixture.publish(
+      projectID: "mozc-project-a",
+      surface: "Mozc工程A"
+    )
+    let configuredDictionary = ProcessInfo.processInfo.environment[
+      "FCITX5_GRIMODEX_DICTIONARY"
+    ].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+    let server = GrimodexProcessHarness(
+      executableURL: URL(fileURLWithPath: executablePath),
+      grimodexRootURL: snapshotFixture.rootURL,
+      converterConfiguration: .mozc(
+        helperURL: sidecarFixture.helper,
+        dataURL: sidecarFixture.data
+      ),
+      dictionaryURL: configuredDictionary
+    )
+    try server.start()
+    defer { server.stop() }
+    let client = try GrimodexProcessClient.connect(to: server.socketURL)
+    defer { client.close() }
+
+    let grimodexSession = try client.openSession(program: "grimodex")
+    XCTAssertEqual(
+      try client.convertDirect("せつな", sessionID: grimodexSession).first,
+      "Mozc工程A"
+    )
+    try snapshotFixture.publish(
+      projectID: "mozc-project-b",
+      surface: "Mozc工程B"
+    )
+    _ = try client.waitForDiagnostics {
+      $0.snapshotStatus == "loaded" && $0.activeProjectID == "mozc-project-b"
+    }
+    let pinnedBeforeResize = try client.confirmedSnapshot(
+      sessionID: grimodexSession
+    )
+    let shrunk = try client.transactV2(
+      sessionID: grimodexSession,
+      requestID: "mozc-project-pin-shrink",
+      expectedRevision: pinnedBeforeResize.revision
+    ) {
+      $0.resizeSegment = Hazkey_Commands_ResizeSegment.with { $0.delta = -1 }
+    }
+    XCTAssertEqual(shrunk.status, .success)
+    let expanded = try client.transactV2(
+      sessionID: grimodexSession,
+      requestID: "mozc-project-pin-expand",
+      expectedRevision: shrunk.handleImeActionResult.snapshot.revision
+    ) {
+      $0.resizeSegment = Hazkey_Commands_ResizeSegment.with { $0.delta = 1 }
+    }
+    XCTAssertEqual(expanded.status, .success)
+    XCTAssertEqual(
+      expanded.handleImeActionResult.snapshot.candidateWindow.items.first?.text,
+      "Mozc工程A",
+      "a server-side resize round-trip must retain the project pinned to the active composition"
+    )
+    XCTAssertEqual(
+      try client.convertDirect("せつな", sessionID: grimodexSession).first,
+      "Mozc工程B",
+      "the next composition must use the newly pinned project overlay"
+    )
+
+    let firefoxSession = try client.openSession(program: "firefox")
+    XCTAssertFalse(
+      try client.convertDirect("せつな", sessionID: firefoxSession)
+        .contains("Mozc工程B"),
+      "the scoped project overlay must not leak to another application"
+    )
+    let beforePersonal = try client.convertDirect(
+      "かな",
+      sessionID: firefoxSession
+    )
+    XCTAssertFalse(beforePersonal.contains("Mozc個人辞書"))
+    let snapshotBeforePersonal = try client.confirmedSnapshot(
+      sessionID: firefoxSession
+    )
+    _ = try client.addUserDictionaryEntry(
+      id: "mozc-personal",
+      reading: "かな",
+      surface: "Mozc個人辞書"
+    )
+    let stale = try client.transactV2(
+      sessionID: firefoxSession,
+      requestID: "mozc-personal-stale-cancel",
+      expectedRevision: snapshotBeforePersonal.revision
+    ) {
+      $0.cancel = .init()
+    }
+    XCTAssertEqual(stale.status, .staleRevision)
+    XCTAssertEqual(stale.handleImeActionResult.snapshot.phase, .composing)
+    XCTAssertTrue(
+      stale.handleImeActionResult.snapshot.candidateWindow.items.isEmpty
+    )
+    let recovered = try client.transactV2(
+      sessionID: firefoxSession,
+      requestID: "mozc-personal-fresh-cancel",
+      expectedRevision: stale.handleImeActionResult.snapshot.revision
+    ) {
+      $0.cancel = .init()
+    }
+    XCTAssertEqual(recovered.status, .success)
+    XCTAssertEqual(recovered.handleImeActionResult.snapshot.phase, .idle)
+    XCTAssertEqual(
+      try client.convertDirect("かな", sessionID: firefoxSession).first,
+      "Mozc個人辞書",
+      "personal CRUD must invalidate and refresh an existing Mozc session"
+    )
+    XCTAssertEqual(try lineCount(sidecarFixture.conversions), 8)
+    XCTAssertTrue(server.isRunning)
   }
 
   func testProtocolV2RealServerDoesNotReplayEOFAndRecoversFreshRequest() throws {
@@ -986,6 +1276,23 @@ final class GrimodexMozcSidecarTests: XCTestCase {
       elements: text.map { CompositionElement(text: String($0)) },
       cursor: text.count,
       leftContext: ""
+    )
+  }
+
+  private func projectEntry(
+    ruby: String,
+    word: String,
+    priority: Int,
+    entryID: String
+  ) -> GrimodexMappedDictionaryEntry {
+    GrimodexMappedDictionaryEntry(
+      ruby: ruby,
+      word: word,
+      cid: 1288,
+      mid: 501,
+      value: priority == 3 ? -4 : -8,
+      priority: priority,
+      entryID: entryID
     )
   }
 

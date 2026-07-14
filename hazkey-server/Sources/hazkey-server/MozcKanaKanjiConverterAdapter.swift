@@ -6,6 +6,77 @@ enum MozcConverterAdapterError: Error, Equatable {
     case invalidCoreResponse
 }
 
+/// Immutable session-local view of dictionaries that remain authoritative
+/// even though the Mozc core itself owns no Grimodex or personal dictionary
+/// state. Only readings and candidates are merged here; dictionary contents
+/// never cross the private helper boundary.
+struct MozcDictionaryCandidateOverlay: Sendable {
+    static let empty = MozcDictionaryCandidateOverlay(
+        projectIndex: .empty,
+        userIndex: .empty
+    )
+
+    let projectIndex: GrimodexProjectDictionaryIndex
+    let userIndex: UserDictionaryCandidateIndex
+
+    var isEmpty: Bool {
+        projectIndex.isEmpty && userIndex.entryCount == 0
+    }
+
+    func hasEntries(for reading: String) -> Bool {
+        let ruby = canonicalRuby(reading)
+        return !projectIndex.entries(forRuby: ruby).isEmpty
+            || !userIndex.entries(forRuby: ruby).isEmpty
+    }
+
+    func candidates(
+        for reading: String,
+        consumingCount: Int
+    ) -> [ConverterCandidate] {
+        let ruby = canonicalRuby(reading)
+        let project = projectIndex.entries(forRuby: ruby).sorted { left, right in
+            if left.entry.priority != right.entry.priority {
+                return left.entry.priority > right.entry.priority
+            }
+            return left.order < right.order
+        }.map { indexed in
+            ConverterCandidate(
+                text: indexed.entry.word,
+                consumingCount: consumingCount,
+                provenance: .projectDictionary
+            )
+        }
+        let personal = userIndex.entries(forRuby: ruby).map { entry in
+            ConverterCandidate(
+                text: entry.surface.precomposedStringWithCompatibilityMapping,
+                consumingCount: consumingCount,
+                provenance: provenance(for: entry.layer)
+            )
+        }
+        var seen = Set<String>()
+        return (project + personal).filter { candidate in
+            seen.insert(
+                candidate.text.precomposedStringWithCanonicalMapping
+            ).inserted
+        }
+    }
+
+    private func canonicalRuby(_ reading: String) -> String {
+        reading.precomposedStringWithCompatibilityMapping.toKatakana()
+    }
+
+    private func provenance(
+        for layer: UserDictionaryLayer
+    ) -> CandidateProvenance {
+        switch layer {
+        case .system: .standard
+        case .personal: .personalDictionary
+        case .project: .projectDictionary
+        case .temporary: .temporaryDictionary
+        }
+    }
+}
+
 /// Experimental B0 adapter. The reducer continues to own the composition,
 /// segmentation, stale-candidate and commit contracts; Mozc only supplies
 /// candidates for a rendered reading. Learning and prediction are explicitly
@@ -15,15 +86,25 @@ final class MozcKanaKanjiConverterAdapter: KanaKanjiConverting {
 
     private let core: any MozcCoreConverting
     private let surfaceMapper: HazkeyCompositionSurfaceMapper
+    private let projectDictionaryIndexProvider: () -> GrimodexProjectDictionaryIndex
+    private let userDictionaryIndexProvider: () -> UserDictionaryCandidateIndex
 
     init(
         core: any MozcCoreConverting,
-        mappedInputStyleProvider: @escaping () -> InputStyle = { .roman2kana }
+        mappedInputStyleProvider: @escaping () -> InputStyle = { .roman2kana },
+        projectDictionaryIndexProvider: @escaping () -> GrimodexProjectDictionaryIndex = {
+            .empty
+        },
+        userDictionaryIndexProvider: @escaping () -> UserDictionaryCandidateIndex = {
+            .empty
+        }
     ) {
         self.core = core
         self.surfaceMapper = HazkeyCompositionSurfaceMapper(
             mappedInputStyleProvider: mappedInputStyleProvider
         )
+        self.projectDictionaryIndexProvider = projectDictionaryIndexProvider
+        self.userDictionaryIndexProvider = userDictionaryIndexProvider
     }
 
     func display(for composition: CompositionInput) -> CompositionDisplay {
@@ -54,6 +135,7 @@ final class MozcKanaKanjiConverterAdapter: KanaKanjiConverting {
         guard !display.text.isEmpty else {
             return ConversionOutput(candidates: [], pageSize: 0)
         }
+        let overlay = dictionaryOverlay()
         let requestedInputCount = min(
             max(composition.targetCount ?? composition.elements.count, 1),
             composition.elements.count
@@ -68,7 +150,8 @@ final class MozcKanaKanjiConverterAdapter: KanaKanjiConverting {
             for: composition,
             reading: display.text,
             targetKeySize: targetKeySize,
-            options: options
+            options: options,
+            overlay: overlay
         )
     }
 
@@ -86,11 +169,18 @@ final class MozcKanaKanjiConverterAdapter: KanaKanjiConverting {
         guard !reading.isEmpty else {
             return ConversionOutput(candidates: [], pageSize: 0)
         }
+        let overlay = dictionaryOverlay()
+        let targetKeySize = preferredOverlayTargetKeySize(
+            for: composition,
+            reading: reading,
+            overlay: overlay
+        )
         return try conversionOutput(
             for: composition,
             reading: reading,
-            targetKeySize: nil,
-            options: options
+            targetKeySize: targetKeySize,
+            options: options,
+            overlay: overlay
         )
     }
 
@@ -142,7 +232,8 @@ final class MozcKanaKanjiConverterAdapter: KanaKanjiConverting {
         for composition: CompositionInput,
         reading: String,
         targetKeySize: Int?,
-        options: ConversionOptions
+        options: ConversionOptions,
+        overlay: MozcDictionaryCandidateOverlay
     ) throws -> ConversionOutput {
         let limit = ConversionOptions.clampSuggestionListLimit(
             options.suggestionListLimit
@@ -180,17 +271,55 @@ final class MozcKanaKanjiConverterAdapter: KanaKanjiConverting {
         }.filter {
             ProtectedSurfacePolicy.allows($0, for: segmentReading)
         }
+        let dictionaryCandidates = overlay.candidates(
+            for: segmentReading,
+            consumingCount: segmentInputCount
+        )
         let guards = GrimodexBuiltInGuardDictionary.candidates(
             for: segmentReading,
             consumingCount: segmentInputCount
         )
         var seen = Set<String>()
-        let candidates = (guards + mapped).filter {
-            seen.insert($0.text).inserted
-        }
+        let candidates = Array(
+            (dictionaryCandidates + guards + mapped).filter { candidate in
+                seen.insert(
+                    candidate.text.precomposedStringWithCanonicalMapping
+                ).inserted
+            }.prefix(limit)
+        )
         return ConversionOutput(
             candidates: candidates,
             pageSize: min(limit, candidates.count)
         )
+    }
+
+    private func dictionaryOverlay() -> MozcDictionaryCandidateOverlay {
+        MozcDictionaryCandidateOverlay(
+            projectIndex: projectDictionaryIndexProvider(),
+            userIndex: userDictionaryIndexProvider()
+        )
+    }
+
+    /// A dictionary term must be able to own a longer segment than Mozc's
+    /// natural first clause, otherwise an exact project/personal entry can
+    /// never enter the candidate window. Iterate only stable input boundaries
+    /// and select the longest matching rendered prefix. Explicit resize calls
+    /// bypass this helper and remain authoritative.
+    private func preferredOverlayTargetKeySize(
+        for composition: CompositionInput,
+        reading: String,
+        overlay: MozcDictionaryCandidateOverlay
+    ) -> Int? {
+        guard !composition.elements.isEmpty, !overlay.isEmpty else { return nil }
+        var longest: Int?
+        for boundary in surfaceMapper.stableKeySizeBoundaries(in: composition) {
+            let keySize = boundary.keySize
+            guard keySize > 0 else { continue }
+            let prefix = String(reading.unicodeScalars.prefix(keySize))
+            if overlay.hasEntries(for: prefix) {
+                longest = max(longest ?? 0, keySize)
+            }
+        }
+        return longest
     }
 }

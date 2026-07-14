@@ -6,6 +6,215 @@ import XCTest
 @testable import hazkey_server
 
 final class GrimodexUserDictionaryTests: XCTestCase {
+  func testCandidateIndexNormalizesExactReadingAndPreservesStableOrder() {
+    let index = UserDictionaryCandidateIndex(entries: [
+      UserDictionaryEntry(
+        id: "first",
+        reading: "せつな",
+        surface: "刹那",
+        partOfSpeech: "noun"
+      ),
+      UserDictionaryEntry(
+        id: "unrelated",
+        reading: "きどうれき",
+        surface: "軌道暦",
+        partOfSpeech: "noun"
+      ),
+      UserDictionaryEntry(
+        id: "second",
+        reading: "ｾﾂﾅ",
+        surface: "セツナ",
+        partOfSpeech: "noun",
+        layer: .temporary
+      ),
+    ])
+
+    let matches = index.entries(forRuby: "セツナ")
+    XCTAssertEqual(matches.map(\.id), ["first", "second"])
+    XCTAssertEqual(index.entryCount, 3)
+    XCTAssertTrue(index.entries(forRuby: "せつ").isEmpty)
+    XCTAssertTrue(UserDictionaryCandidateIndex.empty.entries(forRuby: "せつな").isEmpty)
+  }
+
+  func testCandidateIndexSnapshotRefreshesAtomicallyAfterMutations() throws {
+    let first = UserDictionaryEntry(
+      id: "first",
+      reading: "せつな",
+      surface: "刹那",
+      partOfSpeech: "noun"
+    )
+    let second = UserDictionaryEntry(
+      id: "second",
+      reading: "せつな",
+      surface: "セツナ",
+      partOfSpeech: "noun"
+    )
+    let store = UserDictionaryStore(entries: [first])
+    let original = store.candidateIndexSnapshot
+
+    try store.add(second)
+    XCTAssertEqual(
+      store.candidateIndexSnapshot.entries(forRuby: "せつな").map(\.id),
+      ["first", "second"]
+    )
+    XCTAssertEqual(
+      original.entries(forRuby: "せつな").map(\.id),
+      ["first"],
+      "an already published immutable snapshot must not change"
+    )
+
+    var moved = first
+    moved.reading = "きどうれき"
+    try store.update(moved)
+    XCTAssertEqual(
+      store.candidateIndexSnapshot.entries(forRuby: "せつな").map(\.id),
+      ["second"]
+    )
+    XCTAssertEqual(
+      store.candidateIndexSnapshot.entries(forRuby: "キドウレキ").map(\.id),
+      ["first"]
+    )
+
+    try store.remove(id: second.id)
+    XCTAssertTrue(store.candidateIndexSnapshot.entries(forRuby: "せつな").isEmpty)
+
+    let imported = UserDictionaryEntry(
+      id: "imported",
+      reading: "りゅうせいこう",
+      surface: "龍星港",
+      partOfSpeech: "noun"
+    )
+    try store.importJSON(try JSONEncoder().encode([imported]))
+    XCTAssertEqual(
+      store.candidateIndexSnapshot.entries(forRuby: "リュウセイコウ")
+        .map(\.id),
+      ["imported"]
+    )
+    XCTAssertTrue(store.candidateIndexSnapshot.entries(forRuby: "きどうれき").isEmpty)
+  }
+
+  func testGlobalStoreRejectsUnsupportedLayersForAddUpdateAndImport() throws {
+    let personal = UserDictionaryEntry(
+      id: "personal",
+      reading: "せつな",
+      surface: "刹那",
+      partOfSpeech: "noun"
+    )
+    let store = UserDictionaryStore(entries: [personal])
+    let unsupported = UserDictionaryEntry(
+      id: "system",
+      reading: "しすてむ",
+      surface: "システム",
+      partOfSpeech: "noun",
+      layer: .system
+    )
+
+    XCTAssertThrowsError(try store.add(unsupported)) { error in
+      XCTAssertEqual(error as? UserDictionaryError, .invalidField)
+    }
+
+    var changed = personal
+    changed.layer = .project
+    XCTAssertThrowsError(try store.update(changed)) { error in
+      XCTAssertEqual(error as? UserDictionaryError, .invalidField)
+    }
+
+    let imported = UserDictionaryEntry(
+      id: "project",
+      reading: "ぷろじぇくと",
+      surface: "プロジェクト",
+      partOfSpeech: "noun",
+      layer: .project
+    )
+    XCTAssertThrowsError(
+      try store.importJSON(try JSONEncoder().encode([imported]))
+    ) { error in
+      XCTAssertEqual(error as? UserDictionaryError, .invalidField)
+    }
+    XCTAssertEqual(store.entries, [personal])
+    XCTAssertEqual(
+      store.candidateIndexSnapshot.entries(forRuby: "せつな").map(\.id),
+      ["personal"]
+    )
+    XCTAssertTrue(store.candidateIndexSnapshot.entries(forRuby: "しすてむ").isEmpty)
+    XCTAssertTrue(store.candidateIndexSnapshot.entries(forRuby: "ぷろじぇくと").isEmpty)
+  }
+
+  func testInitFiltersInvalidUnsupportedAndDuplicateEntriesFirstWins() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "GrimodexUserDictionaryInvalidLoad-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let valid = UserDictionaryEntry(
+      id: "valid-first",
+      reading: "せつな",
+      surface: "刹那",
+      partOfSpeech: "noun"
+    )
+    let candidates = [
+      valid,
+      UserDictionaryEntry(
+        id: "empty-surface",
+        reading: "から",
+        surface: "",
+        partOfSpeech: "noun"
+      ),
+      UserDictionaryEntry(
+        id: "control",
+        reading: "せつ\u{0001}な",
+        surface: "制御文字",
+        partOfSpeech: "noun"
+      ),
+      UserDictionaryEntry(
+        id: "oversized",
+        reading: String(repeating: "あ", count: 257),
+        surface: "長すぎる読み",
+        partOfSpeech: "noun"
+      ),
+      UserDictionaryEntry(
+        id: "unsupported",
+        reading: "ぷろじぇくと",
+        surface: "プロジェクト",
+        partOfSpeech: "noun",
+        layer: .project
+      ),
+      UserDictionaryEntry(
+        id: "valid-first",
+        reading: "べつのよみ",
+        surface: "重複ID",
+        partOfSpeech: "noun"
+      ),
+      UserDictionaryEntry(
+        id: "duplicate-surface",
+        reading: "せつな",
+        surface: "刹那",
+        partOfSpeech: "noun"
+      ),
+    ]
+    let persistenceURL = directory.appendingPathComponent("user-dictionary-v1.json")
+    try JSONEncoder().encode(candidates).write(to: persistenceURL, options: .atomic)
+
+    let persisted = UserDictionaryStore(persistenceURL: persistenceURL)
+    let programmatic = UserDictionaryStore(entries: candidates)
+    for store in [persisted, programmatic] {
+      XCTAssertEqual(store.entries, [valid])
+      XCTAssertEqual(store.candidateIndexSnapshot.entryCount, 1)
+      XCTAssertEqual(
+        store.candidateIndexSnapshot.entries(forRuby: "セツナ").map(\.id),
+        ["valid-first"]
+      )
+      XCTAssertTrue(
+        store.candidateIndexSnapshot.entries(forRuby: "ぷろじぇくと").isEmpty
+      )
+    }
+  }
+
   func testCrudRejectsDuplicatesAndUnknownIDs() throws {
     let store = UserDictionaryStore()
     let entry = UserDictionaryEntry(
@@ -74,10 +283,17 @@ final class GrimodexUserDictionaryTests: XCTestCase {
     let first = UserDictionaryStore(persistenceURL: url)
     try first.add(entry)
     XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
-    XCTAssertEqual(UserDictionaryStore(persistenceURL: url).entries, [entry])
+    let reloaded = UserDictionaryStore(persistenceURL: url)
+    XCTAssertEqual(reloaded.entries, [entry])
+    XCTAssertEqual(
+      reloaded.candidateIndexSnapshot.entries(forRuby: "セツナ").map(\.id),
+      ["persistent-entry"]
+    )
 
     try first.remove(id: entry.id)
-    XCTAssertTrue(UserDictionaryStore(persistenceURL: url).entries.isEmpty)
+    let removed = UserDictionaryStore(persistenceURL: url)
+    XCTAssertTrue(removed.entries.isEmpty)
+    XCTAssertTrue(removed.candidateIndexSnapshot.entries(forRuby: "せつな").isEmpty)
   }
 
   func testDictionaryElementNormalizesReadingAndPartOfSpeech() {

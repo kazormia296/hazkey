@@ -114,16 +114,41 @@ struct HazkeyCompositionSurfaceMapper {
         forInputCount inputCount: Int,
         in composition: CompositionInput
     ) -> Int? {
+        let count = min(max(inputCount, 0), composition.elements.count)
+        return stableKeySizeBoundaries(in: composition)
+            .first { $0.inputCount == count }?
+            .keySize
+    }
+
+    /// Computes every stable input-to-Mozc boundary from one rendered
+    /// composition. This avoids rebuilding and remapping the full composition
+    /// once per possible dictionary prefix on the conversion hot path.
+    func stableKeySizeBoundaries(
+        in composition: CompositionInput
+    ) -> [(inputCount: Int, keySize: Int)] {
         let text = composingText(for: composition)
-        let count = min(max(inputCount, 0), text.input.count)
-        let surfaceCount: Int?
-        if count == text.input.count {
-            surfaceCount = text.convertTarget.count
-        } else {
-            surfaceCount = text.inputIndexToSurfaceIndexMap()[count]
+        var surfaceCounts = text.inputIndexToSurfaceIndexMap()
+        surfaceCounts[text.input.count] = text.convertTarget.count
+
+        var scalarCountBySurfaceCount: [Int: Int] = [0: 0]
+        scalarCountBySurfaceCount.reserveCapacity(text.convertTarget.count + 1)
+        var surfaceCount = 0
+        var scalarCount = 0
+        for character in text.convertTarget {
+            surfaceCount += 1
+            scalarCount += character.unicodeScalars.count
+            scalarCountBySurfaceCount[surfaceCount] = scalarCount
         }
-        guard let surfaceCount else { return nil }
-        return text.convertTarget.prefix(surfaceCount).unicodeScalars.count
+
+        return surfaceCounts.compactMap { inputCount, mappedSurfaceCount in
+            guard (0...text.input.count).contains(inputCount),
+                  let keySize = scalarCountBySurfaceCount[mappedSurfaceCount] else {
+                return nil
+            }
+            return (inputCount: inputCount, keySize: keySize)
+        }.sorted { left, right in
+            left.inputCount < right.inputCount
+        }
     }
 
     /// Converts Mozc's consumed reading length back to a reducer input-element
@@ -133,21 +158,9 @@ struct HazkeyCompositionSurfaceMapper {
         forKeySize keySize: Int,
         in composition: CompositionInput
     ) -> Int? {
-        let text = composingText(for: composition)
-        guard (0...text.convertTarget.unicodeScalars.count).contains(keySize) else {
-            return nil
-        }
-        var boundaries = text.inputIndexToSurfaceIndexMap()
-        boundaries[text.input.count] = text.convertTarget.count
-        return boundaries
-            .filter { inputIndex, surfaceIndex in
-                (0...text.input.count).contains(inputIndex)
-                    && text.convertTarget
-                        .prefix(surfaceIndex)
-                        .unicodeScalars
-                        .count == keySize
-            }
-            .map(\.key)
+        stableKeySizeBoundaries(in: composition)
+            .filter { $0.keySize == keySize }
+            .map(\.inputCount)
             .max()
     }
 }

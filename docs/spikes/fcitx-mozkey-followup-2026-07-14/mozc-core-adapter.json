@@ -63,6 +63,15 @@
     "failure": "verified: after the helper observes one CONVERT and exits before replying, that request is not replayed; composition remains editable and the next independent request respawns the helper",
     "stale_candidates": "verified: existing reducer generation/revision guards reject stale actions before a core call"
   },
+  "dictionary_overlay": {
+    "status": "implemented and focused-verified",
+    "scope": "project entries come from the session-scoped, composition-pinned Grimodex snapshot; personal and temporary entries come from an immutable thread-safe user-store snapshot; invalid, unsupported, and duplicate persisted records are filtered first-valid-wins at load, and system and project layers are rejected from the global user store",
+    "ordering": "project priority descending with stable ties, then personal and temporary store order, built-in guards, and Mozc; canonical NFC first-wins deduplication precedes the suggestion limit",
+    "segmentation": "natural conversion selects the longest exact dictionary prefix on a stable input boundary; explicit segment resize remains authoritative; empty overlays skip prefix search and non-empty overlays compute stable boundaries from one rendered map",
+    "privacy": "dictionary contents stay in the Swift process and secure-input paths return before either dictionary provider or the Mozc core is called",
+    "evidence": "unit coverage plus a real release server and Protocol v2 test with a fake sidecar verified project scope and pinning through resize round-trips, live personal CRUD stale-revision recovery, ranking, deduplication, limits, natural-prefix ownership, explicit resize, and secure no-call; the actual C++ helper remains covered by natural and resize smoke",
+    "post_overlay_empty_path_regression": "single 1500-sample release run: mean 0.661 ms, median 0.632 ms, p95 1.578 ms, helper launch count 1, cleanup failure count 0; this does not replace the prior five-cycle aggregate"
+  },
   "learning_parity": {
     "existing_partial_commit_expected_learning": {
       "completed": 1,
@@ -145,18 +154,21 @@
       "59 packaging contract tests passed"
     ],
     "focused_swift_tests": {
-      "total": 22,
-      "normal_passed": 21,
+      "total": 29,
+      "normal_passed": 28,
       "normal_optional_skipped": 1,
-      "actual_bundle_passed": 22,
+      "actual_bundle_passed": 29,
       "added_coverage": [
         "stable Romaji resize",
-        "active profile writer shutdown and private TMPDIR cleanup"
+        "active profile writer shutdown and private TMPDIR cleanup",
+        "generic project and personal dictionary candidate overlay",
+        "real Protocol v2 project scope, snapshot pinning, and live personal CRUD",
+        "empty-overlay long input fast path and fail-closed persisted user-dictionary loading"
       ]
     },
     "full_swift_regression": {
-      "total": 257,
-      "optional_skipped": 6,
+      "total": 274,
+      "optional_skipped": 11,
       "failures": 0,
       "execution": "normal host permissions"
     },
@@ -197,12 +209,11 @@
   },
   "remaining_gates": [
     "restore or explicitly retire partial-commit learning parity 1/1/1/0",
-    "add a generic project and personal dictionary candidate overlay",
     "run a 100-500 item blind corpus with B1 or an immutable B2 snapshot",
-    "measure warm latency, steady RSS, and recovery at the same long-lived server and IPC boundary"
+    "complete external SIGKILL recovery, Fcitx-inclusive soak, and alternating long-lived server benchmark cycles"
   ],
   "comparison_limitations": {
-    "dictionary": "project and personal dictionary state is not overlaid onto Mozc candidates",
+    "dictionary": "the product project and personal overlay is implemented, but B1 or an immutable B2 core dictionary has not been evaluated on a 100-500 item blind real-use corpus",
     "server_process": "Mozc session open still constructs two Hazkey KanaKanjiConverter instances and a HazkeySessionEnvironment, so server startup/RSS is not a clean Mozc-only versus Hazkey-only comparison",
     "historical_process_ratio": "the 6.31 ratio belongs to different backend harnesses and is not product key-latency evidence",
     "default_decision": "keep Hazkey as default; use Mozc only as the opt-in comparison implementation"

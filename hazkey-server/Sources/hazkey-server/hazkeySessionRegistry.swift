@@ -291,6 +291,13 @@ final class HazkeySessionRegistry {
                 core: mozcCore,
                 mappedInputStyleProvider: { [environment] in
                     .mapped(id: .tableName(environment.currentTableName))
+                },
+                projectDictionaryIndexProvider: { [environment] in
+                    environment.grimodexProjectDictionaryIndex
+                },
+                userDictionaryIndexProvider: {
+                    [userDictionaryStore = self.userDictionaryStore] in
+                    userDictionaryStore.candidateIndexSnapshot
                 }
             )
         } else {

@@ -40,12 +40,51 @@ enum UserDictionaryError: Error, Equatable {
     case persistenceFailed
 }
 
+/// Immutable exact-reading lookup used by converter adapters. The snapshot
+/// preserves the store's insertion order while normalizing both indexed and
+/// queried readings to compatibility-composed Katakana.
+struct UserDictionaryCandidateIndex: Equatable, Sendable {
+    static let empty = UserDictionaryCandidateIndex(entries: [])
+
+    private let entriesByRuby: [String: [UserDictionaryEntry]]
+    let entryCount: Int
+
+    init(entries: [UserDictionaryEntry]) {
+        var entriesByRuby: [String: [UserDictionaryEntry]] = [:]
+        var entryCount = 0
+        for entry in entries {
+            // Project entries are supplied by the scoped Grimodex snapshot and
+            // system entries belong to the converter core. Neither may enter
+            // the global user-dictionary overlay, including through an older
+            // or manually modified persistence file.
+            guard entry.layer == .personal || entry.layer == .temporary else {
+                continue
+            }
+            let ruby = Self.normalizedRuby(entry.reading)
+            guard !ruby.isEmpty else { continue }
+            entriesByRuby[ruby, default: []].append(entry)
+            entryCount += 1
+        }
+        self.entriesByRuby = entriesByRuby
+        self.entryCount = entryCount
+    }
+
+    func entries(forRuby ruby: String) -> [UserDictionaryEntry] {
+        entriesByRuby[Self.normalizedRuby(ruby)] ?? []
+    }
+
+    private static func normalizedRuby(_ ruby: String) -> String {
+        ruby.precomposedStringWithCompatibilityMapping.toKatakana()
+    }
+}
+
 /// CRUD/import/export is kept separate from converter learning.  This makes
 /// project dictionary and personal dictionary policy explicit and prevents a
 /// secure-input composition from silently changing dictionary ownership.
 final class UserDictionaryStore {
     private let lock = NSLock()
     private var storedEntries: [UserDictionaryEntry]
+    private var storedCandidateIndexSnapshot: UserDictionaryCandidateIndex
     private let persistenceURL: URL?
 
     var entries: [UserDictionaryEntry] {
@@ -54,60 +93,66 @@ final class UserDictionaryStore {
         return storedEntries
     }
 
+    var candidateIndexSnapshot: UserDictionaryCandidateIndex {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedCandidateIndexSnapshot
+    }
+
     init(
         entries: [UserDictionaryEntry] = [],
         persistenceURL: URL? = nil
     ) {
-        self.persistenceURL = persistenceURL
+        let loadedEntries: [UserDictionaryEntry]
         if let persistenceURL,
            let data = try? Data(contentsOf: persistenceURL),
            let decoded = try? JSONDecoder().decode(
                [UserDictionaryEntry].self,
                from: data
            ) {
-            self.storedEntries = decoded
+            loadedEntries = decoded
         } else {
-            self.storedEntries = entries
+            loadedEntries = entries
         }
+        // Initialization cannot report individual invalid records. Filter with
+        // the same rules as CRUD/import and deterministically retain the first
+        // valid occurrence, so malformed persisted or injected state can never
+        // publish a candidate.
+        let initialEntries = Self.validatedFirstWins(loadedEntries)
+        self.persistenceURL = persistenceURL
+        self.storedEntries = initialEntries
+        self.storedCandidateIndexSnapshot = UserDictionaryCandidateIndex(
+            entries: initialEntries
+        )
     }
 
     @discardableResult
     func add(_ entry: UserDictionaryEntry) throws -> UserDictionaryEntry {
-        try validate(entry)
+        try Self.validate(entry)
         lock.lock()
         defer { lock.unlock() }
-        guard !storedEntries.contains(where: {
-            $0.id == entry.id
-                || ($0.reading == entry.reading
-                    && $0.surface == entry.surface
-                    && $0.layer == entry.layer)
-        }) else { throw UserDictionaryError.duplicate }
+        guard !Self.isDuplicate(entry, in: storedEntries) else {
+            throw UserDictionaryError.duplicate
+        }
         var next = storedEntries
         next.append(entry)
-        try persist(next)
-        storedEntries = next
+        try replaceStoredEntries(next)
         return entry
     }
 
     func update(_ entry: UserDictionaryEntry) throws {
-        try validate(entry)
+        try Self.validate(entry)
         lock.lock()
         defer { lock.unlock() }
         guard let index = storedEntries.firstIndex(where: { $0.id == entry.id }) else {
             throw UserDictionaryError.missingEntry
         }
-        if storedEntries.enumerated().contains(where: {
-            index != $0.offset
-                && $0.element.reading == entry.reading
-                && $0.element.surface == entry.surface
-                && $0.element.layer == entry.layer
-        }) {
+        if Self.isDuplicate(entry, in: storedEntries, excluding: index) {
             throw UserDictionaryError.duplicate
         }
         var next = storedEntries
         next[index] = entry
-        try persist(next)
-        storedEntries = next
+        try replaceStoredEntries(next)
     }
 
     func remove(id: String) throws {
@@ -118,8 +163,7 @@ final class UserDictionaryStore {
         }
         var next = storedEntries
         next.remove(at: index)
-        try persist(next)
-        storedEntries = next
+        try replaceStoredEntries(next)
     }
 
     func exportJSON() throws -> Data {
@@ -142,32 +186,51 @@ final class UserDictionaryStore {
         defer { lock.unlock() }
         var nextEntries = merge ? storedEntries : []
         for entry in imported {
-            try validate(entry)
-            let duplicate = nextEntries.contains(where: {
-                $0.id == entry.id
-                    || ($0.reading == entry.reading
-                        && $0.surface == entry.surface
-                        && $0.layer == entry.layer)
-            })
-            if duplicate {
+            try Self.validate(entry)
+            if Self.isDuplicate(entry, in: nextEntries) {
                 if merge { continue }
                 throw UserDictionaryError.duplicate
             }
             nextEntries.append(entry)
         }
-        do {
-            try persist(nextEntries)
-        } catch {
-            throw UserDictionaryError.persistenceFailed
-        }
-        storedEntries = nextEntries
+        try replaceStoredEntries(nextEntries)
     }
 
-    private func validate(_ entry: UserDictionaryEntry) throws {
+    private static func validatedFirstWins(
+        _ entries: [UserDictionaryEntry]
+    ) -> [UserDictionaryEntry] {
+        var result: [UserDictionaryEntry] = []
+        result.reserveCapacity(entries.count)
+        for entry in entries {
+            guard (try? validate(entry)) != nil,
+                  !isDuplicate(entry, in: result) else {
+                continue
+            }
+            result.append(entry)
+        }
+        return result
+    }
+
+    private static func isDuplicate(
+        _ entry: UserDictionaryEntry,
+        in entries: [UserDictionaryEntry],
+        excluding excludedIndex: Int? = nil
+    ) -> Bool {
+        entries.enumerated().contains { index, existing in
+            guard index != excludedIndex else { return false }
+            return existing.id == entry.id
+                || (existing.reading == entry.reading
+                    && existing.surface == entry.surface
+                    && existing.layer == entry.layer)
+        }
+    }
+
+    private static func validate(_ entry: UserDictionaryEntry) throws {
         guard !entry.reading.isEmpty, !entry.surface.isEmpty, !entry.partOfSpeech.isEmpty else {
             throw UserDictionaryError.emptyField
         }
-        guard !entry.id.isEmpty,
+        guard entry.layer == .personal || entry.layer == .temporary,
+              !entry.id.isEmpty,
               entry.id.unicodeScalars.count <= 128,
               entry.reading.unicodeScalars.count <= 256,
               entry.surface.unicodeScalars.count <= 256,
@@ -180,6 +243,15 @@ final class UserDictionaryStore {
                 }) else {
             throw UserDictionaryError.invalidField
         }
+    }
+
+    /// Caller must hold `lock`. Entries and their immutable lookup snapshot are
+    /// published together only after persistence succeeds.
+    private func replaceStoredEntries(_ entries: [UserDictionaryEntry]) throws {
+        let candidateIndex = UserDictionaryCandidateIndex(entries: entries)
+        try persist(entries)
+        storedEntries = entries
+        storedCandidateIndexSnapshot = candidateIndex
     }
 
     private func persist(_ entries: [UserDictionaryEntry]) throws {
