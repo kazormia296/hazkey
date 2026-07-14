@@ -1,0 +1,230 @@
+{
+  "schema": "hazkey.mozc-adoption-b0-policy.v1",
+  "policy_id": "mozc-adoption-v1",
+  "candidate": {
+    "id": "B0",
+    "product_source_revision": "6e0354f2514edf1fe8219657ed23e7a02c8a7f7a",
+    "artifact_source_revision": "462cbbf04886e32096bc318833e974ccc43d9fc8",
+    "resource_fingerprint": "sha256:2ba2cccb3c7489def988b63b0f0fd2cd96469521569c4807b63c80d2b50d3063",
+    "product_executable": {
+      "size_bytes": 106248768,
+      "sha256": "a476e8fa96855158f881cecbac75b3cce8fbd57b0c5dd338065e8a89a7eeee11"
+    },
+    "runtime_dependencies": {
+      "schema": "hazkey.mozc-b0-runtime-dependencies.v1",
+      "files": [
+        {
+          "path": "libggml-base.so",
+          "size_bytes": 695712,
+          "sha256": "sha256:c7e94e958404e380ebd42266e68accd165c364e7cdf95d7430b5899d9bfc73a6"
+        },
+        {
+          "path": "libggml-cpu-alderlake.so",
+          "size_bytes": 519176,
+          "sha256": "sha256:955311e33965bf7cda743adf7569f68c58400fea44cd7ffb66f1436756628def"
+        },
+        {
+          "path": "libggml-cpu-haswell.so",
+          "size_bytes": 519160,
+          "sha256": "sha256:927d11333dafb3a90fe3fcf295b96efddaae38c16f790a65c5773055d6cc5427"
+        },
+        {
+          "path": "libggml-cpu-icelake.so",
+          "size_bytes": 630472,
+          "sha256": "sha256:83e0f4fc9964a27da59132294140f7f1ca177ce8e6590699a6bf33fc39a5bf12"
+        },
+        {
+          "path": "libggml-cpu-sandybridge.so",
+          "size_bytes": 522552,
+          "sha256": "sha256:86050c8e7d895168bb16c9dde80d2b3ba80cbdf9ff2dae6f24a836914002dcd3"
+        },
+        {
+          "path": "libggml-cpu-sapphirerapids.so",
+          "size_bytes": 880904,
+          "sha256": "sha256:bd07ef4b6fd38dd943d09f000127f368cfda69d99decbdf3cd1bb35b5d009626"
+        },
+        {
+          "path": "libggml-cpu-skylakex.so",
+          "size_bytes": 626368,
+          "sha256": "sha256:9c786d05574b3f3819e83d56b99a66ad216e11453b10422264cf64a92e592329"
+        },
+        {
+          "path": "libggml-vulkan.so",
+          "size_bytes": 25338344,
+          "sha256": "sha256:9948c23902ae9591b808e134695885ac72bc2cb113374f7487fc6d4dad5cdbd6"
+        },
+        {
+          "path": "libggml.so",
+          "size_bytes": 50456,
+          "sha256": "sha256:6de5366de9b2b1594f812f81c6b20b5324fd61261661db13edb0e574ce55821d"
+        },
+        {
+          "path": "libllama.so",
+          "size_bytes": 1925376,
+          "sha256": "sha256:fe54fb337491d52cddc8f9b1992ef30576e87b78a84c580d2635de076e6e4541"
+        },
+        {
+          "path": "vulkan-shaders-gen",
+          "size_bytes": 169400,
+          "sha256": "sha256:f1ae0ed80f313c8b89d82d8da87685b2725ae44ae2f0259e30535d3589fc0851"
+        }
+      ],
+      "integrity": "sha256:5d847919dbfb4b866546104cfbc73f5ffa9ff45ee9d8bc85889bf1de6c299f2d"
+    },
+    "artifacts": [
+      {
+        "id": "fcitx5-grimodex-mozc-helper",
+        "size_bytes": 5695048,
+        "sha256": "8676275bb47aefe963c8b82047cc66fb7a5140caec72d1ebbfa17556b281577d"
+      },
+      {
+        "id": "mozc.data",
+        "size_bytes": 18887468,
+        "sha256": "b9884362e37772f772a0d28d1e12622455c14353497b3435deed60aa7e592c5e"
+      }
+    ]
+  },
+  "baseline": {
+    "id": "hazkey",
+    "resource_fingerprint": "sha256:cee9210b8dc92a30e8b4e600c416db70a51fed1199f6b4c3659aba821ef4024c"
+  },
+  "candidate_sequence": {
+    "evaluate_first": "B0",
+    "build_B1_only_if_B0_fails": true,
+    "B2_status": "future_consideration"
+  },
+  "formal_suite": {
+    "total_cases": 256,
+    "components": {
+      "ajimee_unconditional": {
+        "file": "external-ajimee-unconditional.tsv",
+        "cases": 100,
+        "sha256": "sha256:91068dd92eddc70865c1b998843f38fd21d47458d1adf21799f9ad645e265fba"
+      },
+      "product_curated": {
+        "file": "product-curated.tsv",
+        "cases": 140
+      },
+      "protected": {
+        "file": "protected.tsv",
+        "cases": 16
+      }
+    },
+    "curated_categories": {
+      "technical-mixed": 32,
+      "proper-noun": 24,
+      "colloquial": 24,
+      "homophone-context": 20,
+      "long-structural": 20,
+      "grimodex-regression": 20
+    },
+    "categories": {
+      "ajimee-unconditional": 100,
+      "technical-mixed": 32,
+      "proper-noun": 24,
+      "colloquial": 24,
+      "homophone-context": 20,
+      "long-structural": 20,
+      "grimodex-regression": 20,
+      "protected": 16
+    }
+  },
+  "external_sources": {
+    "ajimee_bench": {
+      "repository": "https://github.com/azooKey/AJIMEE-Bench",
+      "revision": "401666cd56d1a570c2021798b64b6da4396bfd45",
+      "raw_path": "JWTD_v2/v1/evaluation_items.json",
+      "raw_sha256": "e9eb668fd6aa14b1e26436f429b5550108af0a1dfd443b8cea0bcb3ab3028fca",
+      "raw_cases": 200,
+      "unconditional_cases": 100,
+      "contextual_cases": 100,
+      "license": "CC-BY-SA-3.0",
+      "derived_path": "external-ajimee-unconditional.tsv",
+      "derived_sha256": "sha256:91068dd92eddc70865c1b998843f38fd21d47458d1adf21799f9ad645e265fba",
+      "transform": "ajimee-unconditional-to-tsv.v1",
+      "reading_normalization": "katakana-to-hiragana.v1"
+    }
+  },
+  "gates": {
+    "human_net_preference": {
+      "comparison_backend": "hazkey",
+      "minimum_basis_points": -300,
+      "minimum_net_cases": -7
+    },
+    "top1": {
+      "comparison_backend": "hazkey",
+      "minimum_delta_basis_points": -800
+    },
+    "top10": {
+      "comparison_backend": "hazkey",
+      "minimum_delta_basis_points": -1200
+    },
+    "per_category_top1": {
+      "comparison_backend": "hazkey",
+      "scope": "formal_suite.categories",
+      "minimum_delta_basis_points": -1000
+    },
+    "protected": {
+      "required_passes": 16,
+      "total_cases": 16
+    },
+    "both_bad": {
+      "maximum_cases": 12
+    },
+    "warm_latency_p95": {
+      "comparison_backend": "hazkey",
+      "maximum_ratio_basis_points": 5000
+    },
+    "pss": {
+      "comparison_backend": "hazkey",
+      "maximum_ratio_basis_points": 12500
+    },
+    "long_running_stability": {
+      "required_result": "all_pass",
+      "check_contracts_frozen": false,
+      "checks": null
+    }
+  },
+  "measurement_contracts": {
+    "formal_abprobe_v3": {
+      "status": "ready",
+      "schema": "hazkey.ab-probe-result.v3",
+      "producer_sha256": "sha256:d7cf8cd4be12affd2a8e95015522cd8a558009e23208ea5e4b0c9f4df124ec81",
+      "runs_per_backend": 4,
+      "execution_order": [
+        "H1",
+        "M1",
+        "M2",
+        "H2",
+        "H3",
+        "M3",
+        "M4",
+        "H4"
+      ],
+      "warmups_per_case": 5,
+      "iterations_per_case": 20,
+      "top_k": 10,
+      "cases": 256,
+      "latency_statistic": "nearest-rank-p95-across-all-samples",
+      "pss_statistic": "max-parent-plus-backend-before-after",
+      "cpu_policy": "unrestricted-same-host",
+      "per_run_timeout_seconds": 900
+    },
+    "long_running_stability": {
+      "status": "pending"
+    }
+  },
+  "manifest_binding": {
+    "required_for_formal_decision": true,
+    "expected_schema": "hazkey.frozen-conversion-corpus-manifest.v1",
+    "status": "ready",
+    "path": "manifest.json",
+    "sha256": "sha256:b1319e356ba025e1e06221330479d48b12cc44ebb502ddda970ea5fa583336e3"
+  },
+  "readiness": {
+    "formal_decision_enabled": false,
+    "blocking_items": [
+      "long_running_stability_check_contracts"
+    ]
+  }
+}

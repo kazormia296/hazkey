@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prepare and score a deterministic, blind conversion-quality A/B review.
 
-``prepare`` consumes two raw ABProbe v2 runs plus the matching corpus.  It
+``prepare`` consumes two raw ABProbe v3 runs plus the matching corpus.  It
 writes a reviewer-facing JSONL file containing only opaque case handles,
 readings, categories, and candidates labelled ``x``/``y``.  Backend identity,
 the corpus expectation, and the original case ID live only in a separate

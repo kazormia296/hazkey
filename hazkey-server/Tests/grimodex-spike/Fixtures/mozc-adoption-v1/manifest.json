@@ -1,0 +1,78 @@
+{
+  "schema": "hazkey.frozen-conversion-corpus-manifest.v1",
+  "normalization": {
+    "unicode": "NFC",
+    "line_endings": "LF",
+    "reading_transform": "katakana-to-hiragana.v1"
+  },
+  "components": [
+    {
+      "id": "ajimee-unconditional",
+      "path": "external-ajimee-unconditional.tsv",
+      "sha256": "sha256:91068dd92eddc70865c1b998843f38fd21d47458d1adf21799f9ad645e265fba",
+      "cases": 100,
+      "id_prefix": "ajimee-jwtd-v2-",
+      "categories": {
+        "ajimee-unconditional": 100
+      },
+      "provenance": {
+        "kind": "external",
+        "repository": "https://github.com/azooKey/AJIMEE-Bench",
+        "revision": "401666cd56d1a570c2021798b64b6da4396bfd45",
+        "raw_path": "JWTD_v2/v1/evaluation_items.json",
+        "raw_sha256": "sha256:e9eb668fd6aa14b1e26436f429b5550108af0a1dfd443b8cea0bcb3ab3028fca",
+        "license": "CC-BY-SA-3.0",
+        "transform": "ajimee-unconditional-to-tsv.v1"
+      }
+    },
+    {
+      "id": "product-curated",
+      "path": "product-curated.tsv",
+      "sha256": "sha256:32a72027cf4f04089509cf5a161c0b452264fd55fe308e01c36a891beb08a0e4",
+      "cases": 140,
+      "id_prefix": "product-",
+      "categories": {
+        "technical-mixed": 32,
+        "proper-noun": 24,
+        "colloquial": 24,
+        "homophone-context": 20,
+        "long-structural": 20,
+        "grimodex-regression": 20
+      },
+      "provenance": {
+        "kind": "project",
+        "license": "MIT",
+        "source": "grimodex-curated-v1"
+      }
+    },
+    {
+      "id": "protected",
+      "path": "protected.tsv",
+      "sha256": "sha256:18c384f50903c86cc2146726a2b24e74b0af36fac6b23bf810d43af4a983d768",
+      "cases": 16,
+      "id_prefix": "protected-",
+      "categories": {
+        "protected": 16
+      },
+      "provenance": {
+        "kind": "project",
+        "license": "MIT",
+        "source": "grimodex-protected-v1"
+      }
+    }
+  ],
+  "aggregate": {
+    "cases": 256,
+    "sha256": "sha256:123f47cb6f747135451e5969b32d9868ec61d9574fa6eb4b0001e5409287c807",
+    "categories": {
+      "ajimee-unconditional": 100,
+      "technical-mixed": 32,
+      "proper-noun": 24,
+      "colloquial": 24,
+      "homophone-context": 20,
+      "long-structural": 20,
+      "grimodex-regression": 20,
+      "protected": 16
+    }
+  }
+}
