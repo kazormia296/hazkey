@@ -101,6 +101,10 @@ final class LearningSynchronizedKanaKanjiConverter: KanaKanjiConverting {
         base.stopComposition()
     }
 
+    func purgeSensitiveState() {
+        base.purgeSensitiveState()
+    }
+
     private func synchronizePersistedLearningIfNeeded() {
         let currentRevision = revisionStore.current()
         guard currentRevision != observedRevision else { return }

@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -27,12 +28,28 @@ def load_fixture(path: Path) -> list[dict[str, str]]:
     ids = [row["id"] for row in rows]
     if len(ids) != len(set(ids)) or any(not value for value in ids):
         raise ValueError(f"{path}: ids must be non-empty and unique")
+    for line_number, row in enumerate(rows, 2):
+        reading = row["reading"]
+        if not reading:
+            raise ValueError(f"{path}:{line_number}: reading must not be empty")
+        if not row["category"]:
+            raise ValueError(f"{path}:{line_number}: category must not be empty")
+        split_at = row["split_at"]
+        if re.fullmatch(r"[1-9][0-9]*", split_at) is None:
+            raise ValueError(
+                f"{path}:{line_number}: split_at must be a canonical ASCII decimal integer"
+            )
+        split_index = int(split_at)
+        if not 1 <= split_index < len(reading):
+            raise ValueError(
+                f"{path}:{line_number}: split_at must be inside the reading"
+            )
     return rows
 
 
-def candidates(value: Any) -> list[str]:
+def candidates(value: Any, field: str = "candidate list") -> list[str]:
     if not isinstance(value, list):
-        raise ValueError("candidate lists must be arrays")
+        raise ValueError(f"{field} must be an array")
     result: list[str] = []
     for item in value:
         if isinstance(item, str):
@@ -54,11 +71,22 @@ def load_results(path: Path) -> dict[str, dict[str, list[str]]]:
             if not isinstance(payload, dict) or not isinstance(payload.get("id"), str):
                 raise ValueError(f"{path}:{line_number}: result requires string id")
             result_id = payload["id"]
+            if not result_id:
+                raise ValueError(f"{path}:{line_number}: result id must not be empty")
             if result_id in results:
                 raise ValueError(f"{path}:{line_number}: duplicate result id {result_id}")
+            if "whole_candidates" not in payload or "split_candidates" not in payload:
+                raise ValueError(
+                    f"{path}:{line_number}: result requires whole_candidates and "
+                    "split_candidates"
+                )
             results[result_id] = {
-                "whole": candidates(payload.get("whole_candidates", [])),
-                "split": candidates(payload.get("split_candidates", [])),
+                "whole": candidates(
+                    payload["whole_candidates"], "whole_candidates"
+                ),
+                "split": candidates(
+                    payload["split_candidates"], "split_candidates"
+                ),
             }
     return results
 
@@ -72,10 +100,12 @@ def evaluate(fixture: list[dict[str, str]], results: dict[str, dict[str, list[st
         if result is None:
             missing.append(row["id"])
             continue
-        whole = result["whole"]
-        split = result["split"]
-        drift = bool(whole and split) and whole[0] != split[0]
+        if "whole" not in result or "split" not in result:
+            raise ValueError(f"result {row['id']} requires whole and split candidates")
+        whole = candidates(result["whole"], f"result {row['id']} whole candidates")
+        split = candidates(result["split"], f"result {row['id']} split candidates")
         comparable = bool(whole and split)
+        drift = comparable and whole[0] != split[0]
         counter = by_category.setdefault(row["category"], Counter())
         counter["total"] += 1
         counter["comparable"] += int(comparable)
@@ -114,7 +144,11 @@ def self_test(fixture_path: Path) -> None:
         for row in fixture
     }
     report = evaluate(fixture, results)
-    if report["missing_results"] or report["top1_drift_cases"]:
+    if (
+        report["missing_results"]
+        or report["comparable_cases"] != len(fixture)
+        or report["top1_drift_cases"]
+    ):
         raise AssertionError("synthetic boundary evaluation drifted")
 
 
@@ -140,6 +174,11 @@ def main() -> int:
         else:
             sys.stdout.write(encoded)
         if report["missing_results"]:
+            return 2
+        if args.fail_on_drift and (
+            report["comparable_cases"] == 0
+            or report["comparable_cases"] != report["evaluated_cases"]
+        ):
             return 2
         return 1 if args.fail_on_drift and report["top1_drift_cases"] else 0
     except (OSError, ValueError, json.JSONDecodeError, AssertionError) as error:

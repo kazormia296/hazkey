@@ -5,6 +5,7 @@
 
 #include "config_definitions.h"
 #include "config_macros.h"
+#include "controllers/direct_commit_targets.h"
 #include "ui_mainwindow.h"
 
 namespace hazkey::settings {
@@ -41,7 +42,8 @@ void UserInterfaceTabController::loadFromConfig() {
                 ConfigDefs::SpinboxDefaults::NUM_CANDIDATES_PER_PAGE);
     ui_->directCommitPunctuation->setChecked(
         context_.currentProfile->has_direct_commit_targets()
-        && context_.currentProfile->direct_commit_targets() != 0);
+        && hasPunctuationDirectCommitTarget(
+            context_.currentProfile->direct_commit_targets()));
 }
 
 void UserInterfaceTabController::saveToConfig() {
@@ -60,8 +62,14 @@ void UserInterfaceTabController::saveToConfig() {
         GET_SPINBOX_INT(ui_->numSuggestion));
     context_.currentProfile->set_num_candidates_per_page(
         GET_SPINBOX_INT(ui_->numCandidatesPerPage));
+    const uint32_t directCommitTargets =
+        context_.currentProfile->has_direct_commit_targets()
+            ? context_.currentProfile->direct_commit_targets()
+            : 0;
     context_.currentProfile->set_direct_commit_targets(
-        ui_->directCommitPunctuation->isChecked() ? 0x0F : 0);
+        withPunctuationDirectCommitEnabled(
+            directCommitTargets,
+            ui_->directCommitPunctuation->isChecked()));
 }
 
 }  // namespace hazkey::settings

@@ -243,8 +243,6 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
     private let boundaryConverter: KanaKanjiConverter
     private let optionsProvider: (ConversionOptions) -> ConvertRequestOptions
     private let mappedInputStyleProvider: () -> InputStyle
-    private let predictionConfigurationProvider: () -> (enabled: Bool, limit: Int)
-    private let suggestionListModeProvider: () -> ImeSuggestionListMode
     private let projectDictionaryIndexProvider: () -> GrimodexProjectDictionaryIndex
     private let zenzaiDiagnosticsReporter: (ConversionOptions, String) -> Void
     private var completedCandidates: [String: Candidate] = [:]
@@ -258,10 +256,10 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         boundaryConverter: KanaKanjiConverter,
         optionsProvider: @escaping (ConversionOptions) -> ConvertRequestOptions,
         mappedInputStyleProvider: @escaping () -> InputStyle = { .roman2kana },
-        predictionConfigurationProvider: @escaping () -> (enabled: Bool, limit: Int) = {
+        predictionConfigurationProvider _: @escaping () -> (enabled: Bool, limit: Int) = {
             (false, 0)
         },
-        suggestionListModeProvider: @escaping () -> ImeSuggestionListMode = { .predictive },
+        suggestionListModeProvider _: @escaping () -> ImeSuggestionListMode = { .predictive },
         projectDictionaryIndexProvider: @escaping () -> GrimodexProjectDictionaryIndex = {
             .empty
         },
@@ -277,8 +275,6 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         self.boundaryConverter = boundaryConverter
         self.optionsProvider = optionsProvider
         self.mappedInputStyleProvider = mappedInputStyleProvider
-        self.predictionConfigurationProvider = predictionConfigurationProvider
-        self.suggestionListModeProvider = suggestionListModeProvider
         self.projectDictionaryIndexProvider = projectDictionaryIndexProvider
         self.zenzaiDiagnosticsReporter = zenzaiDiagnosticsReporter
     }
@@ -595,9 +591,8 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         // Keeping this value out of the live provider closure prevents a
         // settings reload from changing an in-flight composition.
         let mode = options.suggestionListMode
-        let configuration = predictionConfigurationProvider()
         var requestOptions = optionsProvider(options)
-        let limit = max(configuration.limit, 1)
+        let limit = options.suggestionListLimit
         requestOptions.N_best = switch mode {
         case .disabled:
             1
@@ -680,17 +675,17 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         for composition: CompositionInput,
         options: ConversionOptions
     ) throws -> ConversionOutput {
-        let configuration = predictionConfigurationProvider()
-        guard configuration.enabled, configuration.limit > 0,
+        guard options.suggestionListMode == .predictive,
               !composition.elements.isEmpty else {
             return ConversionOutput(candidates: [], pageSize: 0)
         }
+        let limit = options.suggestionListLimit
         let composingText = makeComposingText(
             from: composition.elements[...],
             mappedTableName: composition.mappedTableName
         )
         var requestOptions = optionsProvider(options)
-        requestOptions.N_best = max(1, configuration.limit)
+        requestOptions.N_best = limit
         requestOptions.requireJapanesePrediction = .manualMix
         requestOptions.requireEnglishPrediction = .disabled
         if !options.zenzaiEnabled {
@@ -701,7 +696,7 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             requestOptions: requestOptions,
             conversionOptions: options
         )
-        let predictionCandidates = result.predictionResults.prefix(configuration.limit).map { candidate in
+        let predictionCandidates = result.predictionResults.prefix(limit).map { candidate in
             makePredictionCandidate(
                 candidate,
                 in: composingText,
@@ -716,11 +711,11 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         )
         let candidates = Array(
             mergeGuardCandidates(guardedCandidates, with: predictionCandidates)
-                .prefix(configuration.limit)
+                .prefix(limit)
         )
         return ConversionOutput(
             candidates: candidates,
-            pageSize: min(configuration.limit, candidates.count)
+            pageSize: min(limit, candidates.count)
         )
     }
 
@@ -847,6 +842,16 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         }
     }
 
+    func purgeSensitiveState() {
+        converter.stopComposition()
+        if boundaryConverter !== converter {
+            boundaryConverter.stopComposition()
+        }
+        completedCandidates.removeAll(keepingCapacity: false)
+        completedCandidateOrder.removeAll(keepingCapacity: false)
+        stagedLearningCandidates.removeAll(keepingCapacity: false)
+    }
+
     private func allocateCandidateSourceID() -> String {
         let result = String(nextCandidateSourceID)
         nextCandidateSourceID = nextCandidateSourceID == UInt64.max
@@ -908,22 +913,25 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         )
     }
 
-    private func candidateProvenance(_ candidate: Candidate) -> CandidateProvenance {
+    func candidateProvenance(_ candidate: Candidate) -> CandidateProvenance {
+        guard !candidate.data.isEmpty else { return .standard }
         let projectIndex = projectDictionaryIndexProvider()
-        if candidate.data.contains(where: { data in
-            !projectIndex.entries(matching: data).isEmpty
-        }) {
-            return .projectDictionary
+        var containsProjectNode = false
+        var containsPersonalNode = false
+        for data in candidate.data {
+            if !projectIndex.entries(matching: data).isEmpty {
+                containsProjectNode = true
+            } else if data.metadata.contains(.isFromUserDictionary) {
+                containsPersonalNode = true
+            } else {
+                // Provenance is candidate-wide. A single generic node means
+                // the dictionary did not authorize the entire rendered
+                // surface, so the protected-surface policy must still run.
+                return .standard
+            }
         }
-        if candidate.data.contains(where: {
-            $0.metadata.contains(.isFromUserDictionary)
-        }) {
-            // AzooKey intentionally collapses personal, temporary, and
-            // project dynamic entries into the same metadata bit. The project
-            // index was checked first, so the remaining user-dictionary node
-            // is conservatively classified as personal rather than generic.
-            return .personalDictionary
-        }
+        if containsPersonalNode { return .personalDictionary }
+        if containsProjectNode { return .projectDictionary }
         return .standard
     }
 

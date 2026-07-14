@@ -498,7 +498,9 @@ final class GrimodexImeReducerTests: XCTestCase {
     )
     XCTAssertEqual(exited.snapshot.phase, .idle)
     XCTAssertTrue(exited.snapshot.preedit.isEmpty)
+    XCTAssertNil(exited.snapshot.recovery)
     XCTAssertTrue(reducer.session.composingText.isEmpty)
+    XCTAssertNil(reducer.session.recoveryCheckpoint)
   }
 
   func testStaleRevisionDoesNotMutateTheSession() {

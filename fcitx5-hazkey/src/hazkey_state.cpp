@@ -89,24 +89,90 @@ HazkeyState::HazkeyState(HazkeyEngine* engine, InputContext* ic)
     }
 }
 
+HazkeyState::~HazkeyState() {
+    cancelLiveConversionTimer();
+    const bool acceptedPendingLearning =
+        snapshot_.phase() == hazkey::IDLE && snapshot_.pending_learning();
+    // Destruction has no UI target for effects. Accepted text defaults to
+    // commit-learning; active/unconfirmed composition defaults to discard. A
+    // previously journaled Backspace decision overrides either default.
+    server_.finalizeWithoutUITarget(acceptedPendingLearning);
+}
+
 void HazkeyState::capabilityAboutToChange(CapabilityFlags newFlags) {
     auto nextContext = makeClientContext(ic_, newFlags);
     const auto transition =
         evaluateHazkeyClientContextTransition(server_.context(), nextContext);
+    const bool retryTransport = !protocolAvailable_;
     if (!transition.contextChanged) {
+        if (!protocolAvailable_) {
+            // A bounded lifecycle send may have disconnected while retaining
+            // the journal's exact old-session binding. Resume it through the
+            // normal transport so reconnect -> SESSION_NOT_FOUND ->
+            // open/restore/rebind can run before this key is mapped.
+            bool recovered = false;
+            if (server_.hasPendingV2()) {
+                recovered = flushDeferredActions(true, false);
+            } else {
+                const bool updated =
+                    server_.updateClientContext(std::move(nextContext));
+                // updateContext may have confirmed restore/fallback effects.
+                // Apply that effect-only handoff before protocol input resumes.
+                recovered = updated && flushDeferredActions(true);
+            }
+            protocolAvailable_ = recovered && server_.supportsV2();
+        }
         return;
     }
     cancelLiveConversionTimer();
 
     if (transition.clearPreedit) {
-        // Crossing a secure-input boundary intentionally drops any text from
-        // the other security domain. It must never enter a recovery payload.
+        // Never replay arbitrary old-domain journal entries here. A lost
+        // commit could carry COMMIT_TEXT/DELETE effects that must not be
+        // applied after focus crosses a secure or program boundary. Instead,
+        // hand off discard+close, erase all local old-domain state, and install
+        // the new context even if its open must be retried later.
+        const bool acceptedPendingLearning =
+            snapshot_.phase() == hazkey::IDLE && snapshot_.pending_learning();
+        server_.finalizeWithoutUITarget(acceptedPendingLearning);
         discardLocalComposition();
+        const bool updated =
+            server_.updateClientContext(std::move(nextContext));
+        protocolAvailable_ = updated && server_.supportsV2();
+        return;
     }
-    if (!server_.updateClientContext(std::move(nextContext))) {
+
+    if (snapshot_.pending_learning()) {
+        // A frontend transport replacement preserves the field/domain but
+        // closes the old server session. Resolve its accepted text before that
+        // explicit close so the new session cannot expose a phantom undo.
+        (void)resolvePendingLearning(true);
+    }
+    if (!flushDeferredActions(retryTransport)) {
+        // A frontend-only transition may retain composition, so leave its
+        // journal/effects in place and retry on the next capability event.
+        protocolAvailable_ = false;
+        return;
+    }
+    if (snapshot_.pending_learning()) {
+        // The first flush may itself have recovered a lost commit and exposed
+        // newly staged learning. Resolve that transaction before closing the
+        // old frontend session; otherwise the new session would retain a
+        // phantom local undo for learning already committed by explicit close.
+        (void)resolvePendingLearning(true);
+        if (!flushDeferredActions(retryTransport)) {
+            protocolAvailable_ = false;
+            return;
+        }
+    }
+    const bool updated = server_.updateClientContext(std::move(nextContext));
+    if (!updated) {
         FCITX_ERROR() << "Failed to replace Grimodex session after context change";
     }
-    protocolAvailable_ = server_.supportsV2();
+    const bool recoveryEffectsApplied =
+        !updated || flushDeferredActions(retryTransport);
+    protocolAvailable_ = updated && recoveryEffectsApplied &&
+                         server_.supportsV2();
 }
 
 void HazkeyState::discardLocalComposition() {
@@ -136,16 +202,73 @@ bool HazkeyState::isAltDigitKeyEvent(const KeyEvent& event) const {
 
 void HazkeyState::commitPreedit() {
     cancelLiveConversionTimer();
-    if (protocolAvailable_ &&
-        (snapshot_.phase() != hazkey::IDLE || snapshot_.pending_learning())) {
-        dispatchV2(HazkeySemanticAction{HazkeySemanticActionKind::commitAll});
+    const auto originalPhase = snapshot_.phase();
+    std::string visibleText;
+    for (const auto& span : snapshot_.preedit()) {
+        visibleText.append(span.text());
+    }
+    if (!protocolAvailable_) {
+        if (!visibleText.empty() &&
+            server_.isLocalTextFallbackSemanticallySafe()) {
+            ic_->commitString(visibleText);
+        }
+        server_.finalizeWithoutUITarget(
+            originalPhase == hazkey::IDLE && snapshot_.pending_learning());
+        discardLocalComposition();
+        return;
+    }
+    const bool hadVisibleComposition = snapshot_.phase() != hazkey::IDLE;
+    bool commitConfirmed = !hadVisibleComposition;
+    if (hadVisibleComposition) {
+        commitConfirmed = dispatchV2(
+            HazkeySemanticAction{HazkeySemanticActionKind::commitAll});
+        if (!commitConfirmed) {
+            commitConfirmed = flushDeferredActions(false);
+        }
+        commitConfirmed = commitConfirmed && snapshot_.phase() == hazkey::IDLE;
+    }
+    if (!commitConfirmed) {
+        // The server effect was not confirmed, so commit the last rendered text
+        // locally exactly once and discard all late effects from that session.
+        std::string remainingText;
+        for (const auto& span : snapshot_.preedit()) {
+            remainingText.append(span.text());
+        }
+        if (!remainingText.empty() &&
+            server_.isLocalTextFallbackSemanticallySafe()) {
+            ic_->commitString(remainingText);
+        }
+        server_.finalizeWithoutUITarget(false);
+        discardLocalComposition();
+        protocolAvailable_ = false;
+        return;
+    }
+
+    // Only after COMMIT_TEXT has been applied may its learning transaction be
+    // committed. This two-phase ordering prevents learning text the app never
+    // received when the second lifecycle exchange stalls.
+    if (hadVisibleComposition || snapshot_.pending_learning()) {
+        (void)resolvePendingLearning(true);
+    }
+    if (!flushDeferredActions(false)) {
+        server_.finalizeWithoutUITarget(true);
+        discardLocalComposition();
+        protocolAvailable_ = false;
     }
 }
 
 void HazkeyState::keyEvent(KeyEvent& event) {
     capabilityAboutToChange(ic_->capabilityFlags());
     if (!protocolAvailable_) {
-        event.filter();
+        // Never let application input overtake an older journaled key/effect or
+        // visible composition. Keep recovery fail-closed until it drains or an
+        // explicit abandonment boundary clears the retained state atomically.
+        if (server_.hasPendingV2() || snapshot_.phase() != hazkey::IDLE ||
+            snapshot_.pending_learning()) {
+            event.filterAndAccept();
+        } else {
+            event.filter();
+        }
         return;
     }
     keyEventV2(event);
@@ -156,18 +279,33 @@ void HazkeyState::keyEventV2(KeyEvent& event) {
         return;
     }
 
+    // Recovery may change the semantic phase (for example, a lost commit can
+    // become IDLE+pending while this Backspace is arriving). Apply the bounded
+    // replay before mapping the key so it is interpreted from the recovered
+    // snapshot rather than stale local composition.
+    if (server_.hasPendingV2()) {
+        const bool bounded = flushDeferredActions(false, false);
+        if (!bounded && !flushDeferredActions(true, false)) {
+            protocolAvailable_ = false;
+            event.filterAndAccept();
+            return;
+        }
+    }
+
+    const auto phase = inputPhaseFor(snapshot_.phase());
+    const bool idlePendingLearning =
+        phase == HazkeyInputPhase::idle && snapshot_.pending_learning();
     // A just-committed surface can leave learning staged while the protocol
     // is already idle. These keys are cancellation signals for the staged
     // transaction, but must remain visible to the application (for example,
     // Backspace must not be swallowed merely because learning is pending).
-    if (snapshot_.pending_learning() &&
+    if (idlePendingLearning &&
         isPendingLearningCancellationKey(event.key())) {
-        notifyPendingLearningCancellation();
+        (void)resolvePendingLearning(false);
         event.filter();
         return;
     }
 
-    const auto phase = inputPhaseFor(snapshot_.phase());
     const bool composing = phase != HazkeyInputPhase::idle;
     const bool hasCandidates =
         snapshot_.candidate_window().items_size() > 0;
@@ -197,6 +335,12 @@ void HazkeyState::keyEventV2(KeyEvent& event) {
     }
     if (!action.has_value() ||
         action->kind == HazkeySemanticActionKind::passThrough) {
+        // A navigation/mode key that goes directly to the application closes
+        // the one-key undo window. Otherwise a much later Backspace could
+        // discard learning for text that is no longer adjacent to the cursor.
+        if (idlePendingLearning) {
+            (void)resolvePendingLearning(true);
+        }
         event.filter();
         return;
     }
@@ -220,6 +364,9 @@ void HazkeyState::keyEventV2(KeyEvent& event) {
     } else if (action->kind == HazkeySemanticActionKind::reconvert) {
         dispatchSucceeded = reconvertV2Selection();
         if (!dispatchSucceeded) {
+            if (idlePendingLearning) {
+                (void)resolvePendingLearning(true);
+            }
             event.filter();
             return;
         }
@@ -234,6 +381,9 @@ void HazkeyState::keyEventV2(KeyEvent& event) {
             text = Key::keySymToUTF8(event.key().sym());
         }
         if (text.empty()) {
+            if (idlePendingLearning) {
+                (void)resolvePendingLearning(true);
+            }
             event.filter();
             return;
         }
@@ -281,10 +431,24 @@ void HazkeyState::updateSurroundingTextV2() {
     applyV2Response(server_.transactV2(std::move(request)));
 }
 
-void HazkeyState::notifyPendingLearningCancellation() {
+bool HazkeyState::resolvePendingLearning(bool commit) {
     hazkey::commands::HandleImeAction request;
-    request.mutable_resolve_pending_learning()->set_commit(false);
-    (void)applyV2Response(server_.transactV2BestEffort(std::move(request)));
+    request.mutable_resolve_pending_learning()->set_commit(commit);
+    // This sits directly on Fcitx's key path for Backspace, Ctrl-Z, and
+    // pass-through navigation. Journal it durably, but cap the immediate
+    // transport attempt so a stalled server cannot freeze application input.
+    return applyV2Response(
+        server_.transactV2DurableBestEffort(std::move(request)));
+}
+
+bool HazkeyState::flushDeferredActions(bool tryConnect,
+                                       bool requireSuccess) {
+    auto flushed = server_.flushPendingV2(tryConnect);
+    bool responseSucceeded = true;
+    if (flushed.response.has_value()) {
+        responseSucceeded = applyV2Response(flushed.response);
+    }
+    return flushed.completed && (!requireSuccess || responseSucceeded);
 }
 
 bool HazkeyState::dispatchV2(const HazkeySemanticAction& action,
@@ -445,9 +609,19 @@ bool HazkeyState::applyV2Response(
         return false;
     }
 
+    const bool succeeded = response->status() == hazkey::SUCCESS &&
+                           response->handle_ime_action_result().status() ==
+                               hazkey::SUCCESS;
+
     snapshot_ = response->handle_ime_action_result().snapshot();
     std::optional<std::string> notification;
-    for (const auto& effect : snapshot_.effects()) {
+    // HazkeySessionClient strips server-originated effects from failed action
+    // snapshots before they reach state. Effects still present on a failure
+    // envelope therefore came from independently confirmed journal replay and
+    // must be delivered even though this action returns false.
+    const auto effects = snapshot_.effects();
+    snapshot_.clear_effects();
+    for (const auto& effect : effects) {
         if (!server_.shouldApplyEffect(effect.effect_id())) {
             continue;
         }
@@ -486,7 +660,7 @@ bool HazkeyState::applyV2Response(
     if (notification.has_value()) {
         ic_->inputPanel().setAuxDown(Text(*notification));
     }
-    return true;
+    return succeeded;
 }
 
 void HazkeyState::renderV2Snapshot() {
@@ -566,15 +740,13 @@ void HazkeyState::applyDelayedLiveConversion(uint64_t effectID,
 
 void HazkeyState::reset() {
     cancelLiveConversionTimer();
-    if (protocolAvailable_) {
-        for (int attempt = 0;
-             attempt < 3 && snapshot_.phase() != hazkey::IDLE; ++attempt) {
-            dispatchV2(HazkeySemanticAction{HazkeySemanticActionKind::cancel});
-        }
-        if (snapshot_.pending_learning()) {
-            notifyPendingLearningCancellation();
-        }
-    }
+    // reset() is a UI-clearing boundary and need not preserve composition.
+    // Avoid normal multi-second cancel retries: hand off the final disposition
+    // plus close through the bounded lifecycle FIFO, then drop local effects.
+    const bool acceptedPendingLearning =
+        snapshot_.phase() == hazkey::IDLE && snapshot_.pending_learning();
+    server_.finalizeWithoutUITarget(acceptedPendingLearning);
+    protocolAvailable_ = false;
     snapshot_.Clear();
     snapshot_.set_phase(hazkey::IDLE);
     ic_->inputPanel().reset();

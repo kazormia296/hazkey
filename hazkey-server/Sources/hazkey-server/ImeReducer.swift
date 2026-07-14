@@ -16,39 +16,70 @@ final class ImeReducer {
 
     private(set) var session: CompositionSession
     private let converter: any KanaKanjiConverting
+    private let stagedLearningEnabled: Bool
     private var requestCache: [String: CachedRequest] = [:]
     private var requestOrder: [String] = []
     private let requestCacheLimit = 128
 
     init(
         session: CompositionSession = CompositionSession(),
-        converter: any KanaKanjiConverting = NoopKanaKanjiConverter()
+        converter: any KanaKanjiConverting = NoopKanaKanjiConverter(),
+        stagedLearningEnabled: Bool = true
     ) {
         self.session = session
         self.converter = converter
+        self.stagedLearningEnabled = stagedLearningEnabled
     }
 
     func currentSnapshot() -> SessionSnapshot { snapshot() }
 
-    func pinCompositionPolicy(_ policy: PinnedCompositionPolicy) {
-        guard session.phase == .idle, session.composingText.isEmpty else { return }
+    @discardableResult
+    func pinCompositionPolicy(_ policy: PinnedCompositionPolicy) -> Bool {
+        guard session.phase == .idle, session.composingText.isEmpty else { return false }
+        let securityDomainChanged = session.policy.secureInput != policy.secureInput
+        if securityDomainChanged {
+            // A pending transaction belongs to the security domain that
+            // produced it. Resolve it before purging converter-owned tokens;
+            // otherwise the session would retain an apparently resolvable
+            // transaction whose adapter token has already been destroyed.
+            resolvePendingLearning(commit: false)
+            purgeConverterSensitiveState()
+            clearSecurityDomainState()
+        }
         session.policy = policy
         session.context.projectRevision = policy.projectRevision
+        return securityDomainChanged
     }
 
     func invalidateCandidatesForExternalDictionaryChange() {
-        guard session.candidates != nil else { return }
-        converter.stopComposition()
+        guard session.candidates != nil
+                || !session.segments.isEmpty
+                || session.livePresentation.materializedPrefix != nil else {
+            return
+        }
+        endConverterComposition()
         clearLivePresentation()
         clearConversionState()
         session.phase = session.composingText.isEmpty ? .idle : .composing
         session.advanceRevision()
+        // Dictionary replacement is an out-of-band state transition. A retry
+        // of an already processed request must retain its original effects,
+        // but it must not resurrect the candidate window or revision that the
+        // replacement just invalidated.
+        rebaseRequestCacheToCurrentSnapshot()
+    }
+
+    func finalizePendingLearning(commit: Bool) {
+        guard resolvePendingLearning(commit: commit) else { return }
+        session.advanceRevision()
+        rebaseRequestCacheToCurrentSnapshot()
     }
 
     func reduce(
         _ action: ImeAction,
         requestID: String,
-        expectedRevision: UInt64? = nil
+        expectedRevision: UInt64? = nil,
+        compositionStartPolicyProvider: (() -> PinnedCompositionPolicy)? = nil
     ) -> ImeReductionResult {
         if let cached = requestCache[requestID] {
             guard cached.action == action,
@@ -82,12 +113,13 @@ final class ImeReducer {
                 result = failure(.invalidAction, "text input is not valid in the current phase")
                 break
             }
+            pinCompositionPolicyIfNeeded(compositionStartPolicyProvider)
             if session.phase == .idle {
                 session.reconversionReplacement = nil
             }
             resolvePendingLearning(commit: true)
             preserveMaterializedLivePrefixForEditing()
-            if session.candidates != nil { converter.stopComposition() }
+            if session.candidates != nil { endConverterComposition() }
             session.phase = .composing
             session.composingText.insert(text, keymap: session.policy.keymap)
             clearConversionState()
@@ -140,7 +172,7 @@ final class ImeReducer {
             session.composingText.moveCursor(
                 by: nextCursor - session.composingText.cursor
             )
-            converter.stopComposition()
+            endConverterComposition()
             session.phase = .composing
             clearLivePresentation()
             clearConversionState()
@@ -156,7 +188,7 @@ final class ImeReducer {
             } else {
                 session.composingText.moveCursorToEnd()
             }
-            converter.stopComposition()
+            endConverterComposition()
             session.phase = .composing
             clearLivePresentation()
             clearConversionState()
@@ -185,7 +217,7 @@ final class ImeReducer {
             resolvePendingLearning(commit: true)
             clearLivePresentation()
             if session.candidates?.origin == .prediction {
-                converter.stopComposition()
+                endConverterComposition()
                 clearConversionState()
             }
             result = convert()
@@ -194,7 +226,7 @@ final class ImeReducer {
             clearLivePresentation()
             if session.phase == .composing,
                session.candidates?.items.isEmpty ?? true {
-                converter.stopComposition()
+                endConverterComposition()
                 clearConversionState()
                 let conversion = convert(advanceRevision: false)
                 guard conversion.status == .success else {
@@ -309,34 +341,47 @@ final class ImeReducer {
             let deleteBefore,
             let deleteAfter
         ):
-            resolvePendingLearning(commit: false)
-            clearLivePresentation()
-            guard !session.policy.secureInput else {
-                result = failure(
-                    .secureInputViolation,
-                    "surrounding-text reconversion is disabled for secure input"
-                )
-                break
-            }
             guard !text.isEmpty, deleteBefore >= 0, deleteAfter >= 0 else {
                 result = failure(.invalidAction, "reconversion text must not be empty")
                 break
             }
             let selectedCount = text.unicodeScalars.count
-            guard deleteBefore + deleteAfter == 0
-                    || deleteBefore + deleteAfter == selectedCount else {
+            let (replacementCount, replacementCountOverflow) =
+                deleteBefore.addingReportingOverflow(deleteAfter)
+            guard !replacementCountOverflow,
+                  replacementCount == 0 || replacementCount == selectedCount else {
                 result = failure(
                     .invalidAction,
                     "reconversion replacement range does not match selected text"
                 )
                 break
             }
-            converter.stopComposition()
+            let securityDomainChanged = pinCompositionPolicyIfNeeded(
+                compositionStartPolicyProvider
+            )
+            guard !session.policy.secureInput else {
+                if securityDomainChanged {
+                    // The secure transition already discarded pending
+                    // learning and erased the previous domain. Publish that
+                    // state transition even though reconversion itself is
+                    // forbidden so the same revision never denotes two
+                    // different snapshots.
+                    session.advanceRevision()
+                }
+                result = failure(
+                    .secureInputViolation,
+                    "surrounding-text reconversion is disabled for secure input"
+                )
+                break
+            }
+            resolvePendingLearning(commit: true)
+            clearLivePresentation()
+            endConverterComposition()
             session.composingText = CompositionBuffer()
             session.composingText.insert(text, inputStyle: .direct)
             session.context.leftContext = leftContext
             session.context.rightContext = rightContext
-            session.reconversionReplacement = if deleteBefore + deleteAfter > 0 {
+            session.reconversionReplacement = if replacementCount > 0 {
                 ReconversionReplacement(before: deleteBefore, after: deleteAfter)
             } else {
                 nil
@@ -353,8 +398,9 @@ final class ImeReducer {
                 )
                 break
             }
-            converter.stopComposition()
-            resolvePendingLearning(commit: false)
+            pinCompositionPolicyIfNeeded(compositionStartPolicyProvider)
+            endConverterComposition()
+            resolvePendingLearning(commit: true)
             clearLivePresentation()
             session.phaseBeforeUnicodeInput = session.phase
             session.unicodeInputBuffer = ""
@@ -442,10 +488,45 @@ final class ImeReducer {
             result: result
         )
         requestOrder.append(requestID)
-        while requestOrder.count > requestCacheLimit {
+        // Secure input still needs one-result idempotency for the transport's
+        // immediate retry, but retaining a long history would keep old secret
+        // snapshots alive after the active composition has moved on.
+        let limit = session.policy.secureInput ? 1 : requestCacheLimit
+        while requestOrder.count > limit {
             requestCache.removeValue(forKey: requestOrder.removeFirst())
         }
         return result
+    }
+
+    private func clearRequestCache() {
+        requestCache.removeAll(keepingCapacity: false)
+        requestOrder.removeAll(keepingCapacity: false)
+    }
+
+    private func rebaseRequestCacheToCurrentSnapshot() {
+        requestCache = requestCache.mapValues { cached in
+            CachedRequest(
+                action: cached.action,
+                expectedRevision: cached.expectedRevision,
+                result: ImeReductionResult(
+                    status: cached.result.status,
+                    message: cached.result.message,
+                    snapshot: snapshot(effects: cached.result.snapshot.effects)
+                )
+            )
+        }
+    }
+
+    @discardableResult
+    private func pinCompositionPolicyIfNeeded(
+        _ provider: (() -> PinnedCompositionPolicy)?
+    ) -> Bool {
+        guard session.phase == .idle,
+              session.composingText.isEmpty,
+              let provider else {
+            return false
+        }
+        return pinCompositionPolicy(provider())
     }
 
     private func finishInteractiveEdit() -> ImeReductionResult {
@@ -527,7 +608,8 @@ final class ImeReducer {
                         && !session.policy.secureInput,
                     leftContext: session.context.leftContext,
                     rightContext: session.context.rightContext,
-                    suggestionListMode: session.policy.suggestionListMode
+                    suggestionListMode: session.policy.suggestionListMode,
+                    suggestionListLimit: session.policy.suggestionListLimit
                 )
             )
             let liveCandidate: CandidateSnapshot? = shouldPublishLiveCandidate(
@@ -658,7 +740,8 @@ final class ImeReducer {
                         && !session.policy.secureInput,
                     leftContext: session.context.leftContext,
                     rightContext: session.context.rightContext,
-                    suggestionListMode: session.policy.suggestionListMode
+                    suggestionListMode: session.policy.suggestionListMode,
+                    suggestionListLimit: session.policy.suggestionListLimit
                 )
             )
             guard !output.candidates.isEmpty else {
@@ -710,7 +793,7 @@ final class ImeReducer {
                 advanceRevision: advanceRevision
             )
         }
-        converter.stopComposition()
+        endConverterComposition()
         do {
             let segments = try buildSegments(
                 from: session.composingText.elements
@@ -722,7 +805,7 @@ final class ImeReducer {
             if advanceRevision { session.advanceRevision() }
             return success()
         } catch {
-            converter.stopComposition()
+            endConverterComposition()
             session.phase = isReconversion ? .reconverting : .composing
             clearConversionState()
             if advanceRevision { session.advanceRevision() }
@@ -751,7 +834,7 @@ final class ImeReducer {
                 options: conversionOptions(leftContext: session.context.leftContext)
             )
             guard !output.candidates.isEmpty else {
-                converter.stopComposition()
+                endConverterComposition()
                 session.phase = isReconversion ? .reconverting : .composing
                 clearConversionState()
                 if advanceRevision { session.advanceRevision() }
@@ -775,7 +858,7 @@ final class ImeReducer {
             if advanceRevision { session.advanceRevision() }
             return success()
         } catch {
-            converter.stopComposition()
+            endConverterComposition()
             session.phase = isReconversion ? .reconverting : .composing
             clearConversionState()
             if advanceRevision { session.advanceRevision() }
@@ -879,7 +962,8 @@ final class ImeReducer {
             zenzaiEnabled: session.policy.zenzaiEnabled && !session.policy.secureInput,
             leftContext: leftContext,
             rightContext: session.context.rightContext,
-            suggestionListMode: session.policy.suggestionListMode
+            suggestionListMode: session.policy.suggestionListMode,
+            suggestionListLimit: session.policy.suggestionListLimit
         )
     }
 
@@ -967,7 +1051,7 @@ final class ImeReducer {
             }
             start += segment.inputCount
         }
-        converter.stopComposition()
+        endConverterComposition()
         do {
             let suffixElements = Array(
                 session.composingText.elements.dropFirst(prefixTotal)
@@ -1002,7 +1086,7 @@ final class ImeReducer {
         } else {
             newBoundary = min(max(count + delta, 1), count)
         }
-        converter.stopComposition()
+        endConverterComposition()
         session.activeBoundary = newBoundary
         session.candidates = nil
         clearSegmentedConversion()
@@ -1018,7 +1102,6 @@ final class ImeReducer {
     }
 
     private func commitSelectedCandidate() -> ImeReductionResult {
-        resolvePendingLearning(commit: true)
         let reading = currentDisplay().text
         if let activeIndex = session.activeSegmentIndex,
            session.segments.indices.contains(activeIndex) {
@@ -1027,6 +1110,7 @@ final class ImeReducer {
             guard committedCandidates.count == committedSegments.count else {
                 return failure(.invalidAction, "no candidate is selected")
             }
+            resolvePendingLearning(commit: true)
             let count = committedSegments.reduce(0) { $0 + $1.inputCount }
             let text = committedCandidates.map(\.text).joined()
             let _ = session.composingText.removePrefix(count: count)
@@ -1040,7 +1124,14 @@ final class ImeReducer {
                 origin: .explicitConversion,
                 reading: reading
             )
-            converter.stopComposition()
+            if !session.composingText.isEmpty {
+                // Application-level undo can only cancel a complete visible
+                // commit. Once a suffix remains under IME control, editing or
+                // cancelling that suffix must not discard learning for the
+                // prefix that has already been delivered to the application.
+                resolvePendingLearning(commit: true)
+            }
+            endConverterComposition()
             clearConversionState()
             session.composingText.moveCursorToEnd()
             if session.composingText.isEmpty {
@@ -1063,6 +1154,7 @@ final class ImeReducer {
         let candidate = candidates.items[selected]
         let count = min(candidate.consumingCount, session.composingText.elements.count)
         guard count > 0 else { return failure(.invalidAction, "candidate consumes no input") }
+        resolvePendingLearning(commit: true)
         let _ = session.composingText.removePrefix(count: count)
         var effects = takeReconversionReplacementEffect()
         effects.append(.commitText(effectID: session.allocateEffectID(), text: candidate.text))
@@ -1074,6 +1166,9 @@ final class ImeReducer {
             origin: .explicitConversion,
             reading: reading
         )
+        if !session.composingText.isEmpty {
+            resolvePendingLearning(commit: true)
+        }
         clearConversionState()
         clearLivePresentation()
         session.phase = session.composingText.isEmpty ? .idle : .composing
@@ -1082,7 +1177,7 @@ final class ImeReducer {
         if !session.composingText.isEmpty {
             _ = convert(advanceRevision: false)
         } else {
-            converter.stopComposition()
+            endConverterComposition()
         }
         return success(effects: effects)
     }
@@ -1090,8 +1185,16 @@ final class ImeReducer {
     private func commitAll(
         learningOrigin: LearningOrigin = .explicitConversion
     ) -> ImeReductionResult {
-        resolvePendingLearning(commit: true)
-        guard !session.composingText.isEmpty else { return success() }
+        let resolvedLearning = resolvePendingLearning(commit: true)
+        guard !session.composingText.isEmpty else {
+            if resolvedLearning {
+                // pendingLearning is part of the published snapshot, so a
+                // successful resolution is a semantic state transition even
+                // when there is no preedit left to commit.
+                session.advanceRevision()
+            }
+            return success()
+        }
         let reading = currentDisplay().text
         var visible = visibleComposition()
         if !session.segments.isEmpty {
@@ -1124,17 +1227,17 @@ final class ImeReducer {
         clearLivePresentation()
         session.phase = .idle
         session.advanceRevision()
-        converter.stopComposition()
+        endConverterComposition()
         return success(effects: effects)
     }
 
     private func cancel() -> ImeReductionResult {
-        resolvePendingLearning(commit: false)
+        let resolvedLearning = resolvePendingLearning(commit: false)
         clearLivePresentation()
         switch session.phase {
         case .selecting:
             if session.candidates?.origin == .prediction {
-                converter.stopComposition()
+                endConverterComposition()
                 clearConversionState()
                 session.phase = .composing
             } else if session.reconversionReplacement != nil {
@@ -1143,18 +1246,21 @@ final class ImeReducer {
                 session.phase = .previewing
             }
         case .previewing:
-            converter.stopComposition()
+            endConverterComposition()
             session.phase = .composing
             clearConversionState()
         case .unicodeInput:
             finishUnicodeInput(cancelled: true)
         case .composing, .reconverting:
-            converter.stopComposition()
+            endConverterComposition()
             session.composingText = CompositionBuffer()
             clearConversionState()
             session.reconversionReplacement = nil
             session.phase = .idle
         case .idle:
+            if resolvedLearning {
+                session.advanceRevision()
+            }
             return success()
         }
         session.advanceRevision()
@@ -1162,7 +1268,7 @@ final class ImeReducer {
     }
 
     private func transformActiveSegment(_ transform: ImeTextTransform) -> ImeReductionResult {
-        resolvePendingLearning(commit: false)
+        let resolvedLearning = resolvePendingLearning(commit: session.phase == .idle)
         clearLivePresentation()
         let source: String
         if let candidates = session.candidates,
@@ -1173,7 +1279,12 @@ final class ImeReducer {
             source = currentDisplay().text
         }
         let transformed = transformText(source, as: transform)
-        guard !transformed.isEmpty else { return success() }
+        guard !transformed.isEmpty else {
+            if resolvedLearning {
+                session.advanceRevision()
+            }
+            return success()
+        }
         if var candidates = session.candidates,
            let index = candidates.selectedIndex,
            candidates.items.indices.contains(index) {
@@ -1191,7 +1302,7 @@ final class ImeReducer {
             syncActiveSegmentCandidates(candidates)
             session.phase = .selecting
         } else {
-            converter.stopComposition()
+            endConverterComposition()
             clearConversionState()
             session.composingText = CompositionBuffer()
             session.composingText.insert(transformed, inputStyle: .direct)
@@ -1202,46 +1313,63 @@ final class ImeReducer {
     }
 
     private func lifecycle(_ event: ImeLifecycleEvent) -> ImeReductionResult {
+        var suppressRecoveryCheckpoint = false
         switch event {
         case .secureInputChanged(let secure):
-            resolvePendingLearning(commit: false)
-            converter.stopComposition()
-            session.policy.secureInput = secure
-            // Crossing either direction is a security-domain transition. Do
-            // not carry text or context from the previous field into the new
-            // domain, even if a non-Fcitx client sends lifecycle actions
-            // without reopening the session.
-            session.composingText = CompositionBuffer()
-            session.context.leftContext = ""
-            session.context.rightContext = ""
-            clearConversionState()
-            session.reconversionReplacement = nil
-            session.unicodeInputBuffer = ""
-            session.phaseBeforeUnicodeInput = nil
-            clearLivePresentation()
-            session.phase = session.composingText.isEmpty ? .idle : .composing
+            if session.policy.secureInput != secure {
+                suppressRecoveryCheckpoint = true
+                resolvePendingLearning(commit: false)
+                purgeConverterSensitiveState()
+                session.policy.secureInput = secure
+                // Crossing either direction is a security-domain transition. Do
+                // not carry text or context from the previous field into the new
+                // domain, even if a non-Fcitx client sends lifecycle actions
+                // without reopening the session.
+                clearSecurityDomainState()
+            }
         case .deactivate, .focusChanged:
-            resolvePendingLearning(commit: true)
-            converter.stopComposition()
-            clearConversionState()
-            clearLivePresentation()
-            session.phase = session.composingText.isEmpty ? .idle : .composing
+            if session.policy.secureInput {
+                resolvePendingLearning(commit: false)
+                purgeConverterSensitiveState()
+                clearSecurityDomainState()
+            } else {
+                resolvePendingLearning(commit: true)
+                endConverterComposition()
+                clearConversionState()
+                clearLivePresentation()
+                session.phase = session.composingText.isEmpty ? .idle : .composing
+            }
         case .capabilityChanged:
             break
         case .serverRestarted:
             resolvePendingLearning(commit: false)
-            converter.stopComposition()
-            clearConversionState()
-            clearLivePresentation()
-            session.phase = session.composingText.isEmpty ? .idle : .composing
+            purgeConverterSensitiveState()
+            if session.policy.secureInput {
+                // A secure session has no restorable checkpoint. Retaining its
+                // preedit or surrounding context across a server boundary would
+                // re-publish secrets in the replacement session.
+                clearSecurityDomainState()
+            } else {
+                // Non-secure recovery keeps the editable reading and rebuilds
+                // only converter-owned presentation state.
+                clearConversionState()
+                clearLivePresentation()
+                session.phase = session.composingText.isEmpty ? .idle : .composing
+            }
         }
         session.advanceRevision()
+        if suppressRecoveryCheckpoint {
+            // A secure-domain boundary must not publish an opaque checkpoint
+            // from either side. In particular, leaving secure input would
+            // otherwise recreate a non-secure checkpoint in this same
+            // lifecycle response immediately after the old secret checkpoint
+            // was erased.
+            session.recoveryCheckpoint = nil
+        }
         return success()
     }
 
     private func restoreCheckpoint(_ data: Data) -> ImeReductionResult {
-        resolvePendingLearning(commit: false)
-        clearLivePresentation()
         guard !session.policy.secureInput else {
             return failure(
                 .secureInputViolation,
@@ -1271,7 +1399,12 @@ final class ImeReducer {
             return failure(.invalidAction, "recovery checkpoint contains invalid state")
         }
 
-        converter.stopComposition()
+        // Validation above is intentionally side-effect free. A malformed,
+        // stale, or forbidden checkpoint must not consume the current undo
+        // window or alter presentation state at the same revision.
+        resolvePendingLearning(commit: false)
+        clearLivePresentation()
+        endConverterComposition()
         session.composingText = checkpoint.composition
         clearConversionState()
         session.phase = checkpoint.composition.isEmpty ? .idle : .composing
@@ -1286,6 +1419,9 @@ final class ImeReducer {
         // one runtime handle to the newly opened server session.
         let currentPolicy = session.policy
         session.policy = checkpoint.policy
+        session.policy.rebindLegacySuggestionListLimit(
+            to: currentPolicy.suggestionListLimit
+        )
         session.policy.inputTableName = currentPolicy.inputTableName
         // Opaque recovery bytes are client-controlled. They may preserve a
         // stricter pinned policy, but can never enable capabilities denied by
@@ -1376,8 +1512,9 @@ final class ImeReducer {
         )
     }
 
-    private func resolvePendingLearning(commit: Bool) {
-        guard !session.pendingLearningTransactions.isEmpty else { return }
+    @discardableResult
+    private func resolvePendingLearning(commit: Bool) -> Bool {
+        guard !session.pendingLearningTransactions.isEmpty else { return false }
         let transactions = session.pendingLearningTransactions
         session.pendingLearningTransactions.removeAll(keepingCapacity: true)
         for transaction in transactions {
@@ -1390,6 +1527,7 @@ final class ImeReducer {
         if commit {
             converter.commitLearning()
         }
+        return true
     }
 
     private func learn(
@@ -1414,6 +1552,20 @@ final class ImeReducer {
             converter.setCompletedData(candidate)
         }
         guard session.policy.allowsLearning && !session.policy.secureInput else { return }
+        if !stagedLearningEnabled {
+            // Compatibility path for clients that predate the explicit
+            // pending-learning contract. They cannot safely drive the undo
+            // transaction, so preserve the pre-v2 immediate behavior.
+            var updated = false
+            for candidate in converterCandidates where candidate.provenance != .builtInGuard {
+                converter.updateLearningData(candidate)
+                updated = true
+            }
+            if updated {
+                converter.commitLearning()
+            }
+            return
+        }
         var immediateLearning = false
         for candidate in converterCandidates {
             if let token = converter.stageLearning(
@@ -1549,11 +1701,40 @@ final class ImeReducer {
         clearSegmentedConversion()
     }
 
-    private func normalizeAfterEditing() {
-        if session.candidates != nil {
+    private func endConverterComposition() {
+        if session.policy.secureInput {
+            purgeConverterSensitiveState()
+        } else {
             converter.stopComposition()
         }
+    }
+
+    private func purgeConverterSensitiveState() {
+        converter.purgeSensitiveState()
+        clearRequestCache()
+    }
+
+    private func clearSecurityDomainState() {
+        session.composingText = CompositionBuffer()
+        session.context.leftContext = ""
+        session.context.rightContext = ""
+        clearConversionState()
+        session.reconversionReplacement = nil
+        session.unicodeInputBuffer = ""
+        session.phaseBeforeUnicodeInput = nil
+        clearLivePresentation()
+        session.recoveryCheckpoint = nil
+        session.phase = .idle
+    }
+
+    private func normalizeAfterEditing() {
+        if session.candidates != nil {
+            endConverterComposition()
+        }
         if session.composingText.isEmpty {
+            if session.policy.secureInput {
+                purgeConverterSensitiveState()
+            }
             session.phase = .idle
             clearConversionState()
             clearLivePresentation()

@@ -26,13 +26,31 @@ def load_corpus(path: Path) -> list[dict[str, str]]:
     ids = [row["id"] for row in rows]
     if any(not value for value in ids) or len(ids) != len(set(ids)):
         raise ValueError(f"{path}: ids must be non-empty and unique")
+    for line_number, row in enumerate(rows, 2):
+        if not row["reading"]:
+            raise ValueError(f"{path}:{line_number}: reading must not be empty")
+        if not row["category"]:
+            raise ValueError(f"{path}:{line_number}: category must not be empty")
+        expected = row["expected"].split("|")
+        if not expected or any(not alternative for alternative in expected):
+            raise ValueError(
+                f"{path}:{line_number}: expected alternatives must not be empty"
+            )
     return rows
 
 
 def candidate_texts(payload: dict[str, Any]) -> list[str]:
-    raw = payload.get("candidates")
-    if raw is None:
-        raw = payload.get("candidate_window", {}).get("items", [])
+    if "candidates" in payload:
+        raw = payload["candidates"]
+    else:
+        candidate_window = payload.get("candidate_window")
+        if not isinstance(candidate_window, dict):
+            raise ValueError(
+                "result requires a candidates array or candidate_window object"
+            )
+        if "items" not in candidate_window:
+            raise ValueError("candidate_window requires an items array")
+        raw = candidate_window["items"]
     if not isinstance(raw, list):
         raise ValueError("result candidates must be a list")
     texts: list[str] = []
@@ -56,6 +74,8 @@ def load_results(path: Path) -> dict[str, list[str]]:
             if not isinstance(payload, dict) or not isinstance(payload.get("id"), str):
                 raise ValueError(f"{path}:{line_number}: result requires string id")
             result_id = payload["id"]
+            if not result_id:
+                raise ValueError(f"{path}:{line_number}: result id must not be empty")
             if result_id in results:
                 raise ValueError(f"{path}:{line_number}: duplicate result id {result_id}")
             results[result_id] = candidate_texts(payload)
@@ -66,6 +86,7 @@ def evaluate(corpus: list[dict[str, str]], results: dict[str, list[str]], top_k:
     cases: list[dict[str, Any]] = []
     by_category: dict[str, Counter[str]] = {}
     missing: list[str] = []
+    top_k_metric = f"top{top_k}"
     for row in corpus:
         result = results.get(row["id"])
         if result is None:
@@ -77,23 +98,39 @@ def evaluate(corpus: list[dict[str, str]], results: dict[str, list[str]], top_k:
         counters = by_category.setdefault(row["category"], Counter())
         counters["total"] += 1
         counters["top1"] += int(top1)
-        counters[f"top{top_k}"] += int(top_k_hit)
-        cases.append(
-            {
-                "id": row["id"],
-                "category": row["category"],
-                "reading": row["reading"],
-                "expected": expected,
-                "top1": top1,
-                f"top{top_k}": top_k_hit,
-                "observed": result[:top_k],
-            }
-        )
+        if top_k_metric != "top1":
+            counters[top_k_metric] += int(top_k_hit)
+        case = {
+            "id": row["id"],
+            "category": row["category"],
+            "reading": row["reading"],
+            "expected": expected,
+            "top1": top1,
+            "observed": result[:top_k],
+        }
+        if top_k_metric != "top1":
+            case[top_k_metric] = top_k_hit
+        cases.append(case)
 
     evaluated = len(cases)
     top1_hits = sum(case["top1"] for case in cases)
-    top_k_hits = sum(case[f"top{top_k}"] for case in cases)
-    return {
+    top_k_hits = (
+        top1_hits
+        if top_k_metric == "top1"
+        else sum(case[top_k_metric] for case in cases)
+    )
+    category_reports: dict[str, dict[str, Any]] = {}
+    for category, counter in sorted(by_category.items()):
+        category_report: dict[str, Any] = dict(counter) | {
+            "top1_rate": counter["top1"] / counter["total"],
+        }
+        if top_k_metric != "top1":
+            category_report[f"{top_k_metric}_rate"] = (
+                counter[top_k_metric] / counter["total"]
+            )
+        category_reports[category] = category_report
+
+    report: dict[str, Any] = {
         "schema": "hazkey.conversion-quality-report.v1",
         "top_k": top_k,
         "corpus_cases": len(corpus),
@@ -101,22 +138,23 @@ def evaluate(corpus: list[dict[str, str]], results: dict[str, list[str]], top_k:
         "missing_results": missing,
         "top1_hits": top1_hits,
         "top1_rate": top1_hits / evaluated if evaluated else 0.0,
-        f"top{top_k}_hits": top_k_hits,
-        f"top{top_k}_rate": top_k_hits / evaluated if evaluated else 0.0,
-        "by_category": {
-            category: dict(counter)
-            | {
-                "top1_rate": counter["top1"] / counter["total"],
-                f"top{top_k}_rate": counter[f"top{top_k}"] / counter["total"],
-            }
-            for category, counter in sorted(by_category.items())
-        },
+        "by_category": category_reports,
         "cases": cases,
     }
+    if top_k_metric != "top1":
+        report[f"{top_k_metric}_hits"] = top_k_hits
+        report[f"{top_k_metric}_rate"] = top_k_hits / evaluated if evaluated else 0.0
+    return report
 
 
 def self_test(corpus_path: Path) -> None:
     corpus = load_corpus(corpus_path)
+    for row in corpus:
+        expected = [value for value in row["expected"].split("|") if value]
+        if row["category"] == "protected" and row["reading"] not in expected:
+            raise AssertionError(
+                f"protected case {row['id']} must accept its exact input surface"
+            )
     synthetic = {
         row["id"]: {"id": row["id"], "candidates": [row["expected"].split("|")[0]]}
         for row in corpus

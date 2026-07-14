@@ -9,6 +9,8 @@ on:
       - "hazkey-settings/**"
       - "linux-shared/**"
       - "protocol/**"
+      - "tools/**"
+      - "hazkey-server/Tests/grimodex-spike/Fixtures/quality-v1/**"
       - "LICENSE"
       - "NOTICE.md"
       - "THIRDPARTYLICENSE"
@@ -27,6 +29,24 @@ permissions:
   contents: read
 
 jobs:
+  dictionary-quality-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run dictionary quality evaluator regressions
+        run: python3 -m unittest discover -s tools/dictionary/tests -p 'test_*.py' -v
+
+      - name: Run versioned fixture self-tests
+        run: |
+          python3 tools/dictionary/evaluate_conversion_quality.py \
+            --corpus hazkey-server/Tests/grimodex-spike/Fixtures/quality-v1/conversion-quality-v1.tsv \
+            --self-test
+          python3 tools/dictionary/evaluate_context_boundaries.py \
+            --fixture hazkey-server/Tests/grimodex-spike/Fixtures/quality-v1/context-boundary-v1.tsv \
+            --self-test
+
   linux-client-tests:
     runs-on: ubuntu-24.04
     steps:

@@ -28,11 +28,31 @@ void effectLedgerDeduplicatesEffects() {
 
 void journalDeduplicatesAndAcknowledgesRequests() {
     HazkeyRecoveryJournal journal(2);
-    journal.record({"request-a", "payload-a", 1});
-    journal.record({"request-a", "payload-a-retry", 1});
-    journal.record({"request-b", "payload-b", 2});
+    expect(journal.record({"request-a", "payload-a", 1, "session-a", false}),
+           "first request must fit");
+    expect(!journal.record(
+               {"request-a", "payload-a-retry", 1, "session-a", false}),
+           "the same request ID must reject a different wire envelope");
+    expect(journal.record(
+               {"request-a", "payload-a", 1, "session-a", true}),
+           "an exact idempotency binding is already durable");
+    expect(journal.record({"request-b", "payload-b", 2, "session-a", false}),
+           "second request must fit");
     expect(journal.pending().size() == 2, "duplicate request must not be journaled twice");
-    journal.acknowledge("request-a");
+    expect(!journal.record({"request-c", "payload-c", 3, "session-a", false}),
+           "a full journal must reject rather than evict its head");
+    expect(journal.pending().front().requestID == "request-a",
+           "capacity pressure must preserve the oldest semantic action");
+    expect(journal.markSent("request-a"), "recorded entry can be marked sent");
+    expect(!journal.rebaseUnsent("request-a", "changed", 9, "session-b"),
+           "a sent idempotency binding must be immutable");
+    expect(journal.replace(
+               "request-a",
+               {"request-a-fresh", "payload-a", 4, "session-a", false}),
+           "a stale binding must be replaceable in place with a fresh ID");
+    expect(journal.pending().front().requestID == "request-a-fresh",
+           "replacement must preserve semantic order");
+    journal.acknowledge("request-a-fresh");
     expect(journal.pending().size() == 1, "ack must remove one request");
     journal.confirmSnapshot("snapshot");
     expect(journal.lastSnapshot() == "snapshot", "last snapshot must be retained");
