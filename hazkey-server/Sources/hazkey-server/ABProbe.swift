@@ -188,13 +188,30 @@ struct ABProbeCorpusCase: Equatable {
     let category: String
 }
 
+struct ABProbeCorpusProvenance: Encodable, Equatable {
+    let sha256: String
+    let cases: Int
+}
+
+struct ABProbeCorpusSnapshot: Equatable {
+    let cases: [ABProbeCorpusCase]
+    let provenance: ABProbeCorpusProvenance
+}
+
 enum ABProbeCorpus {
     static func load(path: String) throws -> [ABProbeCorpusCase] {
-        let contents: String
+        try loadSnapshot(path: path).cases
+    }
+
+    static func loadSnapshot(path: String) throws -> ABProbeCorpusSnapshot {
+        let data: Data
         do {
-            contents = try String(contentsOfFile: path, encoding: .utf8)
+            data = try Data(contentsOf: URL(fileURLWithPath: path))
         } catch {
             throw ABProbeError.invalidCorpus("unable to read corpus \(path): \(error)")
+        }
+        guard let contents = String(data: data, encoding: .utf8) else {
+            throw ABProbeError.invalidCorpus("\(path): corpus is not valid UTF-8")
         }
         let lines = contents.split(
             omittingEmptySubsequences: false,
@@ -246,7 +263,18 @@ enum ABProbeCorpus {
         guard !result.isEmpty else {
             throw ABProbeError.invalidCorpus("\(path): corpus has no cases")
         }
-        return result
+        var hasher = ABProbeSHA256()
+        hasher.update(data)
+        let digest = hasher.finalize().map {
+            String(format: "%02x", $0)
+        }.joined()
+        return ABProbeCorpusSnapshot(
+            cases: result,
+            provenance: ABProbeCorpusProvenance(
+                sha256: "sha256:" + digest,
+                cases: result.count
+            )
+        )
     }
 }
 
@@ -977,26 +1005,32 @@ struct ABProbeMeasurement: Encodable {
 }
 
 struct ABProbeResult: Encodable {
-    let schema = "hazkey.ab-probe-result.v2"
+    let schema = "hazkey.ab-probe-result.v3"
     let id: String
+    let reading: String
     let category: String
     let backend: String
     let backendVersion: String
     let converterBackend: String
     let sourceRef: String
     let resource: ABProbeResourceProvenance
+    let topK: Int
+    let corpus: ABProbeCorpusProvenance
     let candidates: [String]
     let measurement: ABProbeMeasurement
 
     private enum CodingKeys: String, CodingKey {
         case schema
         case id
+        case reading
         case category
         case backend
         case backendVersion = "backend_version"
         case converterBackend = "converter_backend"
         case sourceRef = "source_ref"
         case resource
+        case topK = "top_k"
+        case corpus
         case candidates
         case measurement
     }
@@ -1026,7 +1060,7 @@ enum ABProbeCommand {
                 try? ABProbeMozcRuntimeSnapshot.remove(runtimePath: runtimePath)
             }
         }
-        let cases = try ABProbeCorpus.load(path: options.corpusPath)
+        let corpus = try ABProbeCorpus.loadSnapshot(path: options.corpusPath)
         let adapter: any KanaKanjiConverting
         let diagnosticsProvider: () -> MozcSidecarDiagnostics?
         switch options.converterBackend {
@@ -1103,9 +1137,9 @@ enum ABProbeCommand {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         var bufferedJSONLines: [Data] = []
-        bufferedJSONLines.reserveCapacity(cases.count)
+        bufferedJSONLines.reserveCapacity(corpus.cases.count)
 
-        for testCase in cases {
+        for testCase in corpus.cases {
             let elements = testCase.reading.map {
                 CompositionElement(text: String($0), inputStyle: .direct)
             }
@@ -1168,12 +1202,15 @@ enum ABProbeCommand {
             adapter.stopComposition()
             let result = ABProbeResult(
                 id: testCase.id,
+                reading: testCase.reading,
                 category: testCase.category,
                 backend: options.backendName,
                 backendVersion: hazkeyVersion,
                 converterBackend: options.converterBackend.rawValue,
                 sourceRef: provenance.sourceRef,
                 resource: provenance.resource,
+                topK: options.topK,
+                corpus: corpus.provenance,
                 candidates: finalCandidates ?? [],
                 measurement: ABProbeMeasurement(
                     warmups: options.warmups,

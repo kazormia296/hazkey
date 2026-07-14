@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import sys
 from collections import Counter
@@ -17,26 +18,34 @@ from pathlib import Path
 from typing import Any
 
 
-def load_corpus(path: Path) -> list[dict[str, str]]:
-    with path.open(newline="", encoding="utf-8") as handle:
+def load_corpus_bytes(data: bytes, context: str) -> list[dict[str, str]]:
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{context}: corpus is not valid UTF-8") from error
+    with io.StringIO(text, newline="") as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
     required = {"id", "reading", "expected", "category"}
     if not rows or not required.issubset(rows[0]):
-        raise ValueError(f"{path}: required columns are {sorted(required)}")
+        raise ValueError(f"{context}: required columns are {sorted(required)}")
     ids = [row["id"] for row in rows]
     if any(not value for value in ids) or len(ids) != len(set(ids)):
-        raise ValueError(f"{path}: ids must be non-empty and unique")
+        raise ValueError(f"{context}: ids must be non-empty and unique")
     for line_number, row in enumerate(rows, 2):
         if not row["reading"]:
-            raise ValueError(f"{path}:{line_number}: reading must not be empty")
+            raise ValueError(f"{context}:{line_number}: reading must not be empty")
         if not row["category"]:
-            raise ValueError(f"{path}:{line_number}: category must not be empty")
+            raise ValueError(f"{context}:{line_number}: category must not be empty")
         expected = row["expected"].split("|")
         if not expected or any(not alternative for alternative in expected):
             raise ValueError(
-                f"{path}:{line_number}: expected alternatives must not be empty"
+                f"{context}:{line_number}: expected alternatives must not be empty"
             )
     return rows
+
+
+def load_corpus(path: Path) -> list[dict[str, str]]:
+    return load_corpus_bytes(path.read_bytes(), str(path))
 
 
 def candidate_texts(payload: dict[str, Any]) -> list[str]:

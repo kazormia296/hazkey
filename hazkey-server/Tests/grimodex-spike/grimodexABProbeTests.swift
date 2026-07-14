@@ -163,6 +163,35 @@ final class GrimodexABProbeTests: XCTestCase {
     XCTAssertThrowsError(try ABProbeCorpus.load(path: corpus.path))
   }
 
+  func testCorpusSnapshotHashesExactParsedBytesAndCountsCases() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString,
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let corpus = directory.appendingPathComponent("corpus.tsv")
+    let bytes = Data(
+      "id\treading\texpected\tcategory\ncase\tよみ\t読み\tsample\n".utf8
+    )
+    try bytes.write(to: corpus)
+
+    let snapshot = try ABProbeCorpus.loadSnapshot(path: corpus.path)
+
+    XCTAssertEqual(
+      snapshot.cases,
+      [ABProbeCorpusCase(id: "case", reading: "よみ", category: "sample")]
+    )
+    XCTAssertEqual(
+      snapshot.provenance.sha256,
+      "sha256:0e2730fa123c3051c89fa00f4cd9c81d83b5593f7e04419e41ec76ca279423b1"
+    )
+    XCTAssertEqual(snapshot.provenance.cases, 1)
+  }
+
   func testLatencySummaryUsesMedianAndNearestRankP95() {
     let summary = ABProbeLatency.summarize([8, 1, 5, 2])
     XCTAssertEqual(summary.median, 3.5)
@@ -351,6 +380,7 @@ final class GrimodexABProbeTests: XCTestCase {
   func testResultJSONContainsProvenanceFields() throws {
     let result = ABProbeResult(
       id: "case",
+      reading: "よみ",
       category: "sample",
       backend: "hazkey",
       backendVersion: "test",
@@ -360,6 +390,11 @@ final class GrimodexABProbeTests: XCTestCase {
         kind: "hazkey_dictionary",
         path: "/canonical/dictionary",
         fingerprint: "sha256:abcdef"
+      ),
+      topK: 7,
+      corpus: ABProbeCorpusProvenance(
+        sha256: "sha256:" + String(repeating: "1", count: 64),
+        cases: 15
       ),
       candidates: ["候補"],
       measurement: ABProbeMeasurement(
@@ -386,9 +421,17 @@ final class GrimodexABProbeTests: XCTestCase {
       JSONSerialization.jsonObject(with: JSONEncoder().encode(result))
         as? [String: Any]
     )
-    XCTAssertEqual(object["schema"] as? String, "hazkey.ab-probe-result.v2")
+    XCTAssertEqual(object["schema"] as? String, "hazkey.ab-probe-result.v3")
+    XCTAssertEqual(object["reading"] as? String, "よみ")
+    XCTAssertEqual(object["top_k"] as? Int, 7)
     XCTAssertEqual(object["converter_backend"] as? String, "hazkey")
     XCTAssertEqual(object["source_ref"] as? String, "abc123")
+    let corpus = try XCTUnwrap(object["corpus"] as? [String: Any])
+    XCTAssertEqual(
+      corpus["sha256"] as? String,
+      "sha256:" + String(repeating: "1", count: 64)
+    )
+    XCTAssertEqual(corpus["cases"] as? Int, 15)
     let resource = try XCTUnwrap(object["resource"] as? [String: Any])
     XCTAssertEqual(resource["kind"] as? String, "hazkey_dictionary")
     XCTAssertEqual(resource["path"] as? String, "/canonical/dictionary")

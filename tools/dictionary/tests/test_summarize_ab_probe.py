@@ -86,6 +86,27 @@ def make_v2_result(
     return result
 
 
+def make_v3_result(
+    case_id: str,
+    samples: list[float | int],
+    *,
+    reading: str = "よみ",
+    top_k: int = 5,
+    corpus_sha256: str = "sha256:" + "a" * 64,
+    corpus_cases: int = 1,
+    **kwargs: object,
+) -> dict[str, object]:
+    result = make_v2_result(case_id, samples, **kwargs)
+    result["schema"] = "hazkey.ab-probe-result.v3"
+    result["reading"] = reading
+    result["top_k"] = top_k
+    result["corpus"] = {
+        "sha256": corpus_sha256,
+        "cases": corpus_cases,
+    }
+    return result
+
+
 def write_run(path: Path, results: list[dict[str, object]]) -> None:
     path.write_text(
         "".join(json.dumps(result) + "\n" for result in results),
@@ -223,6 +244,226 @@ class ABProbeSummaryTests(unittest.TestCase):
                 },
             },
         )
+
+    def test_summarize_supports_v3_corpus_provenance_and_top_k(self) -> None:
+        first = make_v3_result(
+            "one", [1, 2], reading="よみいち", corpus_cases=2
+        )
+        second = make_v3_result(
+            "two", [3, 4], reading="よみに", corpus_cases=2
+        )
+        first["candidates"] = ["候補一", "候補二"]
+        second["candidates"] = ["候補三"]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            first_run = directory / "first.jsonl"
+            second_run = directory / "second.jsonl"
+            write_run(first_run, [first, second])
+            write_run(
+                second_run,
+                [
+                    make_v3_result(
+                        "two", [5, 6], reading="よみに", corpus_cases=2
+                    ),
+                    make_v3_result(
+                        "one", [7, 8], reading="よみいち", corpus_cases=2
+                    ),
+                ],
+            )
+            # v3 keeps the v2 candidate-repeatability contract.
+            second_run_payloads = [
+                make_v3_result(
+                    "two", [5, 6], reading="よみに", corpus_cases=2
+                ),
+                make_v3_result(
+                    "one", [7, 8], reading="よみいち", corpus_cases=2
+                ),
+            ]
+            second_run_payloads[0]["candidates"] = ["候補三"]
+            second_run_payloads[1]["candidates"] = ["候補一", "候補二"]
+            write_run(second_run, second_run_payloads)
+            summary = summarize_ab_probe.summarize([first_run, second_run])
+
+        self.assertEqual(summary["schema"], "hazkey.ab-probe-summary.v3")
+        self.assertEqual(summary["converter_backend"], "mozc")
+        self.assertEqual(summary["top_k"], 5)
+        self.assertEqual(
+            summary["provenance"],
+            {
+                "source_ref": "0123456789abcdef",
+                "resource": {
+                    "kind": "mozc_runtime_inputs",
+                    "path": "/fixtures/mozc.data",
+                    "fingerprint": "sha256:123456",
+                },
+                "corpus": {
+                    "sha256": "sha256:" + "a" * 64,
+                    "cases": 2,
+                },
+            },
+        )
+
+    def test_load_run_bytes_parses_an_immutable_snapshot(self) -> None:
+        payload = make_v3_result("case", [1, 2])
+        data = (json.dumps(payload) + "\n").encode("utf-8")
+
+        run = summarize_ab_probe.load_run_bytes(data, "snapshot.jsonl")
+
+        self.assertEqual(run["path"], "snapshot.jsonl")
+        self.assertEqual(run["schema"], "hazkey.ab-probe-result.v3")
+        self.assertEqual(run["cases"]["case"]["reading"], "よみ")
+
+    def test_load_run_reads_the_file_once_as_bytes(self) -> None:
+        payload = make_result("case", [1, 2])
+        data = (json.dumps(payload) + "\n").encode("utf-8")
+
+        class ReadOncePath:
+            reads = 0
+
+            def read_bytes(self) -> bytes:
+                self.reads += 1
+                if self.reads > 1:
+                    raise AssertionError("path was read more than once")
+                return data
+
+            def __str__(self) -> str:
+                return "read-once.jsonl"
+
+        path = ReadOncePath()
+        run = summarize_ab_probe.load_run(path)  # type: ignore[arg-type]
+
+        self.assertEqual(path.reads, 1)
+        self.assertEqual(set(run["cases"]), {"case"})
+
+    def test_v3_rejects_invalid_reading(self) -> None:
+        scenarios: dict[str, dict[str, object]] = {}
+        for label, value in (("empty", ""), ("non-string", 123)):
+            result = make_v3_result("case", [1, 2])
+            result["reading"] = value
+            scenarios[label] = result
+        missing = make_v3_result("case", [1, 2])
+        del missing["reading"]
+        scenarios["missing"] = missing
+
+        self.assert_v3_scenarios_rejected(scenarios)
+
+    def test_v3_rejects_invalid_top_k(self) -> None:
+        scenarios: dict[str, dict[str, object]] = {}
+        for label, value in (
+            ("zero", 0),
+            ("too-large", 11),
+            ("boolean", True),
+            ("non-integer", "5"),
+        ):
+            result = make_v3_result("case", [1, 2])
+            result["top_k"] = value
+            scenarios[label] = result
+        missing = make_v3_result("case", [1, 2])
+        del missing["top_k"]
+        scenarios["missing"] = missing
+
+        self.assert_v3_scenarios_rejected(scenarios)
+
+    def test_v3_rejects_invalid_corpus(self) -> None:
+        scenarios: dict[str, dict[str, object]] = {}
+        for label, sha256 in (
+            ("short-hash", "sha256:abc"),
+            ("uppercase-hash", "sha256:" + "A" * 64),
+            ("wrong-prefix", "sha512:" + "a" * 64),
+        ):
+            result = make_v3_result("case", [1, 2])
+            result["corpus"]["sha256"] = sha256
+            scenarios[label] = result
+        for label, cases in (
+            ("zero-cases", 0),
+            ("boolean-cases", True),
+            ("non-integer-cases", "2"),
+        ):
+            result = make_v3_result("case", [1, 2])
+            result["corpus"]["cases"] = cases
+            scenarios[label] = result
+        missing = make_v3_result("case", [1, 2])
+        del missing["corpus"]
+        scenarios["missing-corpus"] = missing
+        extra = make_v3_result("case", [1, 2])
+        extra["corpus"]["path"] = "/fixtures/corpus.tsv"
+        scenarios["extra-field"] = extra
+
+        self.assert_v3_scenarios_rejected(scenarios)
+
+    def test_v3_rejects_more_candidates_than_top_k(self) -> None:
+        result = make_v3_result("case", [1, 2], top_k=1)
+        result["candidates"] = ["one", "two"]
+
+        self.assert_v3_scenarios_rejected({"candidate-overflow": result})
+
+    def test_v3_rejects_corpus_case_count_mismatch(self) -> None:
+        result = make_v3_result("case", [1, 2], corpus_cases=2)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "run.jsonl"
+            write_run(path, [result])
+            with self.assertRaisesRegex(
+                ValueError, "corpus.cases does not match result count"
+            ):
+                summarize_ab_probe.load_run(path)
+
+    def test_v3_rejects_top_k_corpus_and_reading_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            within = directory / "within.jsonl"
+            first_run = directory / "first.jsonl"
+            second_run = directory / "second.jsonl"
+
+            for field in ("top_k", "corpus"):
+                with self.subTest(field=field, scope="within-run"):
+                    first_case = make_v3_result(
+                        "one", [1, 2], corpus_cases=2
+                    )
+                    second_case = make_v3_result(
+                        "two", [3, 4], corpus_cases=2
+                    )
+                    if field == "top_k":
+                        second_case[field] = 4
+                    else:
+                        second_case[field] = {
+                            "sha256": "sha256:" + "b" * 64,
+                            "cases": 2,
+                        }
+                    write_run(within, [first_case, second_case])
+                    with self.assertRaisesRegex(
+                        ValueError, rf"inconsistent {field} within run"
+                    ):
+                        summarize_ab_probe.summarize([within])
+
+                with self.subTest(field=field, scope="across-runs"):
+                    write_run(first_run, [make_v3_result("case", [1, 2])])
+                    changed = make_v3_result("case", [3, 4])
+                    if field == "top_k":
+                        changed[field] = 4
+                    else:
+                        changed[field] = {
+                            "sha256": "sha256:" + "b" * 64,
+                            "cases": 1,
+                        }
+                    write_run(second_run, [changed])
+                    with self.assertRaisesRegex(
+                        ValueError, rf"{field} does not match the first run"
+                    ):
+                        summarize_ab_probe.summarize([first_run, second_run])
+
+            write_run(
+                first_run,
+                [make_v3_result("case", [1, 2], reading="same-reading")],
+            )
+            write_run(
+                second_run,
+                [make_v3_result("case", [3, 4], reading="changed-reading")],
+            )
+            with self.assertRaisesRegex(
+                ValueError, "reading for case 'case' does not match"
+            ):
+                summarize_ab_probe.summarize([first_run, second_run])
 
     def test_summarize_rejects_mixed_v1_and_v2_runs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -560,6 +801,18 @@ class ABProbeSummaryTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+
+    def assert_v3_scenarios_rejected(
+        self, scenarios: dict[str, dict[str, object]]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            for name, payload in scenarios.items():
+                with self.subTest(name=name):
+                    path = directory / f"{name}.jsonl"
+                    write_run(path, [payload])
+                    with self.assertRaises(ValueError):
+                        summarize_ab_probe.summarize([path])
 
 
 if __name__ == "__main__":

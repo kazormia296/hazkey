@@ -13,6 +13,7 @@ import argparse
 import json
 import math
 from pathlib import Path
+import re
 import statistics
 import sys
 from typing import Any
@@ -20,8 +21,10 @@ from typing import Any
 
 INPUT_SCHEMA_V1 = "hazkey.ab-probe-result.v1"
 INPUT_SCHEMA_V2 = "hazkey.ab-probe-result.v2"
+INPUT_SCHEMA_V3 = "hazkey.ab-probe-result.v3"
 OUTPUT_SCHEMA_V1 = "hazkey.ab-probe-summary.v1"
 OUTPUT_SCHEMA_V2 = "hazkey.ab-probe-summary.v2"
+OUTPUT_SCHEMA_V3 = "hazkey.ab-probe-summary.v3"
 V2_RESOURCE_KIND_BY_CONVERTER = {
     "hazkey": "hazkey_dictionary",
     "mozc": "mozc_runtime_inputs",
@@ -74,6 +77,15 @@ def _positive_int(value: Any, context: str) -> int:
     result = _nonnegative_int(value, context)
     if result == 0:
         raise ValueError(f"{context} must be a positive integer")
+    return result
+
+
+def _sha256(value: Any, context: str) -> str:
+    result = _string(value, context)
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", result) is None:
+        raise ValueError(
+            f"{context} must be sha256: followed by 64 lowercase hex digits"
+        )
     return result
 
 
@@ -130,9 +142,10 @@ def _require_number(actual: Any, expected: float, context: str) -> None:
 def validate_result(payload: Any, context: str) -> dict[str, Any]:
     result = _object(payload, context)
     schema = result.get("schema")
-    if schema not in (INPUT_SCHEMA_V1, INPUT_SCHEMA_V2):
+    if schema not in (INPUT_SCHEMA_V1, INPUT_SCHEMA_V2, INPUT_SCHEMA_V3):
         raise ValueError(
-            f"{context}.schema must be {INPUT_SCHEMA_V1} or {INPUT_SCHEMA_V2}"
+            f"{context}.schema must be {INPUT_SCHEMA_V1}, {INPUT_SCHEMA_V2}, "
+            f"or {INPUT_SCHEMA_V3}"
         )
 
     case_id = _string(_required(result, "id", context), f"{context}.id")
@@ -189,11 +202,49 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
                 f"{context}.resource.kind must be {expected_resource_kind!r} "
                 f"for converter_backend {converter_backend!r}"
             )
+    if schema == INPUT_SCHEMA_V3:
+        reading = _string(
+            _required(result, "reading", context), f"{context}.reading"
+        )
+        top_k = _positive_int(
+            _required(result, "top_k", context), f"{context}.top_k"
+        )
+        if top_k > 10:
+            raise ValueError(f"{context}.top_k must be between 1 and 10")
+        raw_corpus = _object(
+            _required(result, "corpus", context), f"{context}.corpus"
+        )
+        expected_corpus_fields = {"sha256", "cases"}
+        actual_corpus_fields = set(raw_corpus)
+        if actual_corpus_fields != expected_corpus_fields:
+            missing = sorted(expected_corpus_fields - actual_corpus_fields)
+            unexpected = sorted(actual_corpus_fields - expected_corpus_fields)
+            raise ValueError(
+                f"{context}.corpus must contain exactly sha256 and cases; "
+                f"missing={missing!r}, unexpected={unexpected!r}"
+            )
+        corpus = {
+            "sha256": _sha256(
+                raw_corpus["sha256"], f"{context}.corpus.sha256"
+            ),
+            "cases": _positive_int(
+                raw_corpus["cases"], f"{context}.corpus.cases"
+            ),
+        }
+    else:
+        reading = None
+        top_k = None
+        corpus = None
+
     candidates = _array(
         _required(result, "candidates", context), f"{context}.candidates"
     )
     for index, candidate in enumerate(candidates):
         _string(candidate, f"{context}.candidates[{index}]")
+    if top_k is not None and len(candidates) > top_k:
+        raise ValueError(
+            f"{context}.candidates has {len(candidates)} values; top_k is {top_k}"
+        )
 
     measurement = _object(
         _required(result, "measurement", context), f"{context}.measurement"
@@ -304,6 +355,7 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
     return {
         "schema": schema,
         "id": case_id,
+        "reading": reading,
         "category": category,
         "backend": backend,
         "backend_version": backend_version,
@@ -316,6 +368,8 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
             resource["fingerprint"] if schema == INPUT_SCHEMA_V1 else None
         ),
         "converter_backend": converter_backend,
+        "top_k": top_k,
+        "corpus": corpus,
         "candidates": candidates,
         "warmups": warmups,
         "iterations": iterations,
@@ -329,27 +383,33 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
     }
 
 
-def load_run(path: Path) -> dict[str, Any]:
+def load_run_bytes(data: bytes, path: Path | str) -> dict[str, Any]:
+    """Parse one immutable JSONL byte snapshot using ``path`` for context."""
+
+    try:
+        contents = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path}: invalid UTF-8: {error.reason}") from error
+
     cases: dict[str, dict[str, Any]] = {}
-    with path.open(encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, 1):
-            if not line.strip():
-                continue
-            context = f"{path}:{line_number}"
-            try:
-                payload = json.loads(
-                    line,
-                    object_pairs_hook=_object_without_duplicate_keys,
-                )
-            except json.JSONDecodeError as error:
-                raise ValueError(f"{context}: invalid JSON: {error.msg}") from error
-            except ValueError as error:
-                raise ValueError(f"{context}: {error}") from error
-            result = validate_result(payload, context)
-            case_id = result["id"]
-            if case_id in cases:
-                raise ValueError(f"{path}: duplicate id {case_id!r}")
-            cases[case_id] = result
+    for line_number, line in enumerate(contents.splitlines(), 1):
+        if not line.strip():
+            continue
+        context = f"{path}:{line_number}"
+        try:
+            payload = json.loads(
+                line,
+                object_pairs_hook=_object_without_duplicate_keys,
+            )
+        except json.JSONDecodeError as error:
+            raise ValueError(f"{context}: invalid JSON: {error.msg}") from error
+        except ValueError as error:
+            raise ValueError(f"{context}: {error}") from error
+        result = validate_result(payload, context)
+        case_id = result["id"]
+        if case_id in cases:
+            raise ValueError(f"{path}: duplicate id {case_id!r}")
+        cases[case_id] = result
 
     if not cases:
         raise ValueError(f"{path}: probe run has no results")
@@ -364,6 +424,8 @@ def load_run(path: Path) -> dict[str, Any]:
         "warmups",
         "iterations",
     )
+    if first["schema"] == INPUT_SCHEMA_V3:
+        consistency_fields += ("top_k", "corpus")
     consistency_fields += (
         ("dictionary_path", "dictionary_fingerprint")
         if first["schema"] == INPUT_SCHEMA_V1
@@ -373,6 +435,11 @@ def load_run(path: Path) -> dict[str, Any]:
         for field in consistency_fields:
             if case[field] != first[field]:
                 raise ValueError(f"{path}: inconsistent {field} within run")
+    if (
+        first["schema"] == INPUT_SCHEMA_V3
+        and first["corpus"]["cases"] != len(cases)
+    ):
+        raise ValueError(f"{path}: corpus.cases does not match result count")
     return {
         "path": path,
         "schema": first["schema"],
@@ -383,10 +450,16 @@ def load_run(path: Path) -> dict[str, Any]:
         "dictionary_path": first["dictionary_path"],
         "dictionary_fingerprint": first["dictionary_fingerprint"],
         "converter_backend": first["converter_backend"],
+        "top_k": first["top_k"],
+        "corpus": first["corpus"],
         "warmups": first["warmups"],
         "iterations": first["iterations"],
         "cases": cases,
     }
+
+
+def load_run(path: Path) -> dict[str, Any]:
+    return load_run_bytes(path.read_bytes(), path)
 
 
 def summarize(paths: list[Path]) -> dict[str, Any]:
@@ -397,6 +470,9 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
     expected_ids = set(first["cases"])
     expected_categories = {
         case_id: case["category"] for case_id, case in first["cases"].items()
+    }
+    expected_readings = {
+        case_id: case["reading"] for case_id, case in first["cases"].items()
     }
     for run in runs[1:]:
         if run["schema"] != first["schema"]:
@@ -411,6 +487,8 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
             "warmups",
             "iterations",
         )
+        if first["schema"] == INPUT_SCHEMA_V3:
+            consistency_fields += ("top_k", "corpus")
         consistency_fields += (
             ("dictionary_path", "dictionary_fingerprint")
             if first["schema"] == INPUT_SCHEMA_V1
@@ -435,7 +513,15 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
                     f"{run['path']}: category for case {case_id!r} does not "
                     "match the first run"
                 )
-            if first["schema"] == INPUT_SCHEMA_V2 and (
+            if first["schema"] == INPUT_SCHEMA_V3 and (
+                run["cases"][case_id]["reading"]
+                != expected_readings[case_id]
+            ):
+                raise ValueError(
+                    f"{run['path']}: reading for case {case_id!r} does not "
+                    "match the first run"
+                )
+            if first["schema"] in (INPUT_SCHEMA_V2, INPUT_SCHEMA_V3) and (
                 run["cases"][case_id]["candidates"]
                 != first["cases"][case_id]["candidates"]
             ):
@@ -531,16 +617,28 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
             "source_ref": first["source_ref"],
             "resource": first["resource"],
         }
+        if first["schema"] == INPUT_SCHEMA_V3:
+            provenance["corpus"] = first["corpus"]
         converter_summary = {"converter_backend": first["converter_backend"]}
+    v3_summary = (
+        {"top_k": first["top_k"]}
+        if first["schema"] == INPUT_SCHEMA_V3
+        else {}
+    )
     summary = {
         "schema": (
             OUTPUT_SCHEMA_V1
             if first["schema"] == INPUT_SCHEMA_V1
-            else OUTPUT_SCHEMA_V2
+            else (
+                OUTPUT_SCHEMA_V2
+                if first["schema"] == INPUT_SCHEMA_V2
+                else OUTPUT_SCHEMA_V3
+            )
         ),
         "backend": first["backend"],
         "backend_version": first["backend_version"],
         **converter_summary,
+        **v3_summary,
         "provenance": provenance,
         "runs": len(runs),
         "cases_per_run": len(expected_ids),
