@@ -1,4 +1,5 @@
 import Foundation
+import Glibc
 import XCTest
 
 @testable import hazkey_server
@@ -798,6 +799,179 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     XCTAssertTrue(server.isRunning)
   }
 
+  func testProtocolV2RealServerLazilyRespawnsExternallyKilledHelper() throws {
+    guard
+      let executablePath = ProcessInfo.processInfo.environment[
+        "GRIMODEX_PROCESS_E2E_SERVER"
+      ],
+      !executablePath.isEmpty
+    else {
+      throw XCTSkip(
+        "Set GRIMODEX_PROCESS_E2E_SERVER to run the Mozc SIGKILL recovery test"
+      )
+    }
+    let fixture = try makeProcessFixture(mode: "ok")
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
+    let snapshotFixture = try GrimodexProcessSnapshotFixture()
+    defer { snapshotFixture.remove() }
+    let configuredDictionary = ProcessInfo.processInfo.environment[
+      "FCITX5_GRIMODEX_DICTIONARY"
+    ].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+    let server = GrimodexProcessHarness(
+      executableURL: URL(fileURLWithPath: executablePath),
+      grimodexRootURL: snapshotFixture.rootURL,
+      converterConfiguration: .mozc(
+        helperURL: fixture.helper,
+        dataURL: fixture.data
+      ),
+      dictionaryURL: configuredDictionary
+    )
+    try server.start()
+    var serverStopped = false
+    defer {
+      if !serverStopped {
+        server.stop()
+      }
+    }
+    let client = try GrimodexProcessClient.connect(to: server.socketURL)
+    defer { client.close() }
+
+    let targetSession = try client.openSession(
+      program: "mozc-sigkill-recovery-target"
+    )
+    let inserted = try client.transactV2(
+      sessionID: targetSession,
+      requestID: "mozc-sigkill-insert",
+      expectedRevision: 0
+    ) {
+      $0.insertText = Hazkey_Commands_InsertText.with { $0.text = "かな" }
+    }
+    XCTAssertEqual(inserted.status, .success)
+    let insertedSnapshot = inserted.handleImeActionResult.snapshot
+    XCTAssertEqual(insertedSnapshot.phase, .composing)
+    XCTAssertEqual(insertedSnapshot.preedit.map(\.text).joined(), "かな")
+
+    let warmupSession = try client.openSession(
+      program: "mozc-sigkill-recovery-warmup"
+    )
+    XCTAssertEqual(
+      try client.convertDirect("かな", sessionID: warmupSession).first,
+      "仮名"
+    )
+    let initialChildren = try server.childProcessIdentifiers()
+    guard initialChildren.count == 1, let killedHelperPID = initialChildren.first else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "expected exactly one Mozc fixture helper before SIGKILL"
+      )
+    }
+    let killedHelperCommandLine = try XCTUnwrap(
+      processCommandLine(killedHelperPID)
+    )
+    guard killedHelperCommandLine.contains(fixture.helper.path) else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "refusing to SIGKILL a child that is not the Mozc fixture helper"
+      )
+    }
+    let initialRoots = try recordedTemporaryRoots(in: fixture)
+    XCTAssertEqual(initialRoots.count, 1)
+    let killedHelperRoot = try XCTUnwrap(initialRoots.first)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: killedHelperRoot))
+    XCTAssertEqual(try lineCount(fixture.marker), 1)
+    XCTAssertEqual(try lineCount(fixture.conversions), 1)
+
+    guard try server.childProcessIdentifiers() == [killedHelperPID] else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "Mozc fixture helper identity changed immediately before SIGKILL"
+      )
+    }
+    guard Glibc.kill(killedHelperPID, SIGKILL) == 0 else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "unable to SIGKILL the Mozc fixture helper: errno=\(errno)"
+      )
+    }
+    XCTAssertTrue(
+      try waitForChildProcessToDisappear(
+        killedHelperPID,
+        from: server,
+        timeout: 3
+      ),
+      "the killed helper must disappear from the server child set before recovery starts"
+    )
+    XCTAssertTrue(FileManager.default.fileExists(atPath: killedHelperRoot))
+    XCTAssertTrue(server.isRunning)
+
+    let recovered = try client.transactV2(
+      sessionID: targetSession,
+      requestID: "mozc-sigkill-convert",
+      expectedRevision: insertedSnapshot.revision
+    ) {
+      $0.startConversion = .init()
+    }
+    XCTAssertEqual(recovered.status, .success)
+    let recoveredSnapshot = recovered.handleImeActionResult.snapshot
+    XCTAssertEqual(recoveredSnapshot.phase, .previewing)
+    XCTAssertEqual(recoveredSnapshot.preedit.map(\.text).joined(), "仮名")
+    XCTAssertEqual(
+      recoveredSnapshot.candidateWindow.items.first?.text,
+      "仮名"
+    )
+    XCTAssertTrue(recoveredSnapshot.effects.isEmpty)
+    XCTAssertGreaterThan(recoveredSnapshot.revision, insertedSnapshot.revision)
+    XCTAssertTrue(server.isRunning)
+
+    let recoveredChildren = try server.childProcessIdentifiers()
+    XCTAssertEqual(recoveredChildren.count, 1)
+    let recoveredHelperPID = try XCTUnwrap(recoveredChildren.first)
+    let recoveredHelperCommandLine = try XCTUnwrap(
+      processCommandLine(recoveredHelperPID)
+    )
+    XCTAssertTrue(recoveredHelperCommandLine.contains(fixture.helper.path))
+    XCTAssertEqual(try lineCount(fixture.marker), 2)
+    XCTAssertEqual(try lineCount(fixture.conversions), 2)
+    XCTAssertEqual(try lineCount(fixture.stalls), 0)
+    let recoveredRoots = try recordedTemporaryRoots(in: fixture)
+    XCTAssertEqual(recoveredRoots.count, 2)
+    XCTAssertEqual(recoveredRoots.first, killedHelperRoot)
+    let recoveredHelperRoot = try XCTUnwrap(recoveredRoots.last)
+    XCTAssertNotEqual(recoveredHelperRoot, killedHelperRoot)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: killedHelperRoot))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: recoveredHelperRoot))
+
+    let replayed = try client.transactV2(
+      sessionID: targetSession,
+      requestID: "mozc-sigkill-convert",
+      expectedRevision: insertedSnapshot.revision
+    ) {
+      $0.startConversion = .init()
+    }
+    XCTAssertEqual(
+      try replayed.serializedData(),
+      try recovered.serializedData()
+    )
+    XCTAssertEqual(try server.childProcessIdentifiers(), [recoveredHelperPID])
+    XCTAssertEqual(try lineCount(fixture.marker), 2)
+    XCTAssertEqual(try lineCount(fixture.conversions), 2)
+    XCTAssertEqual(try recordedTemporaryRoots(in: fixture), recoveredRoots)
+
+    client.close()
+    server.stop()
+    serverStopped = true
+    XCTAssertTrue(
+      waitForProcessIdentityToDisappear(
+        recoveredHelperPID,
+        commandLine: recoveredHelperCommandLine,
+        timeout: 3
+      ),
+      "server shutdown must terminate the exact respawned helper identity"
+    )
+    XCTAssertTrue(
+      recoveredRoots.allSatisfy {
+        !FileManager.default.fileExists(atPath: $0)
+      },
+      "server shutdown must remove the killed and respawned private Mozc roots"
+    )
+  }
+
   func testProtocolV2RealServerDoesNotReplayEOFAndRecoversFreshRequest() throws {
     try assertProtocolV2RealServerRecoversAfterSidecarFailure(
       faultName: "eof",
@@ -1363,6 +1537,50 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     guard FileManager.default.fileExists(atPath: url.path) else { return 0 }
     return try String(contentsOf: url, encoding: .utf8)
       .split(separator: "\n").count
+  }
+
+  private func waitForChildProcessToDisappear(
+    _ processIdentifier: Int32,
+    from server: GrimodexProcessHarness,
+    timeout: TimeInterval
+  ) throws -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+      let children = try server.childProcessIdentifiers()
+      if !children.contains(processIdentifier) {
+        return true
+      }
+      usleep(10_000)
+    }
+    let children = try server.childProcessIdentifiers()
+    return !children.contains(processIdentifier)
+  }
+
+  private func processCommandLine(_ processIdentifier: Int32) -> String? {
+    let url = URL(
+      fileURLWithPath: "/proc/\(processIdentifier)/cmdline",
+      isDirectory: false
+    )
+    guard let data = try? Data(contentsOf: url), !data.isEmpty else {
+      return nil
+    }
+    return String(decoding: data, as: UTF8.self)
+      .replacingOccurrences(of: "\0", with: " ")
+  }
+
+  private func waitForProcessIdentityToDisappear(
+    _ processIdentifier: Int32,
+    commandLine: String,
+    timeout: TimeInterval
+  ) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+      if processCommandLine(processIdentifier) != commandLine {
+        return true
+      }
+      usleep(10_000)
+    }
+    return processCommandLine(processIdentifier) != commandLine
   }
 
   private func makeProcessFixture(mode: String) throws -> ProcessFixture {

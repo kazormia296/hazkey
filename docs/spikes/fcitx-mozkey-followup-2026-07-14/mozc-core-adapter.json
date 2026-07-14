@@ -61,7 +61,7 @@
     "learning": "verified hard-off: session policy allowsLearning=false and zenzaiEnabled=false; helper uses enable_user_history_for_conversion=false and incognito_mode=true; no learning wrapper is used",
     "secure_input": "verified focused behavior: no core request and no context transmission; purge closes pipes and terminates the helper",
     "handshake": "verified: each new helper must answer a reading-free PING with the expected protocol and fixed dataset SHA before the first CONVERT is written",
-    "failure": "verified: after the helper observes one CONVERT and exits before replying, that request is not replayed; composition remains editable and the next independent request respawns the helper",
+    "failure": "verified: response-loss EOF/partial-frame EOF/timeout requests are not replayed and fresh requests respawn; a separately composed session survives an externally SIGKILLed idle helper, lazily respawns after the old PID leaves the server child set, preserves exact request replay, and cleans both private roots",
     "stale_candidates": "verified: existing reducer generation/revision guards reject stale actions before a core call"
   },
   "dictionary_overlay": {
@@ -158,21 +158,22 @@
       "65 packaging contract tests passed, including staged generation checks"
     ],
     "focused_swift_tests": {
-      "total": 29,
-      "normal_passed": 28,
+      "total": 30,
+      "normal_passed": 29,
       "normal_optional_skipped": 1,
-      "actual_bundle_passed": 29,
+      "actual_bundle_passed": 30,
       "added_coverage": [
         "stable Romaji resize",
         "active profile writer shutdown and private TMPDIR cleanup",
         "generic project and personal dictionary candidate overlay",
         "real Protocol v2 project scope, snapshot pinning, and live personal CRUD",
-        "empty-overlay long input fast path and fail-closed persisted user-dictionary loading"
+        "empty-overlay long input fast path and fail-closed persisted user-dictionary loading",
+        "real-server external SIGKILL recovery with preserved composition, lazy respawn, idempotent replay, and private-root cleanup"
       ]
     },
     "full_swift_regression": {
-      "total": 276,
-      "optional_skipped": 11,
+      "total": 277,
+      "optional_skipped": 12,
       "failures": 0,
       "execution": "normal host permissions"
     },
@@ -214,7 +215,7 @@
   "remaining_gates": [
     "land the authoritative central composition-behavior-v2 learning-disabled profile and vendor its SHA lock; v1 partial-commit 1/1/1/0 remains unchanged",
     "run a 100-500 item blind corpus with B1 or an immutable B2 snapshot",
-    "complete external SIGKILL recovery, Fcitx-inclusive soak, and alternating long-lived server benchmark cycles"
+    "complete Fcitx-inclusive soak and alternating long-lived server benchmark cycles"
   ],
   "comparison_limitations": {
     "dictionary": "the product project and personal overlay is implemented, but B1 or an immutable B2 core dictionary has not been evaluated on a 100-500 item blind real-use corpus",
