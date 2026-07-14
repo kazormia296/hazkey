@@ -477,6 +477,122 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     )
   }
 
+  func testProtocolV2RealServerDoesNotReplayEOFAndRecoversFreshRequest() throws {
+    guard
+      let executablePath = ProcessInfo.processInfo.environment[
+        "GRIMODEX_PROCESS_E2E_SERVER"
+      ],
+      !executablePath.isEmpty
+    else {
+      throw XCTSkip(
+        "Set GRIMODEX_PROCESS_E2E_SERVER to run the Mozc EOF process recovery test"
+      )
+    }
+    let fixture = try makeProcessFixture(mode: "eof_after_convert_once")
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
+    let snapshotFixture = try GrimodexProcessSnapshotFixture()
+    defer { snapshotFixture.remove() }
+    let configuredDictionary = ProcessInfo.processInfo.environment[
+      "FCITX5_GRIMODEX_DICTIONARY"
+    ].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+    let server = GrimodexProcessHarness(
+      executableURL: URL(fileURLWithPath: executablePath),
+      grimodexRootURL: snapshotFixture.rootURL,
+      converterConfiguration: .mozc(
+        helperURL: fixture.helper,
+        dataURL: fixture.data
+      ),
+      dictionaryURL: configuredDictionary
+    )
+    try server.start()
+    var serverStopped = false
+    defer {
+      if !serverStopped {
+        server.stop()
+      }
+    }
+    let client = try GrimodexProcessClient.connect(to: server.socketURL)
+    defer { client.close() }
+    let session = try client.openSessionInfo(program: "mozc-eof-recovery")
+    XCTAssertEqual(session.protocolVersion, 2)
+
+    let inserted = try client.transactV2(
+      sessionID: session.sessionID,
+      requestID: "mozc-eof-insert",
+      expectedRevision: 0
+    ) {
+      $0.insertText = Hazkey_Commands_InsertText.with { $0.text = "かな" }
+    }
+    XCTAssertEqual(inserted.status, .success)
+    let insertedSnapshot = inserted.handleImeActionResult.snapshot
+    XCTAssertEqual(insertedSnapshot.phase, .composing)
+
+    let failed = try client.transactV2(
+      sessionID: session.sessionID,
+      requestID: "mozc-eof-convert",
+      expectedRevision: insertedSnapshot.revision
+    ) {
+      $0.startConversion = .init()
+    }
+    XCTAssertEqual(failed.status, .converterUnavailable)
+    let failedSnapshot = failed.handleImeActionResult.snapshot
+    XCTAssertEqual(failedSnapshot.phase, .composing)
+    XCTAssertEqual(failedSnapshot.preedit.map(\.text).joined(), "かな")
+    XCTAssertTrue(failedSnapshot.effects.isEmpty)
+    XCTAssertTrue(failedSnapshot.candidateWindow.items.isEmpty)
+    XCTAssertGreaterThan(failedSnapshot.revision, insertedSnapshot.revision)
+    XCTAssertTrue(server.isRunning)
+    XCTAssertEqual(try lineCount(fixture.marker), 1)
+    XCTAssertEqual(try lineCount(fixture.conversions), 1)
+    let rootsAfterFailure = try recordedTemporaryRoots(in: fixture)
+    XCTAssertEqual(rootsAfterFailure.count, 1)
+    let failedRoot = try XCTUnwrap(rootsAfterFailure.first)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: failedRoot))
+
+    let duplicate = try client.transactV2(
+      sessionID: session.sessionID,
+      requestID: "mozc-eof-convert",
+      expectedRevision: insertedSnapshot.revision
+    ) {
+      $0.startConversion = .init()
+    }
+    XCTAssertEqual(try duplicate.serializedData(), try failed.serializedData())
+    XCTAssertEqual(try lineCount(fixture.marker), 1)
+    XCTAssertEqual(try lineCount(fixture.conversions), 1)
+
+    let recovered = try client.transactV2(
+      sessionID: session.sessionID,
+      requestID: "mozc-eof-convert-retry",
+      expectedRevision: failedSnapshot.revision
+    ) {
+      $0.startConversion = .init()
+    }
+    XCTAssertEqual(recovered.status, .success)
+    let recoveredSnapshot = recovered.handleImeActionResult.snapshot
+    XCTAssertEqual(recoveredSnapshot.phase, .previewing)
+    XCTAssertEqual(recoveredSnapshot.candidateWindow.items.first?.text, "仮名")
+    XCTAssertEqual(try lineCount(fixture.marker), 2)
+    XCTAssertEqual(try lineCount(fixture.conversions), 2)
+    XCTAssertTrue(server.isRunning)
+
+    let temporaryRoots = try recordedTemporaryRoots(in: fixture)
+    XCTAssertEqual(temporaryRoots.count, 2)
+    XCTAssertEqual(temporaryRoots.first, failedRoot)
+    let recoveredRoot = try XCTUnwrap(temporaryRoots.dropFirst().first)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: failedRoot))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: recoveredRoot))
+
+    client.close()
+    server.stop()
+    serverStopped = true
+    XCTAssertTrue(
+      temporaryRoots.allSatisfy {
+        !FileManager.default.fileExists(atPath: $0)
+      },
+      "server shutdown must remove every private Mozc root"
+    )
+  }
+
   func testProcessTransportValidatesFrameAndDataset() throws {
     let fixture = try makeProcessFixture(mode: "ok")
     defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -871,6 +987,12 @@ final class GrimodexMozcSidecarTests: XCTestCase {
       contentsOf: fixture.temporaryRoots,
       encoding: .utf8
     ).split(separator: "\n").map(String.init)
+  }
+
+  private func lineCount(_ url: URL) throws -> Int {
+    guard FileManager.default.fileExists(atPath: url.path) else { return 0 }
+    return try String(contentsOf: url, encoding: .utf8)
+      .split(separator: "\n").count
   }
 
   private func makeProcessFixture(mode: String) throws -> ProcessFixture {
