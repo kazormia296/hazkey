@@ -491,6 +491,13 @@ final class GrimodexMozcSidecarTests: XCTestCase {
     )
   }
 
+  func testProtocolV2RealServerDoesNotReplayPartialFrameEOFAndRecoversFreshRequest() throws {
+    try assertProtocolV2RealServerRecoversAfterSidecarFailure(
+      faultName: "partial-frame-eof",
+      fixtureMode: "partial_body_eof_after_convert_once"
+    )
+  }
+
   private func assertProtocolV2RealServerRecoversAfterSidecarFailure(
     faultName: String,
     fixtureMode: String
@@ -1167,6 +1174,12 @@ final class GrimodexMozcSidecarTests: XCTestCase {
 
           if (MODE == "eof_after_convert_once"
                   and os.path.getsize(MARKER) == len("launch\\n")):
+              sys.exit(0)
+
+          if (MODE == "partial_body_eof_after_convert_once"
+                  and os.path.getsize(MARKER) == len("launch\\n")):
+              sys.stdout.buffer.write(struct.pack(">I", 16) + b"\\x08\\x01")
+              sys.stdout.buffer.flush()
               sys.exit(0)
 
           if (MODE == "timeout_after_convert_once"
