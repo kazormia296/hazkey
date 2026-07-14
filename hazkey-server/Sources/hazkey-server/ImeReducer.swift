@@ -1313,11 +1313,9 @@ final class ImeReducer {
     }
 
     private func lifecycle(_ event: ImeLifecycleEvent) -> ImeReductionResult {
-        var suppressRecoveryCheckpoint = false
         switch event {
         case .secureInputChanged(let secure):
             if session.policy.secureInput != secure {
-                suppressRecoveryCheckpoint = true
                 resolvePendingLearning(commit: false)
                 purgeConverterSensitiveState()
                 session.policy.secureInput = secure
@@ -1358,14 +1356,6 @@ final class ImeReducer {
             }
         }
         session.advanceRevision()
-        if suppressRecoveryCheckpoint {
-            // A secure-domain boundary must not publish an opaque checkpoint
-            // from either side. In particular, leaving secure input would
-            // otherwise recreate a non-secure checkpoint in this same
-            // lifecycle response immediately after the old secret checkpoint
-            // was erased.
-            session.recoveryCheckpoint = nil
-        }
         return success()
     }
 

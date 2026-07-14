@@ -504,7 +504,7 @@ final class GrimodexDeepReviewRegressionTests: XCTestCase {
     }
   }
 
-  func testSecureBoundaryClearsCachedSecretSnapshots() {
+  func testSecureBoundaryClearsCachedSecretSnapshots() throws {
     let converter = DeepReviewRegressionConverter()
     var session = CompositionSession()
     session.policy.secureInput = true
@@ -520,7 +520,16 @@ final class GrimodexDeepReviewRegressionTests: XCTestCase {
     )
     XCTAssertEqual(boundary.status, .success)
     XCTAssertTrue(boundary.snapshot.preedit.isEmpty)
-    XCTAssertNil(boundary.snapshot.recovery)
+    let recovery = try XCTUnwrap(boundary.snapshot.recovery)
+    XCTAssertEqual(recovery.revision, boundary.snapshot.revision)
+    XCTAssertEqual(recovery.phase, .idle)
+    XCTAssertTrue(recovery.composition.isEmpty)
+    XCTAssertEqual(recovery.leftContext, "")
+    XCTAssertEqual(recovery.rightContext, "")
+    XCTAssertFalse(recovery.policy.secureInput)
+    XCTAssertNil(recovery.reconversionReplacement)
+    XCTAssertEqual(recovery.unicodeInputBuffer, "")
+    XCTAssertNil(recovery.phaseBeforeUnicodeInput)
 
     let replayedOldID = reducer.reduce(
       .insertText("secret"),
