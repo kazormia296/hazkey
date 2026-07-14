@@ -680,7 +680,10 @@ std::optional<hazkey::ResponseEnvelope> HazkeyServerConnector::transact(
         if (matched->has_value()) {
             {
                 std::lock_guard<std::mutex> queueLock(lifecycleQueueMutex_);
-                std::erase(lifecycleQueue_, message);
+                lifecycleQueue_.erase(
+                    std::remove(lifecycleQueue_.begin(),
+                                lifecycleQueue_.end(), message),
+                    lifecycleQueue_.end());
             }
             auto response = *matched;
             handOffNewLifecycleQueue();
@@ -711,7 +714,10 @@ std::optional<hazkey::ResponseEnvelope> HazkeyServerConnector::transact(
         if (matched->has_value()) {
             {
                 std::lock_guard<std::mutex> queueLock(lifecycleQueueMutex_);
-                std::erase(lifecycleQueue_, message);
+                lifecycleQueue_.erase(
+                    std::remove(lifecycleQueue_.begin(),
+                                lifecycleQueue_.end(), message),
+                    lifecycleQueue_.end());
             }
             auto response = *matched;
             handOffNewLifecycleQueue();
