@@ -10,6 +10,7 @@ os.pathsep-separated list of release artifacts for binary-content checks.
 from __future__ import annotations
 
 import argparse
+import errno
 import fnmatch
 import hashlib
 import importlib.util
@@ -19,6 +20,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import socket
 import stat
 import struct
 import subprocess
@@ -470,6 +472,13 @@ class MozcArtifactBundleContractTests(unittest.TestCase):
         self.assertEqual(runner.timeout_seconds("86400"), 86400)
         self.assertEqual(runner.nonnegative_integer("0"), 0)
         self.assertEqual(runner.nonnegative_integer("1000000"), 1000000)
+        self.assertEqual(runner.product_source_ref("a" * 40), "a" * 40)
+        self.assertEqual(runner.lowercase_sha256("b" * 64), "b" * 64)
+        self.assertEqual(runner.product_server_size("1"), 1)
+        self.assertEqual(
+            runner.product_server_size(str(runner.MAXIMUM_PRODUCT_SERVER_BYTES)),
+            runner.MAXIMUM_PRODUCT_SERVER_BYTES,
+        )
         for parser, values in (
             (runner.restart_cycles, ("0", "1001")),
             (runner.timeout_seconds, ("0", "86401")),
@@ -479,6 +488,22 @@ class MozcArtifactBundleContractTests(unittest.TestCase):
                 with self.subTest(parser=parser.__name__, value=value):
                     with self.assertRaises(argparse.ArgumentTypeError):
                         parser(value)
+        for value in ("", "a" * 39, "a" * 41, "A" * 40, "g" * 40):
+            with self.subTest(product_source_ref=value):
+                with self.assertRaises(argparse.ArgumentTypeError):
+                    runner.product_source_ref(value)
+        for value in ("", "a" * 63, "a" * 65, "A" * 64, "g" * 64):
+            with self.subTest(lowercase_sha256=value):
+                with self.assertRaises(argparse.ArgumentTypeError):
+                    runner.lowercase_sha256(value)
+        for value in (
+            "0",
+            "01",
+            str(runner.MAXIMUM_PRODUCT_SERVER_BYTES + 1),
+        ):
+            with self.subTest(product_server_size=value):
+                with self.assertRaises(argparse.ArgumentTypeError):
+                    runner.product_server_size(value)
 
         suffix = [
             "S", "1", "42", "42", "0", "-1", "0", "0", "0", "0",
@@ -544,6 +569,21 @@ class MozcArtifactBundleContractTests(unittest.TestCase):
         )
         self.assertEqual(mozc.returncode, 1)
         self.assertIn("ERROR: required Mozc", mozc.stdout)
+
+        missing_source_ref = subprocess.run(
+            [
+                *base,
+                "--result-output",
+                "/tmp/grimodex-fcitx-missing-source-ref.json",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(missing_source_ref.returncode, 2)
+        self.assertIn(
+            "--result-output requires --product-source-ref",
+            missing_source_ref.stderr,
+        )
 
     def test_fcitx_runner_drains_descendants_after_leader_exit(self) -> None:
         runner = load_fcitx_full_stack_runner()
@@ -673,6 +713,783 @@ class MozcArtifactBundleContractTests(unittest.TestCase):
                 "unsafe metadata",
             ):
                 runner.load_process_launches(audit)
+
+    def test_fcitx_formal_launch_wrapper_executes_only_the_bound_inode(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            target = root / "bound-true"
+            shutil.copy2("/bin/true", target)
+            target.chmod(0o755)
+            audit = root / "bound-launches.log"
+            wrapper = root / "bound-launch"
+            runner.create_launch_wrapper(
+                wrapper,
+                target,
+                audit,
+                runner.file_binding(target),
+            )
+            completed = subprocess.run(
+                [str(wrapper)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(len(runner.load_process_launches(audit)), 1)
+
+            tampered_target = root / "tampered-true"
+            shutil.copy2("/bin/true", tampered_target)
+            tampered_target.chmod(0o755)
+            tampered_audit = root / "tampered-launches.log"
+            tampered_wrapper = root / "tampered-launch"
+            binding = runner.file_binding(tampered_target)
+            runner.create_launch_wrapper(
+                tampered_wrapper,
+                tampered_target,
+                tampered_audit,
+                binding,
+            )
+            tampered_bytes = bytearray(tampered_target.read_bytes())
+            tampered_bytes[-1] ^= 1
+            tampered_target.write_bytes(tampered_bytes)
+            tampered_target.chmod(0o755)
+            rejected = subprocess.run(
+                [str(tampered_wrapper)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn(
+                "launch target does not match its exact binding",
+                rejected.stderr,
+            )
+            self.assertEqual(runner.load_process_launches(tampered_audit), [])
+
+    def test_fcitx_mozc_runtime_fingerprint_matches_abprobe_contract(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            helper = root / "fcitx5-grimodex-mozc-helper"
+            data = root / "mozc.data"
+            manifest = root / "manifest.json"
+            helper.write_bytes(b"helper-fixture\n")
+            data.write_bytes(b"data-fixture\x00")
+            manifest.write_bytes(b'{"schema":"fixture"}\n')
+            (root / "licenses").mkdir()
+            (root / "licenses/LICENSE").write_bytes(b"not fingerprinted\n")
+            inputs = {
+                helper.name: helper,
+                data.name: data,
+                manifest.name: manifest,
+            }
+
+            self.assertEqual(
+                runner.mozc_runtime_fingerprint(inputs),
+                "sha256:db5be6247665085c2763fc4f8b45443f7f773a97d0793121"
+                "18c9c70e365170b4",
+            )
+            helper.write_bytes(b"different helper bytes\n")
+            self.assertNotEqual(
+                runner.mozc_runtime_fingerprint(inputs),
+                "sha256:db5be6247665085c2763fc4f8b45443f7f773a97d0793121"
+                "18c9c70e365170b4",
+            )
+
+            with self.assertRaisesRegex(
+                runner.ResultEvidenceError,
+                "requires exactly helper/data/manifest",
+            ):
+                runner.mozc_runtime_fingerprint(
+                    {name: path for name, path in inputs.items() if name != data.name}
+                )
+            manifest.unlink()
+            with self.assertRaisesRegex(
+                runner.ResultEvidenceError,
+                "cannot resolve evidence input",
+            ):
+                runner.mozc_runtime_fingerprint(inputs)
+
+    def test_fcitx_formal_input_snapshot_is_complete_and_immutable(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source"
+            private_root = root / "private"
+            source.mkdir()
+            private_root.mkdir(mode=0o700)
+
+            harness = source / "harness"
+            addon = source / "addon.so"
+            server = source / "server"
+            addon_config = source / "addon.conf"
+            input_method_config = source / "input-method.conf"
+            verifier = source / "verifier.py"
+            harness.write_bytes(b"harness fixture\n")
+            harness.chmod(0o755)
+            addon.write_bytes(b"addon fixture\n")
+            server_bytes = b"product server fixture\n"
+            server.write_bytes(server_bytes)
+            server.chmod(0o755)
+            addon_config.write_bytes(b"[Addon]\n")
+            input_method_config.write_bytes(b"[InputMethod]\n")
+            shutil.copy2(MOZC_ARTIFACT_VERIFIER, verifier)
+
+            dictionary = source / "dictionary"
+            dictionary.mkdir()
+            (dictionary / "entries.bin").write_bytes(b"dictionary fixture\n")
+            llama = source / "llama"
+            llama.mkdir()
+            (llama / "libggml.so").write_bytes(b"llama fixture\n")
+            system_addons = source / "system-addons"
+            system_addons.mkdir()
+            for name in ("testfrontend.conf", "testui.conf", "testim.conf"):
+                (system_addons / name).write_bytes(f"{name}\n".encode())
+            bundle, _, _ = self._write_bundle(source)
+
+            args = argparse.Namespace(
+                harness=harness,
+                addon=addon,
+                server=server,
+                dictionary=dictionary,
+                addon_config=addon_config,
+                input_method_config=input_method_config,
+                system_test_addon_dir=system_addons,
+                llama_lib_dir=llama,
+                converter_backend="mozc",
+                mozc_verifier=verifier,
+                mozc_generation=bundle,
+                result_output=root / "result.json",
+                product_source_ref="c" * 40,
+                product_server_sha256=hashlib.sha256(server_bytes).hexdigest(),
+                product_server_size=len(server_bytes),
+            )
+            snapshot_args, snapshot = runner.create_input_snapshot(
+                args,
+                private_root,
+            )
+
+            for path in (
+                snapshot_args.harness,
+                snapshot_args.addon,
+                snapshot_args.server,
+                snapshot_args.dictionary,
+                snapshot_args.addon_config,
+                snapshot_args.input_method_config,
+                snapshot_args.system_test_addon_dir,
+                snapshot_args.llama_lib_dir,
+                snapshot_args.mozc_verifier,
+                snapshot_args.mozc_generation,
+            ):
+                self.assertTrue(path.is_relative_to(snapshot.root), path)
+            relative_paths = {entry.relative_path for entry in snapshot.entries}
+            self.assertIn("dictionary/entries.bin", relative_paths)
+            self.assertIn("llama-lib/libggml.so", relative_paths)
+            self.assertIn("config/addon.conf", relative_paths)
+            self.assertIn("config/input-method.conf", relative_paths)
+            for license_name in self.LICENSE_NAMES:
+                self.assertIn(
+                    f"mozc/generation/licenses/{license_name}",
+                    relative_paths,
+                )
+            self.assertTrue(
+                all(
+                    stat.S_IMODE((snapshot.root / entry.relative_path).stat().st_mode)
+                    == entry.mode
+                    for entry in snapshot.entries
+                )
+            )
+            self.assertTrue(
+                all(
+                    stat.S_IMODE(
+                        (
+                            snapshot.root
+                            if relative == "."
+                            else snapshot.root / relative
+                        ).stat().st_mode
+                    )
+                    == 0o555
+                    for relative in snapshot.directories
+                )
+            )
+
+            server.write_bytes(b"original path changed after snapshot\n")
+            self.assertEqual(snapshot_args.server.read_bytes(), server_bytes)
+            runner.verify_input_snapshot(snapshot)
+
+            runtime_generation = (
+                private_root / "runtime" / ("sha256-" + "1" * 64)
+            )
+            runtime_generation.mkdir(parents=True)
+            runtime_helper = runtime_generation / "fcitx5-grimodex-mozc-helper"
+            runtime_data = runtime_generation / "mozc.data"
+            shutil.copy2(
+                snapshot_args.mozc_generation
+                / "fcitx5-grimodex-mozc-helper",
+                runtime_helper,
+            )
+            shutil.copy2(snapshot_args.mozc_generation / "mozc.data", runtime_data)
+            runtime_generation.chmod(0o555)
+            bindings = runner.capture_evidence_bindings(
+                snapshot_args,
+                runtime_generation,
+                snapshot,
+            )
+            original_runtime_data = runtime_data.read_bytes()
+            runtime_data.chmod(0o600)
+            runtime_data.write_bytes(b"X" * len(original_runtime_data))
+            with self.assertRaisesRegex(
+                runner.ResultEvidenceError,
+                "post-run integrity mismatch",
+            ):
+                runner.verify_post_run_evidence(snapshot, bindings)
+            runtime_data.write_bytes(original_runtime_data)
+            runtime_data.chmod(0o444)
+            runner.verify_post_run_evidence(snapshot, bindings)
+            self.assertTrue(
+                bindings["input_snapshot"]["integrity"]["post_run_verified"]
+            )
+            self.assertEqual(
+                bindings["runtime_integrity"]["verified_artifacts"],
+                ["mozc_helper", "mozc_data"],
+            )
+
+            snapshot_args.server.chmod(0o755)
+            snapshot_args.server.write_bytes(b"X" * len(server_bytes))
+            snapshot_args.server.chmod(0o555)
+            with self.assertRaisesRegex(
+                runner.ResultEvidenceError,
+                "integrity mismatch",
+            ):
+                runner.verify_input_snapshot(snapshot)
+            snapshot_args.server.chmod(0o755)
+            snapshot_args.server.write_bytes(server_bytes)
+            snapshot_args.server.chmod(0o555)
+            runner.verify_input_snapshot(snapshot)
+
+            snapshot.root.chmod(0o755)
+            (snapshot.root / "unexpected").write_bytes(b"extra\n")
+            snapshot.root.chmod(0o555)
+            with self.assertRaisesRegex(
+                runner.ResultEvidenceError,
+                "file set changed",
+            ):
+                runner.verify_input_snapshot(snapshot)
+
+            runner.make_runtime_writable(private_root)
+            shutil.rmtree(private_root)
+            self.assertFalse(private_root.exists())
+
+    def test_fcitx_formal_snapshot_rejects_server_mismatch_and_special_files(
+        self,
+    ) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            snapshot_root = root / "snapshot"
+            snapshot_root.mkdir()
+            fifo = root / "fifo"
+            os.mkfifo(fifo)
+            symlink = root / "symlink"
+            symlink.symlink_to("/bin/true")
+            unix_socket = root / "socket"
+            socket_handle = socket.socket(socket.AF_UNIX)
+            try:
+                special_paths = [fifo, symlink]
+                try:
+                    socket_handle.bind(str(unix_socket))
+                except PermissionError:
+                    # Some hermetic CI sandboxes prohibit AF_UNIX entirely.
+                    pass
+                else:
+                    special_paths.append(unix_socket)
+                for source in special_paths:
+                    with self.subTest(source=source.name), self.assertRaisesRegex(
+                        runner.ResultEvidenceError,
+                        "regular non-symlink",
+                    ):
+                        runner.copy_snapshot_file(
+                            source,
+                            snapshot_root / source.name,
+                            input_id="special",
+                            snapshot_root=snapshot_root,
+                        )
+            finally:
+                socket_handle.close()
+
+            source = root / "source"
+            private = root / "private"
+            source.mkdir()
+            private.mkdir()
+            paths = {}
+            for name in (
+                "harness",
+                "addon.so",
+                "server",
+                "addon.conf",
+                "input-method.conf",
+                "verifier.py",
+            ):
+                paths[name] = source / name
+                paths[name].write_bytes((name + "\n").encode())
+            paths["harness"].chmod(0o755)
+            paths["server"].chmod(0o755)
+            dictionary = source / "dictionary"
+            dictionary.mkdir()
+            (dictionary / "entry").write_bytes(b"entry\n")
+            llama = source / "llama"
+            llama.mkdir()
+            (llama / "library").write_bytes(b"library\n")
+            system_addons = source / "system"
+            system_addons.mkdir()
+            for name in ("testfrontend.conf", "testui.conf", "testim.conf"):
+                (system_addons / name).write_bytes(b"config\n")
+            bundle, _, _ = self._write_bundle(source)
+            server_bytes = paths["server"].read_bytes()
+            args = argparse.Namespace(
+                harness=paths["harness"],
+                addon=paths["addon.so"],
+                server=paths["server"],
+                dictionary=dictionary,
+                addon_config=paths["addon.conf"],
+                input_method_config=paths["input-method.conf"],
+                system_test_addon_dir=system_addons,
+                llama_lib_dir=llama,
+                converter_backend="mozc",
+                mozc_verifier=paths["verifier.py"],
+                mozc_generation=bundle,
+                product_server_sha256="0" * 64,
+                product_server_size=len(server_bytes),
+            )
+            with self.assertRaisesRegex(
+                runner.ResultEvidenceError,
+                "does not match the explicit SHA-256/size binding",
+            ):
+                runner.create_input_snapshot(args, private)
+            runner.make_runtime_writable(private)
+
+            size_mismatch_private = root / "size-mismatch-private"
+            size_mismatch_private.mkdir()
+            size_mismatch_args = argparse.Namespace(**vars(args))
+            size_mismatch_args.product_server_sha256 = hashlib.sha256(
+                server_bytes
+            ).hexdigest()
+            size_mismatch_args.product_server_size = len(server_bytes) + 1
+            with self.assertRaisesRegex(
+                runner.ResultEvidenceError,
+                "does not match the explicit SHA-256/size binding",
+            ):
+                runner.create_input_snapshot(
+                    size_mismatch_args,
+                    size_mismatch_private,
+                )
+            runner.make_runtime_writable(size_mismatch_private)
+
+            extra_bundle_private = root / "extra-bundle-private"
+            extra_bundle_private.mkdir()
+            (bundle / "unexpected-empty-directory").mkdir()
+            exact_args = argparse.Namespace(**vars(size_mismatch_args))
+            exact_args.product_server_size = len(server_bytes)
+            with self.assertRaisesRegex(
+                runner.ResultEvidenceError,
+                "does not match the fixed artifact set",
+            ):
+                runner.create_input_snapshot(exact_args, extra_bundle_private)
+            runner.make_runtime_writable(extra_bundle_private)
+
+    def test_fcitx_native_result_uses_milestone_and_launch_audit_counts(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            stderr = Path(temporary_directory) / "harness.stderr"
+            stderr.write_text(
+                "grimodex-fcitx-full-stack: scenario callback started\n"
+                "grimodex-fcitx-full-stack: same-session conversion soak "
+                "passed: 7 iterations\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(runner.completed_conversions(stderr), 7)
+
+            stderr.write_text(
+                stderr.read_text(encoding="utf-8")
+                + "grimodex-fcitx-full-stack: same-session conversion soak "
+                "passed: 7 iterations\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                runner.ResultEvidenceError,
+                "exactly one conversion-count milestone",
+            ):
+                runner.completed_conversions(stderr)
+
+        def observation(
+            cycle: int,
+            conversions: int,
+            server_launches: int,
+            helper_launches: int,
+        ):
+            server = tuple(
+                runner.ProcessLaunch(9_000_000 + cycle * 100 + index, str(index + 1))
+                for index in range(server_launches)
+            )
+            helper = tuple(
+                runner.ProcessLaunch(9_100_000 + cycle * 100 + index, str(index + 1))
+                for index in range(helper_launches)
+            )
+            server_identity = runner.ProcessIdentity(
+                server[0].pid,
+                "/fixture/server",
+                10 + cycle,
+                10 + cycle,
+                server[0].start_time,
+            )
+            helper_identity = runner.ProcessIdentity(
+                helper[0].pid,
+                "/fixture/helper",
+                10 + cycle,
+                10 + cycle,
+                helper[0].start_time,
+            )
+            return runner.CycleObservation(
+                cycle=cycle,
+                conversions=conversions,
+                server_launches=server,
+                server_identities=(server_identity,),
+                helper_launches=helper,
+                helper_identities=(helper_identity,),
+                lock_owner_observed=True,
+                max_concurrent_helpers=1,
+                server_cleanup_ok=True,
+                helper_cleanup_ok=True,
+                process_group_cleanup_ok=True,
+            )
+
+        args = argparse.Namespace(
+            converter_backend="mozc",
+            soak_iterations=100,
+            cycles=2,
+            timeout=90,
+            product_source_ref="c" * 40,
+            product_server_sha256="e" * 64,
+            product_server_size=123,
+        )
+        observations = [observation(1, 7, 1, 2), observation(2, 9, 2, 3)]
+        result = runner.build_structured_result(
+            args,
+            observations,
+            {
+                "producer": {"path": "runner.py", "sha256": "a" * 64},
+                "source": {
+                    "repository_root": "/fixture",
+                    "git_head": "b" * 40,
+                    "worktree_clean": True,
+                },
+                "artifacts": {
+                    "mozc_generation": {
+                        "artifact_fingerprint": "sha256:" + "d" * 64,
+                    }
+                },
+                "input_snapshot": {
+                    "integrity": {"post_run_verified": True},
+                    "entries": [
+                        {
+                            "input_id": "product_server",
+                            "sha256": "e" * 64,
+                            "size": 123,
+                        }
+                    ],
+                },
+                "runtime_integrity": {"post_run_verified": True},
+            },
+            ["python3", "runner.py"],
+            0,
+        )
+        self.assertEqual(result["schema"], runner.RESULT_SCHEMA)
+        self.assertEqual(result["version"], 1)
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual(result["product_source_ref"], "c" * 40)
+        self.assertEqual(
+            result["product_server"],
+            {"sha256": "e" * 64, "size": 123},
+        )
+        self.assertEqual(result["artifact_fingerprint"], "sha256:" + "d" * 64)
+        self.assertEqual(result["conversions"], 16)
+        self.assertEqual(result["cycles"], 2)
+        self.assertEqual(result["server_launches"], 3)
+        self.assertEqual(result["helper_launches"], 5)
+        self.assertEqual(result["server_recoveries"], 1)
+        self.assertEqual(result["helper_recoveries"], 3)
+        self.assertEqual(result["residue_count"], 0)
+        self.assertEqual(result["configuration"]["iterations"], 100)
+        self.assertEqual(
+            result["cycle_results"][0]["server"]["launches"][0],
+            {"pid": 9_000_100, "start_time": "1"},
+        )
+        self.assertEqual(
+            result["cycle_results"][0]["helper"]["observed_identities"][0]
+            ["executable"],
+            "/fixture/helper",
+        )
+
+    def test_fcitx_native_result_is_atomic_and_never_overwrites(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            output = root / "result.json"
+            first = {"schema": runner.RESULT_SCHEMA, "value": 1}
+            destination = runner.open_result_output(output)
+            try:
+                runner.atomic_publish_json(destination, first)
+                published = output.read_bytes()
+                self.assertEqual(json.loads(published), first)
+
+                with self.assertRaisesRegex(FileExistsError, "already exists"):
+                    runner.atomic_publish_json(
+                        destination,
+                        {"schema": runner.RESULT_SCHEMA, "value": 2},
+                    )
+            finally:
+                destination.close()
+            self.assertEqual(output.read_bytes(), published)
+            self.assertFalse(list(root.glob(".result.json.*.tmp")))
+
+            raced_output = root / "raced-result.json"
+            original_link = runner.os.link
+
+            def race_destination(source, destination, **kwargs):
+                descriptor = os.open(
+                    destination,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600,
+                    dir_fd=kwargs["dst_dir_fd"],
+                )
+                try:
+                    os.write(descriptor, b"racing writer\n")
+                finally:
+                    os.close(descriptor)
+                return original_link(source, destination, **kwargs)
+
+            destination = runner.open_result_output(raced_output)
+            try:
+                with mock.patch.object(
+                    runner.os,
+                    "link",
+                    side_effect=race_destination,
+                ), self.assertRaisesRegex(FileExistsError, "already exists"):
+                    runner.atomic_publish_json(
+                        destination,
+                        {"schema": runner.RESULT_SCHEMA, "value": 3},
+                    )
+            finally:
+                destination.close()
+            self.assertEqual(raced_output.read_bytes(), b"racing writer\n")
+            self.assertFalse(list(root.glob(".raced-result.json.*.tmp")))
+
+    def test_fcitx_result_output_pins_parent_and_rejects_unsafe_parent(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            parent = root / "evidence"
+            parent.mkdir()
+            output = parent / "result.json"
+            destination = runner.open_result_output(output)
+            pinned_parent = root / "pinned-evidence"
+            parent.rename(pinned_parent)
+            parent.mkdir()
+            try:
+                runner.atomic_publish_json(
+                    destination,
+                    {"schema": runner.RESULT_SCHEMA, "value": "pinned"},
+                )
+            finally:
+                destination.close()
+            self.assertTrue((pinned_parent / "result.json").is_file())
+            self.assertFalse((parent / "result.json").exists())
+            with self.assertRaises(OSError):
+                os.fstat(destination.parent_fd)
+
+            unsafe = root / "unsafe"
+            unsafe.mkdir()
+            unsafe.chmod(0o777)
+            with self.assertRaisesRegex(
+                runner.ResultEvidenceError,
+                "stable user-owned directory",
+            ):
+                runner.open_result_output(unsafe / "result.json")
+
+    def test_fcitx_result_output_rolls_back_on_directory_fsync_failure(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            output = root / "result.json"
+            destination = runner.open_result_output(output)
+            original_fsync = runner.os.fsync
+            calls = 0
+
+            def fail_first_directory_sync(descriptor):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError(errno.EIO, "injected directory fsync failure")
+                return original_fsync(descriptor)
+
+            try:
+                with mock.patch.object(
+                    runner.os,
+                    "fsync",
+                    side_effect=fail_first_directory_sync,
+                ), self.assertRaises(OSError):
+                    runner.atomic_publish_json(
+                        destination,
+                        {"schema": runner.RESULT_SCHEMA, "value": "rollback"},
+                    )
+            finally:
+                destination.close()
+            self.assertFalse(output.exists())
+            self.assertFalse(list(root.glob(".result.json.*.tmp")))
+
+    def test_fcitx_result_output_fails_closed_on_temp_name_exhaustion(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            output = root / "result.json"
+            collision = root / ".result.json.collision.tmp"
+            collision.write_bytes(b"preexisting\n")
+            destination = runner.open_result_output(output)
+            try:
+                with mock.patch.object(
+                    runner.secrets,
+                    "token_hex",
+                    return_value="collision",
+                ), self.assertRaisesRegex(
+                    runner.ResultEvidenceError,
+                    "allocate a private result temp file",
+                ):
+                    runner.atomic_publish_json(
+                        destination,
+                        {"schema": runner.RESULT_SCHEMA},
+                    )
+            finally:
+                destination.close()
+            self.assertFalse(output.exists())
+            self.assertEqual(collision.read_bytes(), b"preexisting\n")
+
+    def test_fcitx_result_output_rejects_late_symlink_destination(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            output = root / "result.json"
+            destination = runner.open_result_output(output)
+            original_link = runner.os.link
+
+            def race_symlink(source, target, **kwargs):
+                os.symlink(
+                    "/definitely/not/touched",
+                    target,
+                    dir_fd=kwargs["dst_dir_fd"],
+                )
+                return original_link(source, target, **kwargs)
+
+            try:
+                with mock.patch.object(
+                    runner.os,
+                    "link",
+                    side_effect=race_symlink,
+                ), self.assertRaisesRegex(FileExistsError, "already exists"):
+                    runner.atomic_publish_json(
+                        destination,
+                        {"schema": runner.RESULT_SCHEMA},
+                    )
+            finally:
+                destination.close()
+            self.assertTrue(output.is_symlink())
+            self.assertEqual(os.readlink(output), "/definitely/not/touched")
+            self.assertFalse(list(root.glob(".result.json.*.tmp")))
+
+    def test_fcitx_native_result_publishes_only_after_final_cleanup(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            private_root = root / "private-test-root"
+            private_root.mkdir()
+            output = root / "result.json"
+            args = argparse.Namespace(
+                converter_backend="mozc",
+                soak_iterations=7,
+                cycles=1,
+                timeout=90,
+                result_output=output,
+                product_source_ref="c" * 40,
+                product_server_sha256="e" * 64,
+                product_server_size=123,
+            )
+            observation = runner.CycleObservation(
+                cycle=1,
+                conversions=7,
+                server_launches=(),
+                server_identities=(),
+                helper_launches=(),
+                helper_identities=(),
+                lock_owner_observed=True,
+                max_concurrent_helpers=1,
+                server_cleanup_ok=True,
+                helper_cleanup_ok=True,
+                process_group_cleanup_ok=True,
+            )
+            bindings = {
+                "producer": {"path": "runner.py", "sha256": "a" * 64},
+                "source": {
+                    "repository_root": "/fixture",
+                    "git_head": "b" * 40,
+                    "worktree_clean": True,
+                },
+                "artifacts": {
+                    "mozc_generation": {
+                        "artifact_fingerprint": "sha256:" + "d" * 64,
+                    }
+                },
+                "input_snapshot": {
+                    "integrity": {"post_run_verified": True},
+                    "entries": [
+                        {
+                            "input_id": "product_server",
+                            "sha256": "e" * 64,
+                            "size": 123,
+                        }
+                    ],
+                },
+                "runtime_integrity": {"post_run_verified": True},
+            }
+            destination = runner.open_result_output(output)
+            try:
+                with self.assertRaisesRegex(
+                    runner.ResultEvidenceError,
+                    "final residue",
+                ):
+                    runner.publish_success_result(
+                        args,
+                        private_root,
+                        [observation],
+                        bindings,
+                        ["python3", "runner.py"],
+                        destination,
+                    )
+                self.assertFalse(output.exists())
+
+                private_root.rmdir()
+                runner.publish_success_result(
+                    args,
+                    private_root,
+                    [observation],
+                    bindings,
+                    ["python3", "runner.py"],
+                    destination,
+                )
+            finally:
+                destination.close()
+            published = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(published["residue_count"], 0)
+            self.assertEqual(published["conversions"], 7)
 
     def test_sidecar_remains_conversion_only_with_history_disabled(self) -> None:
         helper = MOZC_SIDECAR_HELPER_SOURCE.read_text(encoding="utf-8")
