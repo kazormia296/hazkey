@@ -13,6 +13,43 @@ find_package(Fcitx5Core REQUIRED)
 find_package(Fcitx5Module COMPONENTS TestFrontend QUIET)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
+option(GRIMODEX_ENABLE_MOZC_INTEGRATION_TESTS
+    "Enable opt-in Mozc Fcitx full-stack and soak tests" OFF)
+set(GRIMODEX_MOZC_SOAK_ITERATIONS "100" CACHE STRING
+    "Conversions per cycle in the opt-in Mozc Fcitx soak test")
+set(GRIMODEX_MOZC_RESTART_CYCLES "3" CACHE STRING
+    "Fresh Fcitx/server cycles in the opt-in Mozc Fcitx soak test")
+set(GRIMODEX_MOZC_SOAK_TIMEOUT_SECONDS "90" CACHE STRING
+    "Per-cycle runner timeout for the opt-in Mozc Fcitx soak test")
+
+if(GRIMODEX_ENABLE_MOZC_INTEGRATION_TESTS)
+    foreach(_GRIMODEX_MOZC_POSITIVE_INTEGER IN ITEMS
+            GRIMODEX_MOZC_SOAK_ITERATIONS
+            GRIMODEX_MOZC_RESTART_CYCLES
+            GRIMODEX_MOZC_SOAK_TIMEOUT_SECONDS)
+        if(NOT "${${_GRIMODEX_MOZC_POSITIVE_INTEGER}}" MATCHES
+                "^[1-9][0-9]*$")
+            message(FATAL_ERROR
+                "${_GRIMODEX_MOZC_POSITIVE_INTEGER} must be a positive "
+                "decimal integer")
+        endif()
+    endforeach()
+    if(GRIMODEX_MOZC_SOAK_ITERATIONS GREATER 1000000)
+        message(FATAL_ERROR
+            "GRIMODEX_MOZC_SOAK_ITERATIONS must not exceed 1000000")
+    endif()
+    if(GRIMODEX_MOZC_RESTART_CYCLES GREATER 1000)
+        message(FATAL_ERROR
+            "GRIMODEX_MOZC_RESTART_CYCLES must not exceed 1000")
+    endif()
+    if(GRIMODEX_MOZC_SOAK_TIMEOUT_SECONDS GREATER 86400)
+        message(FATAL_ERROR
+            "GRIMODEX_MOZC_SOAK_TIMEOUT_SECONDS must not exceed 86400")
+    endif()
+    math(EXPR _GRIMODEX_MOZC_SOAK_CTEST_TIMEOUT
+        "60 + ${GRIMODEX_MOZC_RESTART_CYCLES} * (${GRIMODEX_MOZC_SOAK_TIMEOUT_SECONDS} + 10)")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -250,9 +287,98 @@ if(TARGET fcitx5-hazkey AND TARGET build_hazkey_server AND
             --system-test-addon-dir
                 "${FCITX_INSTALL_PKGDATADIR}/testing/addon"
             --llama-lib-dir "${CMAKE_BINARY_DIR}/bin"
+            --converter-backend hazkey
     )
     set_tests_properties(
         hazkey-fcitx-full-stack-test
         PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77
+    )
+endif()
+
+if(GRIMODEX_ENABLE_MOZC_INTEGRATION_TESTS)
+    if(NOT TARGET fcitx5-hazkey OR NOT TARGET build_hazkey_server OR
+       NOT TARGET Fcitx5::Module::TestFrontend OR
+       NOT TARGET hazkey-fcitx-full-stack-test)
+        message(FATAL_ERROR
+            "Mozc integration tests require the product targets and the "
+            "Fcitx TestFrontend module")
+    endif()
+
+    get_property(_GRIMODEX_MOZC_STAGED_GENERATION GLOBAL PROPERTY
+        GRIMODEX_MOZC_STAGED_GENERATION)
+    get_property(_GRIMODEX_MOZC_ARTIFACT_VERIFIER GLOBAL PROPERTY
+        GRIMODEX_MOZC_ARTIFACT_VERIFIER)
+    if(_GRIMODEX_MOZC_STAGED_GENERATION STREQUAL "" OR
+       NOT IS_DIRECTORY "${_GRIMODEX_MOZC_STAGED_GENERATION}")
+        message(FATAL_ERROR
+            "Mozc integration tests require an exact verified artifact "
+            "generation; configure HAZKEY_SERVER_MOZC_ARTIFACT_DIR")
+    endif()
+    if(_GRIMODEX_MOZC_ARTIFACT_VERIFIER STREQUAL "" OR
+       NOT EXISTS "${_GRIMODEX_MOZC_ARTIFACT_VERIFIER}" OR
+       IS_DIRECTORY "${_GRIMODEX_MOZC_ARTIFACT_VERIFIER}")
+        message(FATAL_ERROR
+            "Mozc integration tests require the artifact verifier used at "
+            "configure time")
+    endif()
+
+    add_test(
+        NAME hazkey-fcitx-mozc-full-stack-test
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/run_fcitx_full_stack_test.py"
+            --harness "$<TARGET_FILE:hazkey-fcitx-full-stack-test>"
+            --addon "$<TARGET_FILE:fcitx5-hazkey>"
+            --server
+                "${CMAKE_BINARY_DIR}/hazkey-server/swift-build/${SWIFT_BUILD_TYPE}/hazkey-server"
+            --dictionary
+                "${CMAKE_SOURCE_DIR}/hazkey-server/azooKey_dictionary_storage/Dictionary"
+            --addon-config
+                "${CMAKE_BINARY_DIR}/fcitx5-hazkey/src/hazkey-addon.conf"
+            --input-method-config
+                "${CMAKE_BINARY_DIR}/fcitx5-hazkey/src/hazkey-im.conf"
+            --system-test-addon-dir
+                "${FCITX_INSTALL_PKGDATADIR}/testing/addon"
+            --llama-lib-dir "${CMAKE_BINARY_DIR}/bin"
+            --converter-backend mozc
+            --mozc-generation "${_GRIMODEX_MOZC_STAGED_GENERATION}"
+            --mozc-verifier "${_GRIMODEX_MOZC_ARTIFACT_VERIFIER}"
+            --cycles 1
+            --soak-iterations 0
+            --timeout 60
+    )
+    set_tests_properties(
+        hazkey-fcitx-mozc-full-stack-test
+        PROPERTIES TIMEOUT 130
+    )
+
+    add_test(
+        NAME hazkey-fcitx-mozc-soak-test
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/run_fcitx_full_stack_test.py"
+            --harness "$<TARGET_FILE:hazkey-fcitx-full-stack-test>"
+            --addon "$<TARGET_FILE:fcitx5-hazkey>"
+            --server
+                "${CMAKE_BINARY_DIR}/hazkey-server/swift-build/${SWIFT_BUILD_TYPE}/hazkey-server"
+            --dictionary
+                "${CMAKE_SOURCE_DIR}/hazkey-server/azooKey_dictionary_storage/Dictionary"
+            --addon-config
+                "${CMAKE_BINARY_DIR}/fcitx5-hazkey/src/hazkey-addon.conf"
+            --input-method-config
+                "${CMAKE_BINARY_DIR}/fcitx5-hazkey/src/hazkey-im.conf"
+            --system-test-addon-dir
+                "${FCITX_INSTALL_PKGDATADIR}/testing/addon"
+            --llama-lib-dir "${CMAKE_BINARY_DIR}/bin"
+            --converter-backend mozc
+            --mozc-generation "${_GRIMODEX_MOZC_STAGED_GENERATION}"
+            --mozc-verifier "${_GRIMODEX_MOZC_ARTIFACT_VERIFIER}"
+            --cycles "${GRIMODEX_MOZC_RESTART_CYCLES}"
+            --soak-iterations "${GRIMODEX_MOZC_SOAK_ITERATIONS}"
+            --timeout "${GRIMODEX_MOZC_SOAK_TIMEOUT_SECONDS}"
+    )
+    set_tests_properties(
+        hazkey-fcitx-mozc-soak-test
+        PROPERTIES TIMEOUT "${_GRIMODEX_MOZC_SOAK_CTEST_TIMEOUT}"
     )
 endif()

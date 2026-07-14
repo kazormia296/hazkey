@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <cstdint>
 #include <ctime>
 #include <functional>
 #include <initializer_list>
@@ -28,6 +29,30 @@ namespace {
 
 void milestone(const char* message) {
     std::cerr << "grimodex-fcitx-full-stack: " << message << '\n';
+}
+
+std::uint32_t configuredSoakIterations() {
+    const char* raw = std::getenv("GRIMODEX_FCITX_SOAK_ITERATIONS");
+    if (raw == nullptr) {
+        return 0;
+    }
+    if (*raw == '\0') {
+        fail("GRIMODEX_FCITX_SOAK_ITERATIONS must be a decimal integer from 0 to 1000000");
+    }
+
+    constexpr std::uint32_t maximum = 1'000'000;
+    std::uint32_t value = 0;
+    for (const char* cursor = raw; *cursor != '\0'; ++cursor) {
+        if (*cursor < '0' || *cursor > '9') {
+            fail("GRIMODEX_FCITX_SOAK_ITERATIONS must be a decimal integer from 0 to 1000000");
+        }
+        const auto digit = static_cast<std::uint32_t>(*cursor - '0');
+        if (value > (maximum - digit) / 10) {
+            fail("GRIMODEX_FCITX_SOAK_ITERATIONS must be a decimal integer from 0 to 1000000");
+        }
+        value = value * 10 + digit;
+    }
+    return value;
 }
 
 class LiveConversionTimerScenario {
@@ -258,6 +283,7 @@ class LiveConversionTimerScenario {
 }  // namespace
 
 int main() {
+    const auto soakIterations = configuredSoakIterations();
     milestone("constructing instance");
     char program[] = "grimodex-fcitx-integration";
     char disable[] = "--disable=all";
@@ -277,7 +303,7 @@ int main() {
     fcitx::EventDispatcher dispatcher;
     std::unique_ptr<LiveConversionTimerScenario> timerScenario;
     dispatcher.attach(&instance.eventLoop());
-    dispatcher.schedule([&instance, &timerScenario] {
+    dispatcher.schedule([&instance, &timerScenario, soakIterations] {
         milestone("scenario callback started");
         auto* frontend = instance.addonManager().addon("testfrontend", true);
         if (frontend == nullptr) {
@@ -342,6 +368,51 @@ int main() {
             initialConversionCommit);
         runKeys(clientPreeditUUID, {FcitxKey_Return});
         milestone("initial active-segment candidates passed");
+
+        for (std::uint32_t iteration = 0; iteration < soakIterations;
+             ++iteration) {
+            if (!clientPreeditContext->inputPanel()
+                     .clientPreedit()
+                     .toStringForCommit()
+                     .empty() ||
+                clientPreeditContext->inputPanel().candidateList() != nullptr) {
+                fail("same-session conversion soak started with stale UI state");
+            }
+
+            if (iteration % 2 == 0) {
+                runKeys(clientPreeditUUID,
+                        {FcitxKey_k, FcitxKey_y, FcitxKey_o, FcitxKey_u,
+                         FcitxKey_space});
+            } else {
+                runKeys(clientPreeditUUID,
+                        {FcitxKey_a, FcitxKey_s, FcitxKey_h, FcitxKey_i,
+                         FcitxKey_t, FcitxKey_a, FcitxKey_space});
+            }
+
+            const auto converted = clientPreeditContext->inputPanel()
+                                       .clientPreedit()
+                                       .toStringForCommit();
+            const auto candidates =
+                clientPreeditContext->inputPanel().candidateList();
+            if (converted.empty() || candidates == nullptr ||
+                candidates->size() == 0) {
+                fail("same-session conversion soak did not expose converted UI state");
+            }
+            frontend->call<fcitx::ITestFrontend::pushCommitExpectation>(
+                converted);
+            runKeys(clientPreeditUUID, {FcitxKey_Return});
+            if (!clientPreeditContext->inputPanel()
+                     .clientPreedit()
+                     .toStringForCommit()
+                     .empty() ||
+                clientPreeditContext->inputPanel().candidateList() != nullptr) {
+                fail("same-session conversion soak retained stale UI after commit");
+            }
+        }
+        const auto soakMilestone =
+            "same-session conversion soak passed: " +
+            std::to_string(soakIterations) + " iterations";
+        milestone(soakMilestone.c_str());
 
         runKeys(clientPreeditUUID,
                 {FcitxKey_k, FcitxKey_y, FcitxKey_o, FcitxKey_u,

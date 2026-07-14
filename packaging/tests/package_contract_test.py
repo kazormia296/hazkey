@@ -9,6 +9,7 @@ os.pathsep-separated list of release artifacts for binary-content checks.
 
 from __future__ import annotations
 
+import argparse
 import fnmatch
 import hashlib
 import importlib.util
@@ -23,6 +24,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -74,6 +76,10 @@ DEFAULT_RUNTIME_SCRIPT = REPOSITORY_ROOT / "scripts/grimodex-ime.sh"
 TOP_LEVEL_CMAKE = REPOSITORY_ROOT / "CMakeLists.txt"
 FCITX_CMAKE = REPOSITORY_ROOT / "fcitx5-hazkey/CMakeLists.txt"
 FCITX_SOURCE_CMAKE = REPOSITORY_ROOT / "fcitx5-hazkey/src/CMakeLists.txt"
+FCITX_TEST_CMAKE = REPOSITORY_ROOT / "fcitx5-hazkey/tests/CMakeLists.txt"
+FCITX_FULL_STACK_RUNNER = (
+    REPOSITORY_ROOT / "fcitx5-hazkey/tests/run_fcitx_full_stack_test.py"
+)
 DEBIAN_CHANGELOG = REPOSITORY_ROOT / "debian/changelog"
 SWIFT_TOKENIZERS_REVISION = "4a606f66e0cc4d7d9f0197649e812f7fc86a4c34"
 SERVER_CMAKE = REPOSITORY_ROOT / "hazkey-server/CMakeLists.txt"
@@ -229,6 +235,28 @@ def staged_public_paths(root: Path) -> list[str]:
 
 
 _PRODUCT_NETWORK_AUDITOR_MODULE = None
+_FCITX_FULL_STACK_RUNNER_MODULE = None
+
+
+def load_fcitx_full_stack_runner():
+    global _FCITX_FULL_STACK_RUNNER_MODULE
+    if _FCITX_FULL_STACK_RUNNER_MODULE is None:
+        module_name = "fcitx_full_stack_runner_for_contract"
+        spec = importlib.util.spec_from_file_location(
+            module_name,
+            FCITX_FULL_STACK_RUNNER,
+        )
+        if spec is None or spec.loader is None:
+            raise AssertionError(f"cannot load {FCITX_FULL_STACK_RUNNER}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            sys.modules.pop(module_name, None)
+            raise
+        _FCITX_FULL_STACK_RUNNER_MODULE = module
+    return _FCITX_FULL_STACK_RUNNER_MODULE
 
 
 def load_product_network_auditor():
@@ -390,6 +418,261 @@ class MozcArtifactBundleContractTests(unittest.TestCase):
         "UTF8-RANGE-LICENSE",
         "JAPANESE-USAGE-DICTIONARY-LICENSE",
     )
+
+    def test_fcitx_mozc_integration_tests_are_opt_in_and_isolated(self) -> None:
+        server_cmake = SERVER_CMAKE.read_text(encoding="utf-8")
+        test_cmake = FCITX_TEST_CMAKE.read_text(encoding="utf-8")
+        runner = FCITX_FULL_STACK_RUNNER.read_text(encoding="utf-8")
+
+        self.assertIn("GRIMODEX_MOZC_STAGED_GENERATION", server_cmake)
+        self.assertIn("GRIMODEX_MOZC_ARTIFACT_VERIFIER", server_cmake)
+        self.assertIn(
+            "option(GRIMODEX_ENABLE_MOZC_INTEGRATION_TESTS",
+            test_cmake,
+        )
+        self.assertIn(
+            '"Enable opt-in Mozc Fcitx full-stack and soak tests" OFF',
+            test_cmake,
+        )
+        opt_in_block = test_cmake.index(
+            "if(GRIMODEX_ENABLE_MOZC_INTEGRATION_TESTS)",
+            test_cmake.index("hazkey-fcitx-full-stack-test"),
+        )
+        self.assertLess(
+            opt_in_block,
+            test_cmake.index("hazkey-fcitx-mozc-full-stack-test"),
+        )
+        self.assertLess(
+            opt_in_block,
+            test_cmake.index("hazkey-fcitx-mozc-soak-test"),
+        )
+        self.assertIn("--converter-backend hazkey", test_cmake)
+        self.assertIn("--converter-backend mozc", test_cmake)
+        self.assertNotIn("file(GLOB", test_cmake)
+
+        self.assertIn('"--verify-host-runtime"', runner)
+        self.assertIn('"--prepare-installed-runtime"', runner)
+        self.assertIn('"GGML_BACKEND_DIR": str(llama_lib_dir)', runner)
+        self.assertIn("exact_process_identities", runner)
+        self.assertIn("create_launch_wrapper", runner)
+        self.assertIn("os.pidfd_open", runner)
+        self.assertIn("start_new_session=True", runner)
+        self.assertNotIn("os.environ.copy()", runner)
+        self.assertNotIn("grimodex-ime_mozc.sh", test_cmake + runner)
+        self.assertNotIn("/usr/lib/fcitx5-grimodex", test_cmake + runner)
+
+    def test_fcitx_full_stack_runner_bounds_and_process_identity(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+
+        self.assertEqual(runner.restart_cycles("1"), 1)
+        self.assertEqual(runner.restart_cycles("1000"), 1000)
+        self.assertEqual(runner.timeout_seconds("1"), 1)
+        self.assertEqual(runner.timeout_seconds("86400"), 86400)
+        self.assertEqual(runner.nonnegative_integer("0"), 0)
+        self.assertEqual(runner.nonnegative_integer("1000000"), 1000000)
+        for parser, values in (
+            (runner.restart_cycles, ("0", "1001")),
+            (runner.timeout_seconds, ("0", "86401")),
+            (runner.nonnegative_integer, ("-1", "1000001")),
+        ):
+            for value in ("", "+1", "01", " 1", "1 ", *values):
+                with self.subTest(parser=parser.__name__, value=value):
+                    with self.assertRaises(argparse.ArgumentTypeError):
+                        parser(value)
+
+        suffix = [
+            "S", "1", "42", "42", "0", "-1", "0", "0", "0", "0",
+            "0", "0", "0", "0", "0", "20", "0", "1", "0", "999",
+        ]
+        with mock.patch.object(runner.os, "readlink", return_value="/fixture"), \
+                mock.patch.object(
+                    runner.Path,
+                    "read_text",
+                    return_value="123 (worker) nested) " + " ".join(suffix),
+                ):
+            parsed = runner.read_process_identity(123)
+        self.assertEqual(
+            parsed,
+            runner.ProcessIdentity(123, "/fixture", 42, 42, "999"),
+        )
+
+        current = runner.read_process_identity(os.getpid())
+        self.assertIsNotNone(current)
+        assert current is not None
+        self.assertEqual(current.process_group, os.getpgrp())
+        self.assertIn(
+            current,
+            runner.exact_process_identities(
+                Path(current.executable),
+                current.process_group,
+            ),
+        )
+        self.assertNotIn(
+            current,
+            runner.exact_process_identities(
+                Path(current.executable),
+                current.process_group + 10_000_000,
+            ),
+        )
+
+    def test_fcitx_mozc_missing_artifacts_fail_instead_of_skip(self) -> None:
+        base = [
+            sys.executable,
+            str(FCITX_FULL_STACK_RUNNER),
+            "--harness", "/definitely/missing/harness",
+            "--addon", "/definitely/missing/addon",
+            "--server", "/definitely/missing/server",
+            "--dictionary", "/definitely/missing/dictionary",
+            "--addon-config", "/definitely/missing/addon.conf",
+            "--input-method-config", "/definitely/missing/im.conf",
+            "--system-test-addon-dir", "/definitely/missing/testing",
+            "--llama-lib-dir", "/definitely/missing/lib",
+        ]
+        hazkey = subprocess.run(base, capture_output=True, text=True)
+        self.assertEqual(hazkey.returncode, 77)
+        self.assertIn("SKIP:", hazkey.stdout)
+
+        mozc = subprocess.run(
+            [
+                *base,
+                "--converter-backend", "mozc",
+                "--mozc-verifier", "/definitely/missing/verifier.py",
+                "--mozc-generation", "/definitely/missing/generation",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(mozc.returncode, 1)
+        self.assertIn("ERROR: required Mozc", mozc.stdout)
+
+    def test_fcitx_runner_drains_descendants_after_leader_exit(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+        leader = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import os, subprocess; "
+                "child = subprocess.Popen(['/bin/sleep', '30'], "
+                "preexec_fn=os.setpgrp); print(child.pid, flush=True)",
+            ],
+            start_new_session=True,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        child_pid: int | None = None
+        child_identity = None
+        try:
+            assert leader.stdout is not None
+            child_pid = int(leader.stdout.readline().strip())
+            leader.wait(timeout=5)
+            deadline = time.monotonic() + 2
+            descendants = set()
+            while time.monotonic() < deadline:
+                child_identity = runner.read_process_identity(child_pid)
+                descendants = runner.session_process_identities(leader.pid)
+                if child_identity is not None and descendants:
+                    break
+                time.sleep(0.025)
+            self.assertIsNotNone(child_identity)
+            self.assertIn(child_identity, descendants)
+            assert child_identity is not None
+            self.assertNotEqual(child_identity.process_group, leader.pid)
+            self.assertEqual(child_identity.session_id, leader.pid)
+            self.assertTrue(runner.drain_process_session(leader.pid))
+            self.assertFalse(runner.session_process_identities(leader.pid))
+        finally:
+            if child_identity is None and child_pid is not None:
+                child_identity = runner.read_process_identity(child_pid)
+            if child_identity is not None:
+                runner.stop_exact_processes({child_identity})
+            if leader.poll() is None:
+                try:
+                    os.killpg(leader.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                leader.wait(timeout=3)
+            if leader.stdout is not None:
+                leader.stdout.close()
+
+    def test_fcitx_launch_audit_tracks_and_stops_exact_exec(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            audit = root / "launches.log"
+            wrapper = root / "launch"
+            target = Path("/bin/sleep").resolve(strict=True)
+            runner.create_launch_wrapper(wrapper, target, audit)
+            process = subprocess.Popen(
+                [str(wrapper), "30"],
+                start_new_session=True,
+            )
+            try:
+                deadline = time.monotonic() + 3
+                launches = []
+                identities = set()
+                while time.monotonic() < deadline:
+                    launches = runner.load_process_launches(audit)
+                    identities = runner.identities_for_launches(
+                        launches,
+                        target,
+                    )
+                    if identities:
+                        break
+                    time.sleep(0.01)
+                self.assertEqual(len(launches), 1)
+                self.assertEqual({identity.pid for identity in identities}, {process.pid})
+
+                lock_file = root / "server.lock"
+                lock_file.write_text(f"{process.pid}\n", encoding="utf-8")
+                self.assertIsNone(
+                    runner.identity_from_lock(
+                        lock_file,
+                        target,
+                        [runner.ProcessLaunch(process.pid, "1")],
+                    )
+                )
+                self.assertIn(
+                    runner.identity_from_lock(lock_file, target, launches),
+                    identities,
+                )
+
+                self.assertTrue(runner.stop_process_launches(launches))
+                process.wait(timeout=3)
+                self.assertFalse(runner.identities_for_launches(launches))
+            finally:
+                if process.poll() is None:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait(timeout=3)
+
+    def test_fcitx_launch_audit_rejects_tampering(self) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            audit = root / "launches.log"
+            wrapper = root / "launch"
+            runner.create_launch_wrapper(wrapper, Path("/bin/true"), audit)
+
+            audit.write_bytes(b"01 2\n")
+            with self.assertRaisesRegex(
+                runner.ProcessInspectionError,
+                "invalid record",
+            ):
+                runner.load_process_launches(audit)
+
+            audit.write_bytes(b"1 2")
+            with self.assertRaisesRegex(
+                runner.ProcessInspectionError,
+                "incomplete record",
+            ):
+                runner.load_process_launches(audit)
+
+            audit.write_bytes(b"")
+            audit.chmod(0o644)
+            with self.assertRaisesRegex(
+                runner.ProcessInspectionError,
+                "unsafe metadata",
+            ):
+                runner.load_process_launches(audit)
 
     def test_sidecar_remains_conversion_only_with_history_disabled(self) -> None:
         helper = MOZC_SIDECAR_HELPER_SOURCE.read_text(encoding="utf-8")

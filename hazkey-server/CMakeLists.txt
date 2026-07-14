@@ -90,6 +90,12 @@ if(NOT HAZKEY_SERVER_MOZC_ARTIFACT_DIR STREQUAL "")
             "GLIBCXX_3.4.32, and CXXABI_1.3.15:\n"
             "${_HAZKEY_SERVER_MOZC_RUNTIME_ERROR}")
     endif()
+    set_property(GLOBAL PROPERTY
+        GRIMODEX_MOZC_STAGED_GENERATION
+        "${_HAZKEY_SERVER_MOZC_STAGING_DIR}")
+    set_property(GLOBAL PROPERTY
+        GRIMODEX_MOZC_ARTIFACT_VERIFIER
+        "${_HAZKEY_SERVER_MOZC_VERIFIER}")
     message(STATUS
         "Verified fixed Mozc artifact generation: "
         "${_HAZKEY_SERVER_MOZC_STAGING_DIR}")
