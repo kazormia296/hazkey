@@ -50,6 +50,10 @@ CPU_POLICY = "unrestricted-same-host"
 PER_RUN_TIMEOUT_SECONDS = 900
 TERMINATION_GRACE_SECONDS = 5
 MANIFEST_NAME = "acquisition-manifest.json"
+DEFAULT_POLICY_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v1/b0-policy.json"
+)
 SNAPSHOT_ROOT_NAME = "runtime"
 SNAPSHOT_EXECUTABLE_NAME = "hazkey-server"
 SNAPSHOT_LIBRARY_DIRECTORY_NAME = "lib"
@@ -428,6 +432,24 @@ def _validate_probe(
         raise ValueError(f"{path}: must contain exactly {CASES} cases")
 
 
+def _parse_frozen_policy(policy_path: Path) -> Any:
+    policy_bytes = _read_regular(policy_path, "B0 policy")
+    if __package__:
+        from . import evaluate_mozc_b0_gate
+    else:
+        import evaluate_mozc_b0_gate  # type: ignore[no-redef]
+
+    return evaluate_mozc_b0_gate.parse_policy(policy_bytes, str(policy_path))
+
+
+def _expect_policy_identity(value: Any, expected: Any, context: str) -> None:
+    if value != expected:
+        raise ValueError(
+            f"{context} does not match the frozen policy; "
+            f"expected {expected!r}, got {value!r}"
+        )
+
+
 def acquire(
     *,
     executable: Path,
@@ -437,9 +459,28 @@ def acquire(
     hazkey_dictionary: Path,
     mozc_bundle: Path,
     output_directory: Path,
+    policy_path: Path | None = None,
 ) -> dict[str, Any]:
+    if policy_path is None:
+        policy_path = DEFAULT_POLICY_PATH
+    policy = _parse_frozen_policy(policy_path)
+
+    producer_path = Path(__file__).resolve()
+    producer_bytes = _read_regular(producer_path, "measurement producer")
+    producer_sha256 = sha256_bytes(producer_bytes)
+    _expect_policy_identity(
+        producer_sha256,
+        policy.measurement.producer_sha256,
+        "live measurement producer SHA-256",
+    )
+
     if re.fullmatch(r"[0-9a-f]{40}", source_ref) is None:
         raise ValueError("source_ref must be a 40-hex product commit")
+    _expect_policy_identity(
+        source_ref,
+        policy.product_source_revision,
+        "source_ref",
+    )
     executable = executable.resolve(strict=True)
     executable_metadata = executable.stat()
     if not stat.S_ISREG(executable_metadata.st_mode) or not os.access(
@@ -450,11 +491,30 @@ def acquire(
     if not executable_bytes:
         raise ValueError("executable must not be empty")
     executable_sha256 = sha256_bytes(executable_bytes)
+    _expect_policy_identity(
+        (len(executable_bytes), executable_sha256),
+        policy.product_executable,
+        "live product executable identity",
+    )
     if not runtime_library_directory.is_absolute():
         raise ValueError("runtime-lib-dir must be an absolute path")
     runtime_library_directory = runtime_library_directory.resolve(strict=True)
     runtime_dependency_bytes, runtime_dependency_contract = (
         _runtime_dependency_contract(runtime_library_directory)
+    )
+    runtime_dependency_identities = {
+        item["path"]: (item["size_bytes"], item["sha256"])
+        for item in runtime_dependency_contract["files"]
+    }
+    _expect_policy_identity(
+        runtime_dependency_identities,
+        policy.runtime_dependencies,
+        "live runtime dependency identities",
+    )
+    _expect_policy_identity(
+        runtime_dependency_contract["integrity"],
+        policy.runtime_dependency_integrity,
+        "live runtime dependency integrity",
     )
     corpus = corpus.resolve(strict=True)
     hazkey_dictionary = hazkey_dictionary.resolve(strict=True)
@@ -466,8 +526,6 @@ def acquire(
     if len(corpus_rows) != CASES:
         raise ValueError(f"corpus must contain exactly {CASES} cases")
     corpus_sha256 = sha256_bytes(corpus_bytes)
-    producer_path = Path(__file__).resolve()
-    producer_sha256 = sha256_bytes(_read_regular(producer_path, "producer"))
     host = _host_contract()
     child_environment, environment_contract = _child_environment()
 
@@ -638,6 +696,12 @@ def acquire(
         lock_descriptor = -1
         if output_directory.exists() or output_directory.is_symlink():
             raise ValueError(f"refusing to overwrite output {output_directory}")
+        producer_after_acquisition = _read_regular(
+            producer_path,
+            "measurement producer after acquisition",
+        )
+        if producer_after_acquisition != producer_bytes:
+            raise ValueError("measurement producer changed during acquisition")
         _rename_noreplace(temporary, output_directory)
         temporary = Path()
         _fsync_directory(parent)
@@ -662,6 +726,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--hazkey-dictionary", type=Path, required=True)
     parser.add_argument("--mozc-bundle", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY_PATH)
     args = parser.parse_args(argv)
     try:
         manifest = acquire(
@@ -672,6 +737,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             hazkey_dictionary=args.hazkey_dictionary,
             mozc_bundle=args.mozc_bundle,
             output_directory=args.output_dir,
+            policy_path=args.policy,
         )
         print(f"{manifest['integrity']} {args.output_dir}")
         return 0

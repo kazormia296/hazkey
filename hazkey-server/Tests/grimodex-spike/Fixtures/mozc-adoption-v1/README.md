@@ -185,11 +185,15 @@ last run, retained with the acquisition evidence, and re-hashed by the gate.
 Acquire the exact eight-run sequence with the policy-pinned producer. It writes
 an owner-only directory without overwriting an existing result and publishes
 `acquisition-manifest.json` only after every raw and stderr file is durable.
+Before creating temporary output or starting a probe, it validates the live
+producer, product executable, product revision, and all runtime dependencies
+against the explicit frozen policy. It rechecks the producer before publication.
 Final publication uses Linux `renameat2(RENAME_NOREPLACE)`, so even a destination
 created after the preflight check cannot be replaced:
 
 ```bash
 python3 tools/dictionary/run_mozc_b0_measurement.py \
+  --policy hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v1/b0-policy.json \
   --executable /absolute/path/to/hazkey-server \
   --runtime-lib-dir /absolute/path/to/build-grimodex/bin \
   --corpus /private/path/to/pilot-256.tsv \

@@ -17,6 +17,12 @@ sys.path.insert(0, str(REPOSITORY_ROOT))
 from tools.dictionary import run_mozc_b0_measurement as acquisition  # noqa: E402
 
 
+POLICY_FIXTURE = (
+    REPOSITORY_ROOT
+    / "hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v1/b0-policy.json"
+)
+
+
 def digest(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
@@ -54,8 +60,27 @@ class AcquisitionTests(unittest.TestCase):
             path = runtime_library_directory / name
             path.write_bytes(f"runtime dependency {index}: {name}\n".encode())
             path.chmod(0o755)
-        source_ref = "d" * 40
+        policy = json.loads(POLICY_FIXTURE.read_text(encoding="utf-8"))
+        source_ref = policy["candidate"]["product_source_revision"]
         corpus_sha = digest(corpus.read_bytes())
+
+        executable_identity = {
+            "size_bytes": executable.stat().st_size,
+            "sha256": digest(executable.read_bytes()),
+        }
+        policy["candidate"]["product_executable"] = executable_identity
+        for contract in policy["gates"]["long_running_stability"]["checks"]:
+            if contract["native_producer"]["path"] == "<product-executable>":
+                contract["native_producer"]["sha256"] = executable_identity["sha256"]
+        _, runtime_contract = acquisition._runtime_dependency_contract(
+            runtime_library_directory
+        )
+        policy["candidate"]["runtime_dependencies"] = runtime_contract
+        policy["measurement_contracts"]["formal_abprobe_v3"][
+            "producer_sha256"
+        ] = digest(Path(acquisition.__file__).read_bytes())
+        policy_path = root / "policy.json"
+        policy_path.write_text(json.dumps(policy), encoding="utf-8")
 
         def run_bytes(backend: str) -> bytes:
             resource = {
@@ -128,6 +153,7 @@ class AcquisitionTests(unittest.TestCase):
             "bundle": bundle,
             "runtime_library_directory": runtime_library_directory,
             "source_ref": source_ref,
+            "policy": policy_path,
             "runs": {backend: run_bytes(backend) for backend in ("hazkey", "mozc")},
         }
 
@@ -180,6 +206,7 @@ class AcquisitionTests(unittest.TestCase):
                     hazkey_dictionary=fixture["dictionary"],
                     mozc_bundle=fixture["bundle"],
                     output_directory=output,
+                    policy_path=fixture["policy"],
                 )
 
             self.assertEqual(
@@ -253,6 +280,7 @@ class AcquisitionTests(unittest.TestCase):
                     hazkey_dictionary=fixture["dictionary"],
                     mozc_bundle=fixture["bundle"],
                     output_directory=output,
+                    policy_path=fixture["policy"],
                 )
 
     def test_timeout_terminates_the_probe_process_group(self) -> None:
@@ -301,10 +329,84 @@ class AcquisitionTests(unittest.TestCase):
                     hazkey_dictionary=fixture["dictionary"],
                     mozc_bundle=fixture["bundle"],
                     output_directory=output,
+                    policy_path=fixture["policy"],
                 )
             self.assertFalse(output.exists())
             self.assertEqual(list(root.glob(".acquisition.tmp-*")), [])
             self.assertFalse((root / ".acquisition.lock").exists())
+
+    def test_policy_drift_fails_before_temp_process_output_or_lock(self) -> None:
+        def drift_producer(
+            fixture: dict[str, object], kwargs: dict[str, object]
+        ) -> None:
+            policy_path = Path(fixture["policy"])
+            policy = json.loads(policy_path.read_text(encoding="utf-8"))
+            policy["measurement_contracts"]["formal_abprobe_v3"][
+                "producer_sha256"
+            ] = "sha256:" + "0" * 64
+            policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+        def drift_source_ref(
+            fixture: dict[str, object], kwargs: dict[str, object]
+        ) -> None:
+            kwargs["source_ref"] = "e" * 40
+
+        def drift_executable(
+            fixture: dict[str, object], kwargs: dict[str, object]
+        ) -> None:
+            executable = Path(fixture["executable"])
+            executable.write_bytes(executable.read_bytes() + b"drift\n")
+            executable.chmod(0o700)
+
+        def drift_runtime(
+            fixture: dict[str, object], kwargs: dict[str, object]
+        ) -> None:
+            dependency = (
+                Path(fixture["runtime_library_directory"])
+                / acquisition.RUNTIME_DEPENDENCY_FILENAMES[0]
+            )
+            dependency.write_bytes(b"runtime drift\n")
+            dependency.chmod(0o755)
+
+        cases = (
+            ("producer", drift_producer, "live measurement producer SHA-256"),
+            ("source-ref", drift_source_ref, "source_ref does not match"),
+            ("executable", drift_executable, "live product executable identity"),
+            ("runtime", drift_runtime, "live runtime dependency identities"),
+        )
+        for name, mutate, expected_error in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                fixture = self._fixture(root)
+                output = root / "acquisition"
+                kwargs: dict[str, object] = {
+                    "executable": fixture["executable"],
+                    "runtime_library_directory": fixture[
+                        "runtime_library_directory"
+                    ],
+                    "corpus": fixture["corpus"],
+                    "source_ref": fixture["source_ref"],
+                    "hazkey_dictionary": fixture["dictionary"],
+                    "mozc_bundle": fixture["bundle"],
+                    "output_directory": output,
+                    "policy_path": fixture["policy"],
+                }
+                mutate(fixture, kwargs)
+
+                with mock.patch.object(
+                    acquisition.subprocess, "Popen"
+                ) as popen, mock.patch.object(
+                    acquisition.tempfile,
+                    "mkdtemp",
+                    side_effect=AssertionError("policy preflight reached temp output"),
+                ) as make_temp, self.assertRaisesRegex(ValueError, expected_error):
+                    acquisition.acquire(**kwargs)
+
+                popen.assert_not_called()
+                make_temp.assert_not_called()
+                self.assertFalse(output.exists())
+                self.assertEqual(list(root.glob(".acquisition.tmp-*")), [])
+                self.assertFalse((root / ".acquisition.lock").exists())
 
     def test_source_replacement_cannot_change_the_private_executable_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -349,12 +451,72 @@ class AcquisitionTests(unittest.TestCase):
                     hazkey_dictionary=fixture["dictionary"],
                     mozc_bundle=fixture["bundle"],
                     output_directory=output,
+                    policy_path=fixture["policy"],
                 )
 
             self.assertEqual(launched_bytes, [original_bytes] * len(acquisition.SEQUENCE))
             self.assertEqual(Path(fixture["executable"]).read_bytes(), replacement_bytes)
             self.assertEqual((output / "runtime/hazkey-server").read_bytes(), original_bytes)
             self.assertEqual(manifest["executable"]["sha256"], digest(original_bytes))
+
+    def test_producer_replacement_before_publication_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = self._fixture(root)
+            output = root / "acquisition"
+            producer_copy = root / "run_mozc_b0_measurement.py"
+            producer_copy.write_bytes(Path(acquisition.__file__).read_bytes())
+            replacement_bytes = b"replacement measurement producer\n"
+            calls: list[list[str]] = []
+
+            class ReplacingProcess:
+                pid = 4242
+
+                def __init__(self, argv: list[str], **kwargs: object) -> None:
+                    calls.append(argv)
+                    self.stdout = kwargs["stdout"]
+                    self.stderr = kwargs["stderr"]
+                    self.backend = argv[13]
+                    self.returncode: int | None = None
+
+                def wait(self, timeout: int | None = None) -> int:
+                    self.stdout.write(fixture["runs"][self.backend])
+                    self.stderr.write(f"stderr:{self.backend}".encode())
+                    if len(calls) == len(acquisition.SEQUENCE):
+                        producer_copy.write_bytes(replacement_bytes)
+                    self.returncode = 0
+                    return 0
+
+                def poll(self) -> int | None:
+                    return self.returncode
+
+            with mock.patch.object(
+                acquisition, "__file__", str(producer_copy)
+            ), mock.patch.object(
+                acquisition.subprocess, "Popen", side_effect=ReplacingProcess
+            ) as popen, mock.patch.object(
+                acquisition, "_rename_noreplace"
+            ) as publish, self.assertRaisesRegex(
+                ValueError, "measurement producer changed during acquisition"
+            ):
+                acquisition.acquire(
+                    executable=fixture["executable"],
+                    runtime_library_directory=fixture["runtime_library_directory"],
+                    corpus=fixture["corpus"],
+                    source_ref=fixture["source_ref"],
+                    hazkey_dictionary=fixture["dictionary"],
+                    mozc_bundle=fixture["bundle"],
+                    output_directory=output,
+                    policy_path=fixture["policy"],
+                )
+
+            self.assertEqual(popen.call_count, len(acquisition.SEQUENCE))
+            self.assertEqual(len(calls), len(acquisition.SEQUENCE))
+            publish.assert_not_called()
+            self.assertEqual(producer_copy.read_bytes(), replacement_bytes)
+            self.assertFalse(output.exists())
+            self.assertEqual(list(root.glob(".acquisition.tmp-*")), [])
+            self.assertFalse((root / ".acquisition.lock").exists())
 
     def test_publication_collision_is_atomically_no_replace(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -392,6 +554,7 @@ class AcquisitionTests(unittest.TestCase):
                     hazkey_dictionary=fixture["dictionary"],
                     mozc_bundle=fixture["bundle"],
                     output_directory=output,
+                    policy_path=fixture["policy"],
                 )
 
             self.assertTrue(output.is_dir())
@@ -412,6 +575,7 @@ class AcquisitionTests(unittest.TestCase):
                     hazkey_dictionary=fixture["dictionary"],
                     mozc_bundle=fixture["bundle"],
                     output_directory=root / "acquisition",
+                    policy_path=fixture["policy"],
                 )
             extra = Path(fixture["runtime_library_directory"]) / "unexpected.so"
             extra.write_bytes(b"unexpected")
@@ -424,6 +588,7 @@ class AcquisitionTests(unittest.TestCase):
                     hazkey_dictionary=fixture["dictionary"],
                     mozc_bundle=fixture["bundle"],
                     output_directory=root / "acquisition",
+                    policy_path=fixture["policy"],
                 )
 
 
