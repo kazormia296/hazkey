@@ -120,6 +120,30 @@ by a formal product-path runner. The canonical output remains `not_ready` and
 `formal_authorized=false` until a separately reviewed sidecar and product-path
 runner are frozen.
 
+The next diagnostic preparer extracts only those 431 rows and makes the
+conversion boundary explicit. Generate the exact current sidecar first, then
+pass its canonical bytes to the probe preparer:
+
+```bash
+python3 tools/dictionary/prepare_mozc_v2_interaction_sidecar.py \
+  --corpus hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v2/\
+sealed-v2-sha256-b4c1351b1b0ef7797349ebf26858db4d0dd69ce1c8bcbfaee88e0f0b644225ed/\
+formal-corpus.tsv > /tmp/mozc-v2-interaction-sidecar.json
+
+python3 tools/dictionary/prepare_mozc_v2_normal_input_context_probe.py \
+  --corpus hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v2/\
+sealed-v2-sha256-b4c1351b1b0ef7797349ebf26858db4d0dd69ce1c8bcbfaee88e0f0b644225ed/\
+formal-corpus.tsv \
+  --interaction-sidecar /tmp/mozc-v2-interaction-sidecar.json
+```
+
+Each output row contains the committed ASCII prefix as `left_context` and only
+the terminal non-ASCII reading as `conversion_target`; accepted surfaces are
+trimmed to target-only alternatives. The preparer does not run either
+converter and remains `diagnostic_only`, `not_ready`, and
+`formal_authorized=false` until physical input review and a product-path runner
+are complete.
+
 `homophone-context` may contain context rendered inside the reading itself. A
 case that requires an external left context is not made unconditional by
 deleting that context; it belongs in the separate Protocol v2/product-path
