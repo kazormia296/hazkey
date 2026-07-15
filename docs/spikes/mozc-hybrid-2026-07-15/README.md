@@ -1,185 +1,177 @@
-# Mozc-first speculative hybrid spike — 2026-07-15
+# Mozc-first投機ハイブリッド・スパイク — 2026-07-15
 
-This note records a diagnostic working-tree spike. It is not release evidence
-and does not authorize the diagnostic H1 ranking policy.
+この文書は、作業ツリー上で実施した診断スパイクの記録である。リリース判定の証拠ではなく、
+診断用H1順位規則の採用を許可するものでもない。
 
-## Implemented runtime policy
+## 実装したランタイム方針
 
-- Editable input and synchronous candidate display stay on Mozc.
-- Hazkey prepares only the first natural segment for the complete input, using
-  one request for the same composition revision on a background serial worker.
-- Space consumes the result only after that request and the shared Hazkey gate
-  have completed. Pending work is cancelled logically and Space stays Mozc-only.
-- Edit, cursor, segment, commit, cancel, lifecycle, dictionary, configuration,
-  learning-revision, and secure-domain changes invalidate old work.
-- Candidate navigation never changes the published generation or item order.
-- Runtime H0 preserves Mozc Top-1 and its stable Top-3. Hazkey only fills unique
-  candidates below that prefix. Only selected Hazkey-origin candidates learn.
-- Hazkey workers, learning, user dictionaries, configuration, model reload,
-  history reset, and teardown share one registry-wide execution fence.
-- A learnable ready Hazkey window owns a registry-wide candidate-learning
-  fence through commit/discard/cancel. It blocks new Hazkey speculation, not
-  Mozc display or Mozc-only formal conversion.
+- 編集中の入力と同期的な候補表示はMozcを使う。
+- Hazkeyは、入力全体の先頭自然文節だけを、同一composition revisionに対する1回のリクエストとして
+  バックグラウンドの直列ワーカーで準備する。
+- Space時点で、そのリクエストと共有Hazkey gateの両方が完了している場合だけ結果を使用する。
+  未完了の処理は論理的にキャンセルし、SpaceはMozc-onlyのまま待機しない。
+- 編集、カーソル移動、文節操作、確定、キャンセル、ライフサイクル、辞書、設定、
+  learning revision、secure domainの変更時には古い処理を無効化する。
+- 候補移動を開始した後は、公開済みgenerationと候補順を変更しない。
+- ランタイムH0はMozc Top-1と安定したTop-3を維持する。Hazkeyはその後ろに重複しない候補だけを
+  補完する。学習対象は、実際に選ばれたHazkey由来候補だけとする。
+- Hazkeyワーカー、学習、ユーザー辞書、設定、モデル再読込、履歴リセット、終了処理は、
+  registry全体で共有する実行fenceを使用する。
+- 学習可能なHazkey候補ウィンドウの準備が完了すると、commit/discard/cancelまでregistry全体の
+  candidate-learning fenceを保持する。このfenceが止めるのは新しいHazkey投機だけで、
+  Mozc表示とMozc-only正式変換は継続できる。
 
-## Offline quality result
+## オフライン品質評価
 
-Input: the paired 1,360-case ABProbe v3 acquisition under
-`build-grimodex/hazkey-server/mozc-v2-b0-objective-20260715`.
+入力は、次の場所にある1,360件の対になったABProbe v3取得結果である。
 
-| Policy/backend | Top-1 hits | Rate | Rescued | Regressed | Net |
+`build-grimodex/hazkey-server/mozc-v2-b0-objective-20260715`
+
+| 方針/バックエンド | Top-1正解数 | 正解率 | 改善 | 悪化 | 純増減 |
 |---|---:|---:|---:|---:|---:|
 | Hazkey | 909 / 1360 | 66.84% | — | — | — |
 | Mozc | 809 / 1360 | 59.49% | — | — | — |
-| Runtime H0 (`preserveMozcTop1`) | 809 / 1360 | 59.49% | 0 | 0 | 0 |
-| Diagnostic H1 (`oneSidedConsensus`) | 808 / 1360 | 59.41% | 2 | 3 | -1 |
+| ランタイムH0（`preserveMozcTop1`） | 809 / 1360 | 59.49% | 0 | 0 | 0 |
+| 診断H1（`oneSidedConsensus`） | 808 / 1360 | 59.41% | 2 | 3 | -1 |
 
-H1 considered promotion in 12/1,360 cases: 2 were rescued, 3 regressed,
-and 7 remained incorrect. The input ABProbe v3 records candidate surfaces but
-not their consuming counts. Evaluation schema v2 therefore marks runtime
-boundary parity as unestablished and H1 as ineligible for active runtime use;
-the product path may collect boundary-aware shadow counters while retaining
-H0 output and origin routing.
+H1が昇格を検討したのは12/1,360件で、2件が改善、3件が悪化、7件は誤りのままだった。
+入力に使ったABProbe v3は候補の表層文字列だけを記録し、`consuming_count`を持たない。
+そのため評価スキーマv2は、ランタイムの文節境界との同等性が未確立であり、H1を実ランタイムへ
+適用できないことを明示する。製品経路ではH0の出力順と由来別ルーティングを維持したまま、
+境界対応のシャドーカウンターだけを収集できる。
 
-For the 551 Mozc Top-1 misses:
+MozcがTop-1を外した551件の内訳は次のとおり。
 
-- Hazkey is Top-1 in 234 cases (42.47%).
-- The expected surface is below Top-1 in both candidate lists in 0 cases.
-- It is below Top-1 only in Hazkey in 139 cases and only in Mozc in 6 cases.
-- It is absent from both observed Top-10 lists in 172 cases (31.22%).
+- HazkeyではTop-1に正解があるもの: 234件（42.47%）
+- 両候補リストで正解がTop-1より下にあるもの: 0件
+- HazkeyだけでTop-1より下に正解があるもの: 139件
+- MozcだけでTop-1より下に正解があるもの: 6件
+- 両方の観測Top-10に正解がないもの: 172件（31.22%）
 
-The theoretical rescue pool is substantial, but the tested expectation-blind
-one-sided-consensus rule is not safe: it regresses more cases than it rescues.
-H0 therefore remains the runtime default.
+理論上の改善余地は大きいが、今回評価した正解ラベル非依存の`oneSidedConsensus`規則は安全ではない。
+改善数より悪化数が多いため、ランタイムの既定値はH0のままとする。
 
-## Boundary-aware v4 result
+## 境界対応v4の結果
 
-An opt-in ABProbe v4 reacquisition used each adapter's `segmentCandidates`
-path and recorded `{text, rank, consuming_count}` for all 1,360 cases. These
-artifacts are local diagnostics under
-`build-grimodex/mozc-hybrid-boundary-v4-20260715`.
+明示的に有効化したABProbe v4で再取得し、各アダプターの`segmentCandidates`経路を使って、
+全1,360件の`{text, rank, consuming_count}`を記録した。ローカルの診断成果物は次の場所にある。
 
-| Boundary diagnostic | Cases | Rate |
+`build-grimodex/mozc-hybrid-boundary-v4-20260715`
+
+| 文節境界の診断 | 件数 | 割合 |
 |---|---:|---:|
-| Hazkey Top-1 boundary matches Mozc Top-1 | 555 / 1360 | 40.81% |
-| Hazkey Top-1 boundary differs | 805 / 1360 | 59.19% |
-| Boundary-aware H1 promotion opportunity | 6 / 1360 | 0.44% |
+| Hazkey Top-1の境界がMozc Top-1と一致 | 555 / 1360 | 40.81% |
+| Hazkey Top-1の境界がMozc Top-1と不一致 | 805 / 1360 | 59.19% |
+| 境界対応H1の昇格機会 | 6 / 1360 | 0.44% |
 
-All six surface-only opportunities remained boundary-eligible; none was
-removed by the boundary check. They comprise `Docker`, `棚から` versus
-`店から`, half-width versus full-width `4月`, and three occurrences of the
-same half-width versus full-width `2つの` first clause. This is opportunity
-evidence only, not a quality result.
+表層文字列だけで判定した6件の機会は、すべて境界条件も満たしており、境界判定による除外は
+0件だった。内訳は`Docker`、`棚から`対`店から`、半角/全角の`4月`、および同じ先頭文節に対する
+半角/全角の`2つの`が3件である。これは昇格機会の証拠であり、品質改善の証拠ではない。
 
-The sealed corpus labels whole compositions while v4 observes the first
-clause. The evaluator therefore reports zero comparable quality cases and
-excludes all 1,360 cases from Top-1, rescue/regression, oracle, and miss-class
-claims. A segment-labeled holdout, or an explicit composition-span contract
-with reviewed target-parity inference, is required before activating H1.
+封印済みcorpusの正解ラベルは入力全体を対象とする一方、v4が観測する候補は先頭文節だけである。
+このため評価器は品質比較可能な件数を0件とし、全1,360件をTop-1、改善/悪化、理論上限、
+誤り分類の集計対象から除外する。H1を有効化する前に、文節単位の正解ラベルを持つホールドアウト、
+または明示的なcomposition span（入力対象範囲）とレビュー済みのtarget parity
+（正解対象の一致）推論が必要である。
 
-The one-iteration, zero-warmup debug acquisition measured a 194.33 ms Hazkey
-median (1029.81 ms P95) and a 2.74 ms Mozc median (14.08 ms P95). These are
-adapter-path diagnostics, not product UI latency; the process-path measurements
-below remain the relevant first-display and Space timings.
+1回の反復・ウォームアップなしのデバッグ取得では、Hazkeyの中央値が194.33 ms、
+P95が1029.81 ms、Mozcの中央値が2.74 ms、P95が14.08 msだった。これはアダプター経路の
+診断値であり、製品UIの遅延ではない。初回表示とSpaceの時間には、次節のプロセス経路測定を使う。
 
-## Product-path timing and memory samples
+## 製品経路の時間・メモリ測定
 
-The opt-in process probe launched the real debug server, fixed Mozc helper/data,
-Unix socket, and Protocol v2. It used 12 cases, one iteration per case, and a
-0/25/100 ms wait between the Mozc display response and Space. Counters below
-are sums of quiesced before/after deltas for the 36 measured windows; warm-up
-and reset cleanup are excluded. Both runs use the same `ZenzaiSupport` binary
-with a valid model available; only the profile's Zenzai enable flag differs.
+明示的に有効化したプロセス測定で、実際のデバッグserver、固定Mozc helper/data、Unix socket、
+Protocol v2を起動した。12件を各1回実行し、Mozc表示の応答からSpaceまでの猶予を
+0/25/100 msに設定した。以下のカウンターは、ワーカーの静止を待って取得した、36個の測定
+ウィンドウの前後差分を合計したものである。ウォームアップとリセット時の後処理は含まない。
+両測定とも有効なモデルを参照できる同一の`ZenzaiSupport`バイナリを使い、プロファイルの
+Zenzai有効フラグだけを変更した。
 
-### Zenzai disabled
+### Zenzai無効
 
-| Prefetch allowance | Mozc first-display median | Space median | Windows with a surface absent from Mozc baseline | Top-1 changes | Candidate jumps |
+| 先読み猶予 | Mozc初回表示の中央値 | Space時の中央値 | Mozc基準候補にない表層文字列を含むウィンドウ | Top-1変更 | 候補ジャンプ |
 |---:|---:|---:|---:|---:|---:|
 | 0 ms | 7.71 ms | 4.92 ms | 0 / 12 | 0 | 0 |
 | 25 ms | 7.45 ms | 5.28 ms | 1 / 12 | 0 | 0 |
 | 100 ms | 8.00 ms | 5.89 ms | 3 / 12 | 0 | 0 |
 
-Measured counters: `prefetch_started=36`, `prefetch_ready=7`,
-`formal_ready_consumed=7`, `formal_deadline_miss=29`,
-`stale_discarded=29`, `late_completion_discarded=29`,
-`hazkey_requests=36`, `merged_requests=4`, `boundary_mismatch=3`, and
-`hazkey_failure=0`. The shadow H1 evaluated 7 ready results, found 0 promotion
-opportunities, and rejected 3 boundary-mismatched Hazkey Top-1 results. Hazkey
-totaled 5.1859 s, about 144.1 ms/request.
+測定カウンターは`prefetch_started=36`、`prefetch_ready=7`、
+`formal_ready_consumed=7`、`formal_deadline_miss=29`、
+`stale_discarded=29`、`late_completion_discarded=29`、
+`hazkey_requests=36`、`merged_requests=4`、`boundary_mismatch=3`、
+`hazkey_failure=0`だった。シャドーH1は準備完了結果を7回評価し、昇格機会は0件、
+Hazkey Top-1の境界不一致による棄却は3件だった。Hazkeyの合計時間は5.1859秒で、
+1リクエストあたり約144.1 msだった。
 
-### Zenzai enabled
+### Zenzai有効
 
-This run enabled the local 69 MiB model and configured GGML backend.
+ローカルの69 MiBモデルを有効にし、GGMLバックエンドを設定して測定した。
 
-| Prefetch allowance | Mozc first-display median | Space median | Windows with a surface absent from Mozc baseline | Top-1 changes | Candidate jumps |
+| 先読み猶予 | Mozc初回表示の中央値 | Space時の中央値 | Mozc基準候補にない表層文字列を含むウィンドウ | Top-1変更 | 候補ジャンプ |
 |---:|---:|---:|---:|---:|---:|
 | 0 ms | 6.10 ms | 4.51 ms | 0 / 12 | 0 | 0 |
 | 25 ms | 7.53 ms | 5.69 ms | 0 / 12 | 0 | 0 |
 | 100 ms | 7.38 ms | 5.19 ms | 1 / 12 | 0 | 0 |
 
-Measured counters: `prefetch_started=36`, `prefetch_ready=2`,
-`formal_ready_consumed=2`, `formal_deadline_miss=34`,
-`stale_discarded=34`, `late_completion_discarded=34`,
-`hazkey_requests=36`, `merged_requests=1`, `boundary_mismatch=1`, and
-`hazkey_failure=0`. The shadow H1 evaluated 2 ready results, found 0 promotion
-opportunities, and rejected 1 boundary-mismatched Hazkey Top-1 result. Hazkey
-totaled 8.9871 s, about 249.6 ms/request.
+測定カウンターは`prefetch_started=36`、`prefetch_ready=2`、
+`formal_ready_consumed=2`、`formal_deadline_miss=34`、
+`stale_discarded=34`、`late_completion_discarded=34`、
+`hazkey_requests=36`、`merged_requests=1`、`boundary_mismatch=1`、
+`hazkey_failure=0`だった。シャドーH1は準備完了結果を2回評価し、昇格機会は0件、
+Hazkey Top-1の境界不一致による棄却は1件だった。Hazkeyの合計時間は8.9871秒で、
+1リクエストあたり約249.6 msだった。
 
-### Endpoint memory
+### エンドポイントメモリ
 
-These are endpoint snapshots, not peak or simultaneous samples.
+以下は測定開始前後のエンドポイントスナップショットであり、ピーク値でも、同時点で取得した
+スナップショットでもない。
 
-| Mode / snapshot | Server RSS / PSS | Helper RSS / PSS | Total PSS |
+| モード/時点 | Server RSS / PSS | Helper RSS / PSS | 合計PSS |
 |---|---:|---:|---:|
-| Zenzai off / before | 177,532 / 61,159 KiB | 20,392 / 16,503 KiB | 77,662 KiB |
-| Zenzai off / after | 182,608 / 66,075 KiB | 23,336 / 19,447 KiB | 85,522 KiB |
-| Zenzai on / before | 300,772 / 160,312 KiB | 20,316 / 16,411 KiB | 176,723 KiB |
-| Zenzai on / after | 316,728 / 176,204 KiB | 23,240 / 19,335 KiB | 195,539 KiB |
+| Zenzai無効/開始前 | 177,532 / 61,159 KiB | 20,392 / 16,503 KiB | 77,662 KiB |
+| Zenzai無効/終了後 | 182,608 / 66,075 KiB | 23,336 / 19,447 KiB | 85,522 KiB |
+| Zenzai有効/開始前 | 300,772 / 160,312 KiB | 20,316 / 16,411 KiB | 176,723 KiB |
+| Zenzai有効/終了後 | 316,728 / 176,204 KiB | 23,240 / 19,335 KiB | 195,539 KiB |
 
-The local reports are `build-grimodex/hybrid-runtime-spike.json` (Zenzai on)
-and `build-grimodex/hybrid-runtime-spike-no-zenzai.json` (Zenzai off).
+ローカルレポートは`build-grimodex/hybrid-runtime-spike.json`（Zenzai有効）と
+`build-grimodex/hybrid-runtime-spike-no-zenzai.json`（Zenzai無効）である。
 
-## Two-session contention result
+## 2セッション競合の結果
 
-A deterministic barrier test uses two hybrid converters with the same
-registry-style execution gate and serial executor. While session A owns a
-learnable ready window, session B cannot enter its Hazkey converter, but its
-Mozc display, realtime candidates, and Mozc-only formal fallback complete.
-When A commits learning, the underlying Hazkey commit is observed before B's
-queued speculative call enters Hazkey. Discard, formal Mozc failure, boundary
-mismatch, partial multi-segment rollback, segment resize, candidate transform,
-unlearnable fallback, learning-revision mismatch, and secure purge cover the
-principal release paths; registry maintenance and teardown use an explicit
-admission fence around invalidation and exclusive Hazkey mutation.
+決定論的なバリアテストでは、registryと同じ実行gateと直列executorを共有する2個の
+ハイブリッド変換器を使った。セッションAが学習可能な準備完了候補ウィンドウを保持している間、
+セッションBはHazkey変換器へ入れない。一方、BのMozc表示、リアルタイム候補、
+Mozc-only正式変換のフォールバックは完了できる。Aが学習をcommitすると、Bの待機中の投機処理が
+Hazkeyへ入るより先に、基底Hazkeyのcommitが実行されたことを確認した。
 
-## Interpretation
+主要なfence解放経路として、discard、正式変換時のMozc失敗、文節境界不一致、
+複数文節の部分巻き戻し、文節サイズ変更、候補変換、学習不能フォールバック、
+learning revision不一致、secure purgeを検証した。registryの保守処理と終了処理は、
+無効化と排他的なHazkey変更を囲む明示的なadmission fenceを使用する。
 
-Within this single-session probe, formal conversion never joined Hazkey work,
-no candidate jump was observed, and H0 never changed Mozc Top-1. First-step,
-ready-only publication also prevents a later clause request from blocking
-learning for a candidate just published by the same session.
+## 解釈
 
-Readiness remains the bottleneck: at 100 ms only 3/12 windows without Zenzai
-and 1/12 with Zenzai contained a normalized surface absent from the separately
-captured Mozc baseline. This window-level metric does not identify backend
-provenance or count individual additions. Merely adding later candidates still
-does not improve one-key Top-1, while the tested H1 promotion rule regresses net
-accuracy.
+この単一セッション測定では、正式変換がHazkey処理の完了を待つことはなく、候補ジャンプも
+発生せず、H0がMozc Top-1を変更することもなかった。先頭文節だけを準備完了時に公開する方式は、
+後続文節のリクエストが、同じセッションで直前に公開した候補の学習を妨げることも防ぐ。
 
-Concretely, the metric increments only when the formal window contains at least
-one NFC-normalized surface absent from the separately captured Mozc baseline.
-Candidate reordering, duplicate surfaces, and canonically equivalent spellings
-alone do not increment it.
+ボトルネックは引き続き準備完了率である。100 msの猶予でも、別途取得したMozc基準候補にない
+正規化済み表層文字列を含んだのは、Zenzai無効で3/12ウィンドウ、Zenzai有効で1/12ウィンドウ
+だけだった。このウィンドウ単位の指標からは、バックエンド由来や個別の追加候補数は分からない。
+後から候補を追加するだけでは一発変換のTop-1は改善せず、今回のH1昇格規則は純減だった。
 
-The post-spike two-session barrier probe reproduced the shared-gate head-of-line
-risk and added a candidate-learning fence. Once a learnable Hazkey result is
-ready, queued speculation from other sessions cannot enter Hazkey until the
-candidate window and any staged-learning decision are resolved. Mozc display
-and Mozc-only formal conversion remain available while that fence is held, and
-maintenance/secure/teardown paths take their own admission fence.
+この指標は、正式変換ウィンドウに、別途取得したMozc基準候補にはないNFC正規化済みの
+表層文字列が1個以上含まれる場合だけ加算する。候補の並べ替え、重複、Unicode正規化上
+等価な表記だけでは加算しない。
 
-This preserves synchronous learning durability without an asynchronous journal.
-The tradeoff is conservative: all sessions pause Hazkey prefetch while a
-learnable candidate window or undo decision remains open. An already-active
-Hazkey request is still not preemptible. Process isolation remains the scalable
-next step if that global pause is too costly. Any Top-1 promotion also needs a
-new, reviewed holdout.
+スパイク後の2セッションバリア測定では、共有gateによるhead-of-line blockingの危険を再現し、
+candidate-learning fenceを追加した。学習可能なHazkey結果の準備が完了すると、候補ウィンドウと
+staged learningの判断が解決するまで、他セッションの待機中の投機処理はHazkeyへ入れない。
+その間もMozc表示とMozc-only正式変換は利用でき、保守、セキュア入力、終了処理の各経路は
+それぞれadmission fenceを取得する。
+
+これにより、非同期ジャーナルを追加せずに同期的な学習の永続性を維持できる。代償として、
+学習可能な候補ウィンドウまたはundo判断が残っている間は、全セッションのHazkey先読みが停止する。
+すでに実行中のHazkeyリクエストは途中で中断できない。全セッション停止が問題になる場合は、
+プロセス分離が次のスケーラブルな選択肢になる。Top-1昇格を有効にするには、別途レビューした
+新しいホールドアウトも必要である。
