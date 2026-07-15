@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Evaluate the frozen Mozc B0 adoption gate from immutable raw evidence.
+"""Evaluate the frozen Mozc B0 v1 pilot gate from immutable raw evidence.
 
 The gate deliberately does not accept precomputed rates.  It re-hashes every
 input named by an evidence manifest, re-runs the blind quality scorer and the
-AB-probe summarizer, and then evaluates the frozen policy with integer cross
-multiplication (or ``Decimal`` for measured latency values).
+AB-probe summarizer, and then evaluates the frozen pilot policy with integer
+cross multiplication (or ``Decimal`` for measured latency values).  Its output
+cannot authorize or reject formal adoption.
 """
 
 from __future__ import annotations
@@ -45,6 +46,9 @@ EVIDENCE_SCHEMA = "hazkey.mozc-b0-gate-evidence.v1"
 CORPUS_MANIFEST_SCHEMA = "hazkey.frozen-conversion-corpus-manifest.v1"
 STABILITY_SCHEMA = run_mozc_b0_stability.RECORD_SCHEMA
 OUTPUT_SCHEMA = "hazkey.mozc-b0-gate-result.v1"
+DECISION_TIER = "pilot"
+FORMAL_ADOPTION_ALLOWED = False
+PILOT_RESULTS = frozenset({"pilot_pass", "pilot_fail", "inconclusive"})
 
 EXPECTED_TOTAL_CASES = 256
 EXPECTED_CATEGORIES = {
@@ -386,6 +390,8 @@ class StabilityCheck:
 class ParsedPolicy:
     gate: GatePolicy
     policy_id: str
+    decision_tier: str
+    formal_adoption_allowed: bool
     candidate_id: str
     product_source_revision: str
     artifact_source_revision: str
@@ -416,6 +422,8 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
         {
             "schema",
             "policy_id",
+            "decision_tier",
+            "formal_adoption_allowed",
             "candidate",
             "baseline",
             "candidate_sequence",
@@ -430,6 +438,17 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
     )
     _expect(root["schema"], POLICY_SCHEMA, f"{context}.schema")
     policy_id = _string(root["policy_id"], f"{context}.policy_id")
+    decision_tier = _string(root["decision_tier"], f"{context}.decision_tier")
+    _expect(decision_tier, DECISION_TIER, f"{context}.decision_tier")
+    formal_adoption_allowed = _boolean(
+        root["formal_adoption_allowed"],
+        f"{context}.formal_adoption_allowed",
+    )
+    _expect(
+        formal_adoption_allowed,
+        FORMAL_ADOPTION_ALLOWED,
+        f"{context}.formal_adoption_allowed",
+    )
 
     candidate = _object(root["candidate"], f"{context}.candidate")
     _exact(
@@ -1207,10 +1226,34 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
     )
 
     binding = _object(root["manifest_binding"], f"{context}.manifest_binding")
-    _exact(binding, {"required_for_formal_decision", "expected_schema", "status", "path", "sha256"}, f"{context}.manifest_binding")
-    _expect(binding["required_for_formal_decision"], True, f"{context}.manifest_binding.required_for_formal_decision")
+    _exact(
+        binding,
+        {
+            "required_for_pilot_evaluation",
+            "required_for_formal_decision",
+            "expected_schema",
+            "status",
+            "path",
+            "sha256",
+        },
+        f"{context}.manifest_binding",
+    )
+    _expect(
+        binding["required_for_pilot_evaluation"],
+        True,
+        f"{context}.manifest_binding.required_for_pilot_evaluation",
+    )
+    _expect(
+        binding["required_for_formal_decision"],
+        False,
+        f"{context}.manifest_binding.required_for_formal_decision",
+    )
     _expect(binding["expected_schema"], CORPUS_MANIFEST_SCHEMA, f"{context}.manifest_binding.expected_schema")
     binding_status = _string(binding["status"], f"{context}.manifest_binding.status")
+    if binding_status not in {"pending", "ready"}:
+        raise ValueError(
+            f"{context}.manifest_binding.status must be pending or ready"
+        )
     if binding_status == "ready":
         manifest_path = _string(binding["path"], f"{context}.manifest_binding.path")
         manifest_sha256 = _sha256(binding["sha256"], f"{context}.manifest_binding.sha256", allow_bare=True)
@@ -1221,8 +1264,28 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
         manifest_sha256 = ""
 
     readiness = _object(root["readiness"], f"{context}.readiness")
-    _exact(readiness, {"formal_decision_enabled", "blocking_items"}, f"{context}.readiness")
-    enabled = _boolean(readiness["formal_decision_enabled"], f"{context}.readiness.formal_decision_enabled")
+    _exact(
+        readiness,
+        {
+            "pilot_evaluation_enabled",
+            "formal_decision_enabled",
+            "blocking_items",
+        },
+        f"{context}.readiness",
+    )
+    pilot_enabled = _boolean(
+        readiness["pilot_evaluation_enabled"],
+        f"{context}.readiness.pilot_evaluation_enabled",
+    )
+    formal_enabled = _boolean(
+        readiness["formal_decision_enabled"],
+        f"{context}.readiness.formal_decision_enabled",
+    )
+    _expect(
+        formal_enabled,
+        False,
+        f"{context}.readiness.formal_decision_enabled",
+    )
     blockers = tuple(
         _string(value, f"{context}.readiness.blocking_items[{index}]")
         for index, value in enumerate(_array(readiness["blocking_items"], f"{context}.readiness.blocking_items"))
@@ -1232,11 +1295,11 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
         and required_ids
         and contracts_ready
         and binding_status == "ready"
-        and enabled
+        and pilot_enabled
         and not blockers
     ):
         raise ValueError(
-            f"{context}: formal decision is not ready; stability IDs, measurement "
+            f"{context}: pilot evaluation is not ready; stability IDs, measurement "
             "contracts, corpus binding, and readiness must all be frozen/ready"
         )
 
@@ -1257,6 +1320,8 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
     return ParsedPolicy(
         gate=gate,
         policy_id=policy_id,
+        decision_tier=decision_tier,
+        formal_adoption_allowed=formal_adoption_allowed,
         candidate_id="B0",
         product_source_revision=product_source_revision,
         artifact_source_revision=artifact_source_revision,
@@ -1374,7 +1439,7 @@ def evaluate_metrics(policy: GatePolicy, metrics: dict[str, Any]) -> list[dict[s
 
     checks: list[dict[str, Any]] = [
         {
-            "id": "formal-case-count",
+            "id": "pilot-case-count",
             "passed": cases == policy.total_cases,
             "actual": cases,
             "operator": "==",
@@ -1498,6 +1563,22 @@ def evaluate_metrics(policy: GatePolicy, metrics: dict[str, Any]) -> list[dict[s
             }
         )
     return checks
+
+
+def derive_pilot_result(checks: Iterable[dict[str, Any]]) -> str:
+    """Classify pilot checks without implying a formal adoption decision."""
+
+    states: list[bool | None] = []
+    for index, check in enumerate(checks):
+        state = check.get("passed")
+        if state is not True and state is not False and state is not None:
+            raise ValueError(f"checks[{index}].passed must be boolean or null")
+        states.append(state)
+    if any(state is False for state in states):
+        return "pilot_fail"
+    if states and all(state is True for state in states):
+        return "pilot_pass"
+    return "inconclusive"
 
 
 def _parse_corpus_manifest(
@@ -2571,9 +2652,12 @@ def evaluate(policy_path: Path, evidence_path: Path) -> dict[str, Any]:
     if metrics["total_pss_kib"]["hazkey"] is None or metrics["total_pss_kib"]["mozc"] is None:
         raise ValueError("both backends require measured total PSS")
     checks = evaluate_metrics(policy.gate, metrics)
+    pilot_result = derive_pilot_result(checks)
     output_base = {
         "schema": OUTPUT_SCHEMA,
-        "passed": all(check["passed"] for check in checks),
+        "decision_tier": policy.decision_tier,
+        "formal_adoption_allowed": policy.formal_adoption_allowed,
+        "pilot_result": pilot_result,
         "policy_id": policy.policy_id,
         "candidate": policy.candidate_id,
         "product_source_ref": product_source_ref,
@@ -2653,7 +2737,10 @@ def main(argv: Iterable[str] | None = None) -> int:
             sys.stdout.write(rendered)
         else:
             _write_atomic(args.output, rendered)
-        return 0 if result["passed"] else 1
+        pilot_result = result["pilot_result"]
+        if pilot_result not in PILOT_RESULTS:
+            raise ValueError(f"unknown pilot result {pilot_result!r}")
+        return 0 if pilot_result == "pilot_pass" else 1
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

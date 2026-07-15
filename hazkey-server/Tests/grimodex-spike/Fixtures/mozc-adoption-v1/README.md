@@ -1,21 +1,25 @@
-# Mozc adoption evaluation contract v1
+# Mozc adoption pilot contract v1
 
 This directory locks the corpus shape and pass/fail thresholds for the first
-formal evaluation of the fixed B0 Mozc artifact. The pinned AJIMEE component is
+pilot evaluation of the fixed B0 Mozc artifact. The pinned AJIMEE component is
 kept separate from the reviewed product-owned 140 cases and protected 16 cases.
 Their deterministic aggregate manifest and the ABProbe measurement contract are
 frozen. The five long-running stability contracts and their native schemas are
-also frozen, including the committed Fcitx native producer identity. Formal
-decision readiness is enabled at the contract level; this does not assert that
-the five required native results exist or pass. Evidence results do not need to
-exist for the contract itself to be ready, but the final gate requires all five.
+also frozen, including the committed Fcitx native producer identity. This v1
+contract is permanently `decision_tier=pilot` and
+`formal_adoption_allowed=false`. Pilot-evaluation readiness is enabled at the
+contract level; this does not assert that the five required native results
+exist or pass. Evidence results do not need to exist for the contract itself to
+be ready, but a complete `pilot_pass` requires all five. The legacy policy key
+`formal_suite` names this frozen v1 shape only and does not authorize a formal
+adoption decision.
 
 All policy rates use integer basis points. A score delta of `-800` means minus
 8 percentage points; a ratio of `5000` means 50% of the Hazkey value. The human
 net preference is `(B0 wins - B0 losses) / 256`: it must be at least -300 basis
 points and at least -7 cases.
 
-## Formal 256-case suite
+## Pilot 256-case suite
 
 The suite is assembled deterministically from three separately licensed files.
 
@@ -71,13 +75,13 @@ that notice and comply with the license for the covered material.
 The contextual AJIMEE cases form a separate 100-case suite. They must not be
 made context-free by deleting their context. Evaluate them only after Protocol
 v2 or the product path can inject the original left context, and keep that
-suite outside the formal 256-case score.
+suite outside the v1 pilot 256-case score.
 
 ## Excluded and auxiliary data
 
 - The existing 15-case
   `../ime-base-ab-v1/conversion-quality-v1.tsv` remains a fast sentinel
-  regression suite. It is not part of the formal score and must not be repeated
+  regression suite. It is not part of the pilot score and must not be repeated
   or padded into the 256 cases.
 - Mozc stress-test data is for parser robustness and soak testing only. It does
   not contribute to conversion-quality scores.
@@ -88,7 +92,7 @@ suite outside the formal 256-case score.
   be committed here.
 - [`Miwa-Keita/zenz-v2.5-dataset`](https://huggingface.co/datasets/Miwa-Keita/zenz-v2.5-dataset)
   may inform vocabulary distribution only. Its possible overlap with training
-  data excludes its examples from the formal evaluation corpus.
+  data excludes its examples from the v1 pilot corpus.
 
 ## Frozen manifest and aggregate
 
@@ -105,7 +109,7 @@ confirmed:
 5. an explicit deterministic merge order and the SHA-256 of the exact generated
    256-case byte snapshot consumed by all eight ABProbe v3 runs; and
 6. no placeholder, contextual AJIMEE, sentinel, stress, Microsoft, or zenz-v2.5
-   rows in the formal snapshot.
+   rows in the pilot snapshot.
 
 The component SHA-256 values are `91068dd9…e265fba`,
 `32a72027…8a0e4`, and `18c384f5…3d768` in manifest order. The exact generated
@@ -117,10 +121,10 @@ the manifest file itself is
 ```bash
 python3 tools/dictionary/build_frozen_corpus.py build \
   --manifest hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v1/manifest.json \
-  --output /private/path/to/formal-256.tsv
+  --output /private/path/to/pilot-256.tsv
 ```
 
-The formal evidence must bind that manifest hash, the hashed acquisition
+The frozen pilot evidence must bind that manifest hash, the hashed acquisition
 manifest for all eight raw ABProbe v3 runs, the blind-review packet, and the
 exact product executable, its 11 runtime dependencies, and the B0 helper/data
 identities in `b0-policy.json`.
@@ -128,9 +132,9 @@ It must also use the frozen product implementation revision
 `6e0354f2514edf1fe8219657ed23e7a02c8a7f7a`; a caller-selected lookalike source
 revision is rejected.
 Do not reuse results from B0 lookalikes or locally rebuilt artifacts. B1 is made
-only if this B0 fails; B2 remains a future option.
+only if this B0 fails the pilot thresholds; B2 remains a future option.
 
-## Locked gates and measurement contracts
+## Locked pilot gates and measurement contracts
 
 The fixed gates are: human net preference at least -3% (net loss no worse than
 7 cases), overall Top-1 no more than 8 points below Hazkey, overall Top-10 no
@@ -139,7 +143,7 @@ points below Hazkey, protected 16/16, at most 12 `both_bad` judgments, warm
 latency p95 no more than 50% of Hazkey, PSS no more than 125% of Hazkey, and all
 required long-running stability checks passing.
 
-The formal performance comparison uses ABProbe v3 with exactly four runs per
+The pilot performance comparison uses ABProbe v3 with exactly four runs per
 backend in execution order `H1,M1,M2,H2,H3,M3,M4,H4`, 5 warmups and 20 measured
 iterations per case, Top-10 output, and all 256 cases. Warm latency is the
 nearest-rank p95 across every measured sample. PSS is the maximum simultaneous
@@ -152,7 +156,7 @@ process. It does not inherit `LD_LIBRARY_PATH`, `GGML_BACKEND_DIR`,
 `FCITX5_GRIMODEX_*`, `HOME`, or any other ambient value. The child environment
 is exactly the fixed locale, timezone, default system PATH, and
 `LD_LIBRARY_PATH=GGML_BACKEND_DIR=./runtime/lib`; the child working directory is
-the private acquisition root. The formal CLI accepts one explicit absolute
+the private acquisition root. The fixed pilot CLI accepts one explicit absolute
 `--runtime-lib-dir` and rejects anything other than the policy-pinned set of 11
 regular files. Their ordered path/size/SHA-256 manifest has integrity
 `sha256:5d847919dbfb4b866546104cfbc73f5ffa9ff45ee9d8bc85889bf1de6c299f2d`.
@@ -175,14 +179,14 @@ created after the preflight check cannot be replaced:
 python3 tools/dictionary/run_mozc_b0_measurement.py \
   --executable /absolute/path/to/hazkey-server \
   --runtime-lib-dir /absolute/path/to/build-grimodex/bin \
-  --corpus /private/path/to/formal-256.tsv \
+  --corpus /private/path/to/pilot-256.tsv \
   --source-ref 6e0354f2514edf1fe8219657ed23e7a02c8a7f7a \
   --hazkey-dictionary /absolute/path/to/hazkey-dictionary \
   --mozc-bundle /absolute/path/to/mozc-runtime-generation \
   --output-dir /private/path/to/b0-acquisition
 ```
 
-The final evidence uses `acquisition_manifest: {path, sha256}` instead of a
+The pilot evidence uses `acquisition_manifest: {path, sha256}` instead of a
 caller-asserted run-order list. The gate re-hashes the manifest, private
 executable snapshot, all 11 policy-pinned runtime dependency snapshots, all raw
 outputs, and stderr logs. It checks exact snapshot modes and file set,
@@ -212,7 +216,7 @@ runtime paths.
 `tools/dictionary/run_mozc_b0_stability.py` emits schema
 `hazkey.mozc-b0-stability-record.v2`. A record has no `passed` field and no
 generic aggregate observations. It binds one native result by path and
-SHA-256. The final gate re-hashes that file and re-derives counts from its
+SHA-256. The pilot gate re-hashes that file and re-derives counts from its
 suite-specific native schema. It rejects schema substitution, aggregate-count
 forgery, producer drift, missing or renamed recovery subchecks, and B0 versus
 fault-fixture identity substitution.
@@ -253,8 +257,11 @@ to a read-only private snapshot and execute the copied
 mode for `Package.swift`, `Package.resolved`, the generated
 `Sources/hazkey-server/constants.swift`, all selected Sources and Tests,
 `prepare_azookey_dependency.cmake`, the AzooKey patches, and the runner. The
-self-referential `Fixtures/mozc-adoption-v1` policy/documentation directory,
-which the selected filters do not consume, is excluded. Both runners create a
+self-referential `Fixtures/mozc-adoption-v1` and `Fixtures/mozc-adoption-v2`
+policy, documentation, and evaluation-corpus directories, which the selected
+Swift filters do not consume, are excluded by exact path prefix. Files added
+under either evaluation-only prefix therefore do not change the executable
+Swift-package identity. Both runners create a
 new private `swift-scratch` below the new output directory and reject an
 existing output directory; caller-selected incremental build products are
 never used. The native validator re-walks the read-only snapshot with
@@ -276,7 +283,7 @@ remote package-host infrastructure.
 
 The Fcitx validators rederive their command, complete input-snapshot
 fingerprint, artifact/runtime bindings, and PID/start-time/executable
-identities. For formal output, the producer atomically reserves a
+identities. For frozen pilot output, the producer atomically reserves a
 content-addressed evidence root beside the native JSON before execution, runs
 the server/helper from that root, removes all ephemeral cycle/verifier state,
 and retains only the exact input snapshot and prepared Mozc runtime. The root
@@ -291,7 +298,7 @@ Both Fcitx suites additionally freeze the same complete 3,428-entry,
 The gate compares this policy value to the native manifest before accepting
 the manifest's independently rederived fingerprint, so replacing an otherwise
 unlisted harness, addon, configuration, test addon, or verifier and merely
-rewriting the manifest cannot satisfy the formal contract.
+rewriting the manifest cannot satisfy the frozen pilot contract.
 `producer.path` must be exactly the fixed producer path beneath the
 reported absolute `source.repository_root`; that reported file is reopened by
 component with no-follow directory descriptors and must match the
@@ -378,7 +385,7 @@ re-derives an exact named pass from each bound log before validating the native
 v5 result and publishing a record or
 returning success. A generic zero-count JSON cannot substitute for any suite.
 
-Once all native stability evidence exists, invoke the final evaluator with:
+Once all native stability evidence exists, invoke the pilot evaluator with:
 
 ```bash
 python3 tools/dictionary/evaluate_mozc_b0_gate.py \
@@ -386,6 +393,14 @@ python3 tools/dictionary/evaluate_mozc_b0_gate.py \
   --evidence /private/path/to/evidence.json \
   --output /private/path/to/b0-gate-result.json
 ```
+
+The result fixes `decision_tier` to `pilot` and
+`formal_adoption_allowed` to `false`. Its only aggregate classification is
+`pilot_result`, whose values are `pilot_pass`, `pilot_fail`, or
+`inconclusive`. A failed required check produces `pilot_fail`; complete success
+produces `pilot_pass`; an evaluation without either conclusion is
+`inconclusive`. None of these values is an adoption authorization or rejection,
+and the result deliberately has no top-level generic `passed` or `adopt` flag.
 
 Evaluation tooling must preserve the separation between
 `scripts/grimodex-ime.sh` and `scripts/grimodex-ime_mozc.sh`.

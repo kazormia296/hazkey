@@ -1,6 +1,8 @@
 {
   "schema": "hazkey.mozc-adoption-b0-policy.v1",
   "policy_id": "mozc-adoption-v1",
+  "decision_tier": "pilot",
+  "formal_adoption_allowed": false,
   "candidate": {
     "id": "B0",
     "product_source_revision": "6e0354f2514edf1fe8219657ed23e7a02c8a7f7a",
@@ -410,19 +412,21 @@
       "orchestrator": {
         "schema": "hazkey.mozc-b0-stability-record.v2",
         "path": "tools/dictionary/run_mozc_b0_stability.py",
-        "sha256": "sha256:d99ba09f38b11acdbcb7918bfe1b460d9c86e470d9b505211660b94108790755"
+        "sha256": "sha256:3c51447b21062a16c6dd1534b30991a33ab827dc9c8733675c01b3aeae3cb8d7"
       }
     }
   },
   "manifest_binding": {
-    "required_for_formal_decision": true,
+    "required_for_pilot_evaluation": true,
+    "required_for_formal_decision": false,
     "expected_schema": "hazkey.frozen-conversion-corpus-manifest.v1",
     "status": "ready",
     "path": "manifest.json",
     "sha256": "sha256:b1319e356ba025e1e06221330479d48b12cc44ebb502ddda970ea5fa583336e3"
   },
   "readiness": {
-    "formal_decision_enabled": true,
+    "pilot_evaluation_enabled": true,
+    "formal_decision_enabled": false,
     "blocking_items": []
   }
 }

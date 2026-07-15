@@ -1,14 +1,17 @@
 {
   "schema": "hazkey.mozc-adoption-decision.v1",
   "date": "2026-07-15",
-  "decision": {
+  "decision_tier": "pilot",
+  "formal_adoption_allowed": false,
+  "pilot_result": "pilot_fail",
+  "formal_adoption_conclusion": "inconclusive",
+  "operational_state": {
     "default_backend": "hazkey",
-    "adopt_b0": false,
-    "adopt_b1": false,
     "b2": "not_built_future_work",
     "mozc_opt_in_path": "retained",
     "b0_artifact_default": "retained",
-    "b1_profile": "frozen_explicit_evaluation_only"
+    "b1_profile": "frozen_explicit_evaluation_only",
+    "interpretation": "current_configuration_only_not_an_adoption_decision"
   },
   "corpus": {
     "cases": 256,
@@ -79,7 +82,7 @@
         "pss_ratio": 0.9340036938231069,
         "pss_gate": "pass"
       },
-      "outcome": "fail"
+      "pilot_result": "pilot_fail"
     },
     "b1": {
       "artifact": {
@@ -130,7 +133,7 @@
         "total_pss_kib": 47010,
         "pss_ratio": 0.9647034680894726
       },
-      "outcome": "fail"
+      "pilot_result": "pilot_fail"
     }
   },
   "early_stop": {
@@ -138,7 +141,7 @@
     "human_net_preference": "not_run_early_stop",
     "both_bad": "not_run_early_stop",
     "long_running_stability": "not_run_early_stop",
-    "interpretation": "not_passed_and_not_required_to_prove_rejection"
+    "interpretation": "pilot_failure_established_but_formal_adoption_remains_inconclusive"
   },
   "evidence": {
     "b0_acquisition_manifest_file_sha256": "db355bee11448dec7bc6870984d61afcab72f4a13a404b39899680c037a8c148",

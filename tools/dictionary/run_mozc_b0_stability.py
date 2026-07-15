@@ -56,8 +56,9 @@ SWIFT_TEST_RUNNER_PATH = "hazkey-server/scripts/swift-test.sh"
 SWIFT_PACKAGE_ROOT = "hazkey-server"
 SWIFT_PACKAGE_SNAPSHOT_PATH = "swift-package"
 SWIFT_PACKAGE_FINGERPRINT_DOMAIN = "hazkey.swift-package-snapshot.v1"
-SWIFT_PACKAGE_EXCLUDED_PREFIX = (
-    "Tests/grimodex-spike/Fixtures/mozc-adoption-v1"
+SWIFT_PACKAGE_EXCLUDED_PREFIXES = (
+    "Tests/grimodex-spike/Fixtures/mozc-adoption-v1",
+    "Tests/grimodex-spike/Fixtures/mozc-adoption-v2",
 )
 SWIFT_PACKAGE_EXPLICIT_FILES = (
     "Package.swift",
@@ -3554,7 +3555,9 @@ def _read_swift_package_inputs(repository_root: Path) -> dict[str, bytes]:
     candidates: set[Path] = set()
     for relative in SWIFT_PACKAGE_EXPLICIT_FILES:
         candidates.add(package_root / relative)
-    excluded = Path(SWIFT_PACKAGE_EXCLUDED_PREFIX)
+    excluded_prefixes = tuple(
+        Path(prefix) for prefix in SWIFT_PACKAGE_EXCLUDED_PREFIXES
+    )
     for relative_root in SWIFT_PACKAGE_RECURSIVE_ROOTS:
         source_root = package_root / relative_root
         root_metadata = source_root.lstat()
@@ -3564,7 +3567,10 @@ def _read_swift_package_inputs(repository_root: Path) -> dict[str, bytes]:
             )
         for path in source_root.rglob("*"):
             relative = path.relative_to(package_root)
-            if relative == excluded or excluded in relative.parents:
+            if any(
+                relative == excluded or excluded in relative.parents
+                for excluded in excluded_prefixes
+            ):
                 continue
             entry_metadata = path.lstat()
             if stat.S_ISLNK(entry_metadata.st_mode):

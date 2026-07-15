@@ -117,7 +117,10 @@ class MozcB0StabilityContractTests(unittest.TestCase):
             policy["readiness"]["blocking_items"],
             [],
         )
-        self.assertTrue(policy["readiness"]["formal_decision_enabled"])
+        self.assertTrue(policy["readiness"]["pilot_evaluation_enabled"])
+        self.assertFalse(policy["readiness"]["formal_decision_enabled"])
+        self.assertEqual(policy["decision_tier"], "pilot")
+        self.assertFalse(policy["formal_adoption_allowed"])
         frozen_snapshot = (
             "sha256:bb4f63a09a16fd0cb00bc41ee6091dca"
             "7e3fa85c118ebae688cd7ada6bd99573"
@@ -160,6 +163,50 @@ class MozcB0StabilityContractTests(unittest.TestCase):
             self.assertNotIn("passed", record)
             self.assertNotIn("observations", record)
             self.assertNotIn("counts", record)
+
+    def test_swift_package_identity_excludes_v1_and_v2_evaluation_fixtures(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            package = repository / stability.SWIFT_PACKAGE_ROOT
+            for relative in stability.SWIFT_PACKAGE_EXPLICIT_FILES:
+                path = package / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes((relative + "\n").encode())
+            for relative in stability.SWIFT_PACKAGE_RECURSIVE_ROOTS:
+                (package / relative).mkdir(parents=True, exist_ok=True)
+            constants = package / "Sources/hazkey-server/constants.swift"
+            constants.parent.mkdir(parents=True, exist_ok=True)
+            constants.write_bytes(b"let fixture = true\n")
+            product_test = package / "Tests/grimodex-spike/productTests.swift"
+            product_test.write_bytes(b"product test\n")
+
+            before_files = stability._read_swift_package_inputs(repository)
+            before_identity = stability._swift_package_identity_from_files(
+                before_files
+            )
+            for prefix in stability.SWIFT_PACKAGE_EXCLUDED_PREFIXES:
+                fixture = package / prefix / "nested/evaluation.tsv"
+                fixture.parent.mkdir(parents=True, exist_ok=True)
+                fixture.write_bytes((prefix + "\n").encode())
+
+            after_files = stability._read_swift_package_inputs(repository)
+            self.assertEqual(after_files, before_files)
+            self.assertEqual(
+                stability._swift_package_identity_from_files(after_files),
+                before_identity,
+            )
+            self.assertFalse(
+                any("Fixtures/mozc-adoption-v" in path for path in after_files)
+            )
+
+            product_test.write_bytes(b"changed product test\n")
+            changed_files = stability._read_swift_package_inputs(repository)
+            self.assertNotEqual(
+                stability._swift_package_identity_from_files(changed_files),
+                before_identity,
+            )
 
     def test_protocol_native_counts_are_rederived_and_forgery_is_rejected(self) -> None:
         payload = json.loads(PROTOCOL_FIXTURE.read_text(encoding="utf-8"))
@@ -705,10 +752,11 @@ class MozcB0StabilityContractTests(unittest.TestCase):
         fcitx["native_producer"]["status"] = "pending"
         fcitx["native_producer"]["sha256"] = None
         policy["readiness"] = {
-            "formal_decision_enabled": True,
+            "pilot_evaluation_enabled": True,
+            "formal_decision_enabled": False,
             "blocking_items": [],
         }
-        with self.assertRaisesRegex(ValueError, "formal decision is not ready"):
+        with self.assertRaisesRegex(ValueError, "pilot evaluation is not ready"):
             gate.parse_policy(json.dumps(policy).encode())
 
     def test_policy_rejects_forged_swift_test_runner_hash(self) -> None:

@@ -26,6 +26,10 @@ POLICY_FIXTURE = (
     REPOSITORY_ROOT
     / "hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v1/b0-policy.json"
 )
+DECISION_FIXTURE = (
+    REPOSITORY_ROOT
+    / "docs/spikes/mozc-adoption-decision-2026-07-15/decision.json"
+)
 
 
 def digest(data: bytes) -> str:
@@ -171,6 +175,23 @@ class MetricBoundaryTests(unittest.TestCase):
         metrics = self.metrics()
         metrics["stability"] = {"soak": True, "restart": False}
         self.assertFalse(check(gate.evaluate_metrics(self.policy, metrics), "stability:restart")["passed"])
+
+    def test_pilot_result_never_implies_formal_adoption(self) -> None:
+        self.assertEqual(
+            gate.derive_pilot_result([{"passed": True}]),
+            "pilot_pass",
+        )
+        self.assertEqual(
+            gate.derive_pilot_result([{"passed": True}, {"passed": False}]),
+            "pilot_fail",
+        )
+        self.assertEqual(
+            gate.derive_pilot_result([{"passed": True}, {"passed": None}]),
+            "inconclusive",
+        )
+        self.assertEqual(gate.derive_pilot_result([]), "inconclusive")
+        with self.assertRaisesRegex(ValueError, "boolean or null"):
+            gate.derive_pilot_result([{"passed": "pass"}])
 
 
 class RawEvidenceTests(unittest.TestCase):
@@ -1368,13 +1389,18 @@ class RawEvidenceTests(unittest.TestCase):
             },
         }
         policy["manifest_binding"] = {
-            "required_for_formal_decision": True,
+            "required_for_pilot_evaluation": True,
+            "required_for_formal_decision": False,
             "expected_schema": gate.CORPUS_MANIFEST_SCHEMA,
             "status": "ready",
             "path": corpus_manifest.name,
             "sha256": manifest_sha,
         }
-        policy["readiness"] = {"formal_decision_enabled": True, "blocking_items": []}
+        policy["readiness"] = {
+            "pilot_evaluation_enabled": True,
+            "formal_decision_enabled": False,
+            "blocking_items": [],
+        }
         policy_path = root / "policy.json"
         policy_path.write_text(json.dumps(policy, ensure_ascii=False), encoding="utf-8")
 
@@ -1756,7 +1782,10 @@ class RawEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             policy, evidence = self._build(Path(temporary))
             result = gate.evaluate(policy, evidence)
-        self.assertTrue(result["passed"])
+        self.assertNotIn("passed", result)
+        self.assertEqual(result["decision_tier"], "pilot")
+        self.assertIs(result["formal_adoption_allowed"], False)
+        self.assertEqual(result["pilot_result"], "pilot_pass")
         self.assertEqual(result["metrics"]["cases"], 256)
         self.assertEqual(
             result["measurement_contract"]["execution_order"],
@@ -1772,6 +1801,21 @@ class RawEvidenceTests(unittest.TestCase):
         )
         self.assertRegex(result["integrity"], r"^sha256:[0-9a-f]{64}$")
 
+    def test_gate_emits_pilot_fail_without_adoption_eligibility(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            policy, evidence = self._build(Path(temporary))
+            with mock.patch.object(
+                gate,
+                "evaluate_metrics",
+                return_value=[{"id": "objective-quality", "passed": False}],
+            ):
+                result = gate.evaluate(policy, evidence)
+        self.assertEqual(result["pilot_result"], "pilot_fail")
+        self.assertEqual(result["decision_tier"], "pilot")
+        self.assertIs(result["formal_adoption_allowed"], False)
+        self.assertNotIn("passed", result)
+        self.assertFalse(any(key.startswith("adopt") for key in result))
+
     def test_actual_raw_byte_tamper_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1781,7 +1825,7 @@ class RawEvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "hash mismatch"):
                 gate.evaluate(policy, evidence)
 
-    def test_policy_requires_the_exact_formal_measurement_contract(self) -> None:
+    def test_policy_requires_the_exact_frozen_pilot_measurement_contract(self) -> None:
         mutations = {
             "runs": ("runs_per_backend", 3),
             "order": (
@@ -1885,7 +1929,7 @@ class RawEvidenceTests(unittest.TestCase):
             policy, evidence = self._build(root)
             (root / "hazkey-server").write_bytes(b"replaced after acquisition")
             result = gate.evaluate(policy, evidence)
-            self.assertTrue(result["passed"])
+            self.assertEqual(result["pilot_result"], "pilot_pass")
             self.assertEqual(
                 result["bindings"]["acquisition"]["executable"]["snapshot_path"],
                 "runtime/hazkey-server",
@@ -2549,10 +2593,11 @@ class RawEvidenceTests(unittest.TestCase):
             "pending"
         )
         unfrozen["readiness"] = {
+            "pilot_evaluation_enabled": False,
             "formal_decision_enabled": False,
             "blocking_items": ["long_running_stability_check_contracts"],
         }
-        with self.assertRaisesRegex(ValueError, "formal decision is not ready"):
+        with self.assertRaisesRegex(ValueError, "pilot evaluation is not ready"):
             gate.parse_policy(json.dumps(unfrozen).encode())
         policy["gates"]["long_running_stability"] = {
             "required_result": "all_pass",
@@ -2571,6 +2616,49 @@ class RawEvidenceTests(unittest.TestCase):
             first["minimum_conversions"] = 149999
             with self.assertRaisesRegex(ValueError, "minimum_conversions"):
                 gate.parse_policy(json.dumps(policy).encode())
+
+    def test_policy_is_fail_closed_to_pilot_only(self) -> None:
+        mutations = {
+            "missing-tier": (
+                lambda policy: policy.pop("decision_tier"),
+                "fields do not match schema",
+            ),
+            "formal-tier": (
+                lambda policy: policy.__setitem__("decision_tier", "formal"),
+                "decision_tier",
+            ),
+            "formal-allowed": (
+                lambda policy: policy.__setitem__(
+                    "formal_adoption_allowed", True
+                ),
+                "formal_adoption_allowed",
+            ),
+            "formal-manifest": (
+                lambda policy: policy["manifest_binding"].__setitem__(
+                    "required_for_formal_decision", True
+                ),
+                "required_for_formal_decision",
+            ),
+            "formal-readiness": (
+                lambda policy: policy["readiness"].__setitem__(
+                    "formal_decision_enabled", True
+                ),
+                "formal_decision_enabled",
+            ),
+            "pilot-disabled": (
+                lambda policy: policy["readiness"].__setitem__(
+                    "pilot_evaluation_enabled", False
+                ),
+                "pilot evaluation is not ready",
+            ),
+        }
+        for name, (mutate, message) in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                policy_path, _ = self._build(Path(temporary))
+                policy = json.loads(policy_path.read_text(encoding="utf-8"))
+                mutate(policy)
+                with self.assertRaisesRegex(ValueError, message):
+                    gate.parse_policy(json.dumps(policy).encode())
 
     def test_fcitx_snapshot_policy_pin_is_exact_and_shared(self) -> None:
         policy = json.loads(POLICY_FIXTURE.read_text(encoding="utf-8"))
@@ -2645,6 +2733,81 @@ class CheckedInCorpusLockTests(unittest.TestCase):
         self.assertEqual(
             actual,
             policy["external_sources"]["ajimee_bench"]["derived_sha256"],
+        )
+
+    def test_v1_pilot_reclassification_preserves_frozen_corpus_hashes(self) -> None:
+        fixture_root = POLICY_FIXTURE.parent
+        expected = {
+            "external-ajimee-unconditional.tsv": (
+                "sha256:91068dd92eddc70865c1b998843f38fd"
+                "21d47458d1adf21799f9ad645e265fba"
+            ),
+            "product-curated.tsv": (
+                "sha256:32a72027cf4f04089509cf5a161c0b452"
+                "264fd55fe308e01c36a891beb08a0e4"
+            ),
+            "protected.tsv": (
+                "sha256:18c384f50903c86cc2146726a2b24e74"
+                "b0af36fac6b23bf810d43af4a983d768"
+            ),
+            "manifest.json": (
+                "sha256:b1319e356ba025e1e06221330479d48b1"
+                "2cc44ebb502ddda970ea5fa583336e3"
+            ),
+        }
+        self.assertEqual(
+            {
+                name: digest((fixture_root / name).read_bytes())
+                for name in expected
+            },
+            expected,
+        )
+        policy = json.loads(POLICY_FIXTURE.read_text(encoding="utf-8"))
+        self.assertEqual(policy["decision_tier"], "pilot")
+        self.assertIs(policy["formal_adoption_allowed"], False)
+        self.assertTrue(
+            policy["manifest_binding"]["required_for_pilot_evaluation"]
+        )
+        self.assertFalse(
+            policy["manifest_binding"]["required_for_formal_decision"]
+        )
+        self.assertEqual(
+            policy["manifest_binding"]["sha256"],
+            expected["manifest.json"],
+        )
+
+    def test_checked_in_decision_is_pilot_finding_not_adoption_result(self) -> None:
+        decision = json.loads(DECISION_FIXTURE.read_text(encoding="utf-8"))
+        self.assertEqual(decision["decision_tier"], "pilot")
+        self.assertIs(decision["formal_adoption_allowed"], False)
+        self.assertEqual(decision["pilot_result"], "pilot_fail")
+        self.assertEqual(decision["formal_adoption_conclusion"], "inconclusive")
+        self.assertNotIn("decision", decision)
+        self.assertNotIn("adopt_b0", decision["operational_state"])
+        self.assertNotIn("adopt_b1", decision["operational_state"])
+        self.assertEqual(
+            {item["pilot_result"] for item in decision["candidates"].values()},
+            {"pilot_fail"},
+        )
+        self.assertEqual(
+            {
+                decision["early_stop"]["human_net_preference"],
+                decision["early_stop"]["both_bad"],
+                decision["early_stop"]["long_running_stability"],
+            },
+            {"not_run_early_stop"},
+        )
+        self.assertEqual(
+            decision["corpus"]["sha256"],
+            "123f47cb6f747135451e5969b32d9868ec61d9574fa6eb4b0001e5409287c807",
+        )
+        self.assertEqual(
+            decision["candidates"]["b0"]["artifact"]["helper_sha256"],
+            "8676275bb47aefe963c8b82047cc66fb7a5140caec72d1ebbfa17556b281577d",
+        )
+        self.assertEqual(
+            decision["candidates"]["b1"]["artifact"]["helper_sha256"],
+            "728d9a79c0f540a832d3f404a2603f49080e1f9e7ee1d24df1a0a69f5a4a75e8",
         )
 
 

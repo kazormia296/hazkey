@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Derive and assemble the frozen 256-case Mozc adoption corpus.
+"""Derive and assemble the frozen 256-case Mozc adoption pilot corpus.
 
-The formal corpus is deliberately fail-closed.  The AJIMEE importer accepts
+The v1 pilot corpus is deliberately fail-closed.  The AJIMEE importer accepts
 only the pinned upstream JSON snapshot, and the aggregate builder accepts only
 the three reviewed component files and exact hashes described by the v1
 manifest.  Outputs are linked into place atomically and are never overwritten.
