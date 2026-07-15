@@ -101,6 +101,25 @@ formal-corpus.tsv
 Its output is a classification report only and never authorizes formal
 scoring, B1 evaluation, or adoption.
 
+The draft sidecar preparer expands that classification into review input:
+
+```bash
+python3 tools/dictionary/prepare_mozc_v2_interaction_sidecar.py \
+  --corpus hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v2/\
+sealed-v2-sha256-b4c1351b1b0ef7797349ebf26858db4d0dd69ce1c8bcbfaee88e0f0b644225ed/\
+formal-corpus.tsv
+```
+
+It proposes `update_context` plus a kana-only `conversion_boundary` for the 431
+mechanically separable rows and leaves the other 134 rows explicitly
+unclassified. `update_context` seeds text that is already committed at the
+conversion boundary; it does not claim to reconstruct how that prefix was
+typed or converted. The draft deliberately records the physical key trace as
+missing and the input style as `unknown_pending_review`; it cannot be consumed
+by a formal product-path runner. The canonical output remains `not_ready` and
+`formal_authorized=false` until a separately reviewed sidecar and product-path
+runner are frozen.
+
 `homophone-context` may contain context rendered inside the reading itself. A
 case that requires an external left context is not made unconditional by
 deleting that context; it belongs in the separate Protocol v2/product-path
