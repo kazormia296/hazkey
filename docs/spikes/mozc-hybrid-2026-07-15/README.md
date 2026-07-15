@@ -17,6 +17,9 @@ and does not authorize the diagnostic H1 ranking policy.
   candidates below that prefix. Only selected Hazkey-origin candidates learn.
 - Hazkey workers, learning, user dictionaries, configuration, model reload,
   history reset, and teardown share one registry-wide execution fence.
+- A learnable ready Hazkey window owns a registry-wide candidate-learning
+  fence through commit/discard/cancel. It blocks new Hazkey speculation, not
+  Mozc display or Mozc-only formal conversion.
 
 ## Offline quality result
 
@@ -52,33 +55,33 @@ with a valid model available; only the profile's Zenzai enable flag differs.
 
 ### Zenzai disabled
 
-| Prefetch allowance | Mozc first-display median | Space median | Candidate augmentation | Top-1 changes | Candidate jumps |
+| Prefetch allowance | Mozc first-display median | Space median | Windows with a surface absent from Mozc baseline | Top-1 changes | Candidate jumps |
 |---:|---:|---:|---:|---:|---:|
-| 0 ms | 8.79 ms | 5.38 ms | 0 / 12 | 0 | 0 |
-| 25 ms | 6.05 ms | 5.71 ms | 1 / 12 | 0 | 0 |
-| 100 ms | 7.00 ms | 5.89 ms | 3 / 12 | 0 | 0 |
+| 0 ms | 6.76 ms | 4.47 ms | 0 / 12 | 0 | 0 |
+| 25 ms | 7.03 ms | 5.12 ms | 1 / 12 | 0 | 0 |
+| 100 ms | 6.30 ms | 5.69 ms | 3 / 12 | 0 | 0 |
 
 Measured counters: `prefetch_started=36`, `prefetch_ready=7`,
 `formal_ready_consumed=7`, `formal_deadline_miss=29`,
 `stale_discarded=29`, `late_completion_discarded=29`,
 `hazkey_requests=36`, `merged_requests=4`, `boundary_mismatch=3`, and
-`hazkey_failure=0`. Hazkey totaled 5.4380 s, about 151.1 ms/request.
+`hazkey_failure=0`. Hazkey totaled 5.4274 s, about 150.8 ms/request.
 
 ### Zenzai enabled
 
 This run enabled the local 69 MiB model and configured GGML backend.
 
-| Prefetch allowance | Mozc first-display median | Space median | Candidate augmentation | Top-1 changes | Candidate jumps |
+| Prefetch allowance | Mozc first-display median | Space median | Windows with a surface absent from Mozc baseline | Top-1 changes | Candidate jumps |
 |---:|---:|---:|---:|---:|---:|
-| 0 ms | 7.88 ms | 4.74 ms | 0 / 12 | 0 | 0 |
-| 25 ms | 8.10 ms | 4.63 ms | 0 / 12 | 0 | 0 |
-| 100 ms | 7.73 ms | 5.43 ms | 1 / 12 | 0 | 0 |
+| 0 ms | 8.52 ms | 5.15 ms | 0 / 12 | 0 | 0 |
+| 25 ms | 8.36 ms | 5.47 ms | 0 / 12 | 0 | 0 |
+| 100 ms | 5.90 ms | 4.08 ms | 1 / 12 | 0 | 0 |
 
 Measured counters: `prefetch_started=36`, `prefetch_ready=2`,
 `formal_ready_consumed=2`, `formal_deadline_miss=34`,
 `stale_discarded=34`, `late_completion_discarded=34`,
 `hazkey_requests=36`, `merged_requests=1`, `boundary_mismatch=1`, and
-`hazkey_failure=0`. Hazkey totaled 9.2260 s, about 256.3 ms/request.
+`hazkey_failure=0`. Hazkey totaled 9.4141 s, about 261.5 ms/request.
 
 ### Endpoint memory
 
@@ -86,13 +89,26 @@ These are endpoint snapshots, not peak or simultaneous samples.
 
 | Mode / snapshot | Server RSS / PSS | Helper RSS / PSS | Total PSS |
 |---|---:|---:|---:|
-| Zenzai off / before | 178,012 / 61,284 KiB | 20,308 / 16,404 KiB | 77,688 KiB |
-| Zenzai off / after | 183,068 / 66,180 KiB | 23,236 / 19,332 KiB | 85,512 KiB |
-| Zenzai on / before | 300,380 / 159,909 KiB | 20,376 / 16,524 KiB | 176,433 KiB |
-| Zenzai on / after | 317,624 / 177,088 KiB | 23,308 / 19,456 KiB | 196,544 KiB |
+| Zenzai off / before | 177,420 / 61,075 KiB | 20,400 / 16,500 KiB | 77,575 KiB |
+| Zenzai off / after | 182,488 / 65,984 KiB | 23,328 / 19,428 KiB | 85,412 KiB |
+| Zenzai on / before | 300,648 / 160,159 KiB | 20,280 / 16,471 KiB | 176,630 KiB |
+| Zenzai on / after | 310,112 / 169,559 KiB | 23,184 / 19,375 KiB | 188,934 KiB |
 
 The local reports are `build-grimodex/hybrid-runtime-spike.json` (Zenzai on)
 and `build-grimodex/hybrid-runtime-spike-no-zenzai.json` (Zenzai off).
+
+## Two-session contention result
+
+A deterministic barrier test uses two hybrid converters with the same
+registry-style execution gate and serial executor. While session A owns a
+learnable ready window, session B cannot enter its Hazkey converter, but its
+Mozc display, realtime candidates, and Mozc-only formal fallback complete.
+When A commits learning, the underlying Hazkey commit is observed before B's
+queued speculative call enters Hazkey. Discard, formal Mozc failure, boundary
+mismatch, partial multi-segment rollback, segment resize, candidate transform,
+unlearnable fallback, learning-revision mismatch, and secure purge cover the
+principal release paths; registry maintenance and teardown use an explicit
+admission fence around invalidation and exclusive Hazkey mutation.
 
 ## Interpretation
 
@@ -101,15 +117,23 @@ no candidate jump was observed, and H0 never changed Mozc Top-1. First-step,
 ready-only publication also prevents a later clause request from blocking
 learning for a candidate just published by the same session.
 
-Readiness remains the bottleneck: at 100 ms only 3/12 windows were augmented
-without Zenzai and 1/12 with Zenzai. Merely adding later candidates still does
-not improve one-key Top-1, while the tested H1 promotion rule regresses net
+Readiness remains the bottleneck: at 100 ms only 3/12 windows without Zenzai
+and 1/12 with Zenzai contained a normalized surface absent from the separately
+captured Mozc baseline. This window-level metric does not identify backend
+provenance or count individual additions. Merely adding later candidates still
+does not improve one-key Top-1, while the tested H1 promotion rule regresses net
 accuracy.
 
-One concurrency limitation remains outside this probe: all sessions share the
-Hazkey execution gate. Learning a selected Hazkey candidate can wait behind a
-different session's speculative request, and a subsequent request can therefore
-lose the strict Mozc-immediate property. Before production enablement, add a
-two-session contention probe and move learning to a deferred/priority path (or
-isolate speculative Hazkey execution). Any Top-1 promotion also needs a new,
-reviewed holdout.
+The post-spike two-session barrier probe reproduced the shared-gate head-of-line
+risk and added a candidate-learning fence. Once a learnable Hazkey result is
+ready, queued speculation from other sessions cannot enter Hazkey until the
+candidate window and any staged-learning decision are resolved. Mozc display
+and Mozc-only formal conversion remain available while that fence is held, and
+maintenance/secure/teardown paths take their own admission fence.
+
+This preserves synchronous learning durability without an asynchronous journal.
+The tradeoff is conservative: all sessions pause Hazkey prefetch while a
+learnable candidate window or undo decision remains open. An already-active
+Hazkey request is still not preemptible. Process isolation remains the scalable
+next step if that global pause is too costly. Any Top-1 promotion also needs a
+new, reviewed holdout.

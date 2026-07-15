@@ -4,13 +4,125 @@ import Foundation
 /// Serializes access to AzooKey state shared by all sessions in one registry.
 /// Workers, learning, and configuration/dictionary maintenance share this
 /// recursive gate; ordinary Mozc UI work never acquires it.
+struct HazkeySpeculationFenceToken: Hashable, Sendable {
+    fileprivate let rawValue: UInt64
+}
+
 final class HazkeyConverterExecutionGate: @unchecked Sendable {
     private let lock = NSRecursiveLock()
+    private let admissionCondition = NSCondition()
+    private var speculationFences = Set<UInt64>()
+    private var nextSpeculationFenceID: UInt64 = 1
+    private var activeSpeculationCountValue = 0
+    private var waitingSpeculationCountValue = 0
 
     func withLock<T>(_ body: () throws -> T) rethrows -> T {
         lock.lock()
         defer { lock.unlock() }
         return try body()
+    }
+
+    /// Admits low-priority speculative work only while no foreground candidate
+    /// or maintenance operation owns a fence. The second check after taking
+    /// the execution lock closes the race with a fence acquired while this
+    /// worker was waiting behind another foreground operation.
+    func withSpeculationLock<T>(_ body: () throws -> T) rethrows -> T {
+        while true {
+            admissionCondition.lock()
+            if !speculationFences.isEmpty {
+                waitingSpeculationCountValue += 1
+                admissionCondition.broadcast()
+                while !speculationFences.isEmpty {
+                    admissionCondition.wait()
+                }
+                waitingSpeculationCountValue -= 1
+                admissionCondition.broadcast()
+            }
+            admissionCondition.unlock()
+
+            lock.lock()
+            admissionCondition.lock()
+            guard speculationFences.isEmpty else {
+                admissionCondition.unlock()
+                lock.unlock()
+                continue
+            }
+            activeSpeculationCountValue += 1
+            admissionCondition.unlock()
+
+            defer {
+                admissionCondition.lock()
+                activeSpeculationCountValue -= 1
+                admissionCondition.broadcast()
+                admissionCondition.unlock()
+                lock.unlock()
+            }
+            return try body()
+        }
+    }
+
+    /// Prevents any new speculative Hazkey call from entering the shared
+    /// converter gate. Active work is not preemptible and is allowed to finish.
+    func acquireSpeculationFence() -> HazkeySpeculationFenceToken {
+        admissionCondition.lock()
+        defer { admissionCondition.unlock() }
+        var token: HazkeySpeculationFenceToken
+        repeat {
+            token = HazkeySpeculationFenceToken(rawValue: nextSpeculationFenceID)
+            nextSpeculationFenceID = nextSpeculationFenceID == UInt64.max
+                ? 1
+                : nextSpeculationFenceID + 1
+        } while speculationFences.contains(token.rawValue)
+        speculationFences.insert(token.rawValue)
+        return token
+    }
+
+    @discardableResult
+    func releaseSpeculationFence(_ token: HazkeySpeculationFenceToken) -> Bool {
+        admissionCondition.lock()
+        let removed = speculationFences.remove(token.rawValue) != nil
+        if removed {
+            admissionCondition.broadcast()
+        }
+        admissionCondition.unlock()
+        return removed
+    }
+
+    func withSpeculationSuspended<T>(_ body: () throws -> T) rethrows -> T {
+        let token = acquireSpeculationFence()
+        defer { releaseSpeculationFence(token) }
+        return try body()
+    }
+
+    var activeSpeculationFenceCount: Int {
+        admissionCondition.lock()
+        defer { admissionCondition.unlock() }
+        return speculationFences.count
+    }
+
+    var activeSpeculationCount: Int {
+        admissionCondition.lock()
+        defer { admissionCondition.unlock() }
+        return activeSpeculationCountValue
+    }
+
+    var waitingSpeculationCount: Int {
+        admissionCondition.lock()
+        defer { admissionCondition.unlock() }
+        return waitingSpeculationCountValue
+    }
+
+    /// A deterministic test/diagnostic barrier proving that a speculative
+    /// worker reached fence admission rather than merely starting its queue
+    /// closure.
+    func waitUntilSpeculationIsBlocked(timeout: TimeInterval) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        admissionCondition.lock()
+        defer { admissionCondition.unlock() }
+        while waitingSpeculationCountValue == 0 {
+            guard admissionCondition.wait(until: deadline) else { return false }
+        }
+        return true
     }
 }
 
@@ -58,6 +170,8 @@ struct MozcFirstHybridDiagnostics: Equatable, Sendable {
     var boundaryMismatch = 0
     var learningRevisionMismatch = 0
     var top1Promotions = 0
+    var candidateFencesAcquired = 0
+    var candidateFencesReleased = 0
     var realtimeRequestCount = 0
     var realtimeTotalNanoseconds: UInt64 = 0
     var formalRequestCount = 0
@@ -81,6 +195,8 @@ struct MozcFirstHybridDiagnostics: Equatable, Sendable {
         boundaryMismatch += other.boundaryMismatch
         learningRevisionMismatch += other.learningRevisionMismatch
         top1Promotions += other.top1Promotions
+        candidateFencesAcquired += other.candidateFencesAcquired
+        candidateFencesReleased += other.candidateFencesReleased
         realtimeRequestCount += other.realtimeRequestCount
         realtimeTotalNanoseconds &+= other.realtimeTotalNanoseconds
         formalRequestCount += other.formalRequestCount
@@ -112,6 +228,8 @@ struct MozcFirstHybridDiagnostics: Equatable, Sendable {
             "boundary_mismatch=\(boundaryMismatch)",
             "learning_revision_mismatch=\(learningRevisionMismatch)",
             "top1_promotions=\(top1Promotions)",
+            "candidate_fences_acquired=\(candidateFencesAcquired)",
+            "candidate_fences_released=\(candidateFencesReleased)",
             "realtime_requests=\(realtimeRequestCount)",
             "realtime_total_ns=\(realtimeTotalNanoseconds)",
             "formal_requests=\(formalRequestCount)",
@@ -190,6 +308,9 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
     private var nextLearningTokenID: UInt64 = 1
     private var stagedRoutes: [ConverterLearningToken: StagedRoute] = [:]
     private var dirtyBackends = Set<Backend>()
+    private var candidateFence: HazkeySpeculationFenceToken?
+    private var candidateFencePublished = false
+    private var candidateFenceDeferredForLearning = false
 
     init(
         mozc: any KanaKanjiConverting,
@@ -205,6 +326,11 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
         self.promotionPolicy = promotionPolicy
         self.hazkeyExecutionGate = hazkeyExecutionGate
         self.learningRevisionProvider = learningRevisionProvider
+    }
+
+    deinit {
+        let fence = withStateLock { takeCandidateFenceLocked() }
+        releaseCandidateFence(fence)
     }
 
     var supportsSegmentEditing: Bool { mozc.supportsSegmentEditing }
@@ -242,10 +368,16 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
         let started = DispatchTime.now().uptimeNanoseconds
         defer { recordFormalDuration(since: started) }
 
-        let primary = try mozc.segmentCandidates(
-            for: composition,
-            options: options
-        )
+        let primary: ConversionOutput
+        do {
+            primary = try mozc.segmentCandidates(
+                for: composition,
+                options: options
+            )
+        } catch {
+            releaseUnpublishedFrozenFence()
+            throw error
+        }
         guard let secondary = frozenOutput(for: composition, options: options) else {
             return route(primary, backend: .mozc)
         }
@@ -303,6 +435,7 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
             learningRevision: learningRevisionProvider()
         )
 
+        var fenceToRelease: HazkeySpeculationFenceToken?
         let workID = withStateLock { () -> UInt64? in
             switch speculationState {
             case .pending(_, let current) where current == context:
@@ -313,6 +446,11 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
                 return nil
             default:
                 recordDiscardForReplacementLocked()
+                if stagedRoutes.isEmpty,
+                   !candidateFencePublished,
+                   !candidateFenceDeferredForLearning {
+                    fenceToRelease = takeCandidateFenceLocked()
+                }
                 let workID = nextSpeculationWorkID
                 nextSpeculationWorkID = nextSpeculationWorkID == UInt64.max
                     ? 1
@@ -322,6 +460,7 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
                 return workID
             }
         }
+        releaseCandidateFence(fenceToRelease)
         guard let workID else { return }
 
         beginOutstandingWork()
@@ -333,14 +472,36 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
     }
 
     func invalidateSpeculativeConversion(reason: SpeculationInvalidationReason) {
-        withStateLock {
+        let fenceToRelease = withStateLock { () -> HazkeySpeculationFenceToken? in
             recordDiscardForReplacementLocked()
             speculationState = .idle
             diagnostics.invalidations[reason, default: 0] += 1
+            if reason == .commit, candidateFence != nil {
+                candidateFenceDeferredForLearning = true
+                return nil
+            }
+            guard !candidateFencePublished else { return nil }
+            guard stagedRoutes.isEmpty else { return nil }
+            return takeCandidateFenceLocked()
         }
+        releaseCandidateFence(fenceToRelease)
+    }
+
+    func retireCandidateWindow() {
+        let fenceToRelease = withStateLock { () -> HazkeySpeculationFenceToken? in
+            guard candidateFencePublished else { return nil }
+            candidateFencePublished = false
+            discardFrozenStepLocked()
+            guard stagedRoutes.isEmpty && !candidateFenceDeferredForLearning else {
+                return nil
+            }
+            return takeCandidateFenceLocked()
+        }
+        releaseCandidateFence(fenceToRelease)
     }
 
     func lockCandidateOrder(for revision: CompositionRevision) {
+        var fenceToRelease: HazkeySpeculationFenceToken?
         withStateLock {
             switch speculationState {
             case .frozen(let current, _, _) where current == revision:
@@ -355,6 +516,7 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
                     diagnostics.learningRevisionMismatch += 1
                     diagnostics.staleResultDiscarded += 1
                     diagnostics.readyDiscarded += 1
+                    fenceToRelease = takeCandidateFenceLocked()
                     return
                 }
                 speculationState = .frozen(
@@ -383,6 +545,11 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
                 diagnostics.pendingCancelled += 1
             default:
                 recordDiscardForReplacementLocked()
+                if stagedRoutes.isEmpty,
+                   !candidateFencePublished,
+                   !candidateFenceDeferredForLearning {
+                    fenceToRelease = takeCandidateFenceLocked()
+                }
                 speculationState = .frozen(
                     revision: revision,
                     context: nil,
@@ -391,6 +558,7 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
                 diagnostics.formalDeadlineMiss += 1
             }
         }
+        releaseCandidateFence(fenceToRelease)
     }
 
     func setCompletedData(_ candidate: ConverterCandidate) {
@@ -420,6 +588,15 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
         if backends.contains(.hazkey) {
             withHazkeyLock { hazkey.commitLearning() }
         }
+        let fenceToRelease = withStateLock { () -> HazkeySpeculationFenceToken? in
+            guard candidateFenceDeferredForLearning,
+                  stagedRoutes.isEmpty,
+                  !dirtyBackends.contains(.hazkey) else {
+                return nil
+            }
+            return takeCandidateFenceLocked()
+        }
+        releaseCandidateFence(fenceToRelease)
     }
 
     func stageLearning(
@@ -443,6 +620,9 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
                 backend: route.backend,
                 original: childToken
             )
+            if route.backend == .hazkey, candidateFence != nil {
+                candidateFenceDeferredForLearning = true
+            }
             return token
         }
     }
@@ -464,6 +644,13 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
         call(route.backend) { converter in
             converter.discardStagedLearning(route.original)
         }
+        let fenceToRelease = withStateLock { () -> HazkeySpeculationFenceToken? in
+            guard candidateFenceDeferredForLearning, stagedRoutes.isEmpty else {
+                return nil
+            }
+            return takeCandidateFenceLocked()
+        }
+        releaseCandidateFence(fenceToRelease)
     }
 
     func forget(_ candidate: ConverterCandidate) {
@@ -477,17 +664,30 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
         // Formal conversion calls stop before asking for natural segments. Do
         // not clear or wait on the prepared Hazkey snapshot here.
         mozc.stopComposition()
-        withStateLock { trimCandidateRoutes() }
+        let fenceToRelease = withStateLock { () -> HazkeySpeculationFenceToken? in
+            trimCandidateRoutes()
+            guard candidateFenceDeferredForLearning,
+                  stagedRoutes.isEmpty,
+                  !dirtyBackends.contains(.hazkey) else {
+                return nil
+            }
+            return takeCandidateFenceLocked()
+        }
+        releaseCandidateFence(fenceToRelease)
     }
 
     func purgeSensitiveState() {
-        withStateLock {
+        let securityFence = hazkeyExecutionGate.acquireSpeculationFence()
+        defer { hazkeyExecutionGate.releaseSpeculationFence(securityFence) }
+        let candidateFenceToRelease = withStateLock { () -> HazkeySpeculationFenceToken? in
             speculationState = .idle
             candidateRoutes.removeAll(keepingCapacity: false)
             candidateRouteOrder.removeAll(keepingCapacity: false)
             stagedRoutes.removeAll(keepingCapacity: false)
             dirtyBackends.removeAll(keepingCapacity: false)
+            return takeCandidateFenceLocked()
         }
+        releaseCandidateFence(candidateFenceToRelease)
         mozc.purgeSensitiveState()
         // Unlike ordinary UI operations, a security-domain crossing waits for
         // any active Hazkey call before erasing its process-local candidates.
@@ -502,37 +702,63 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
     }
 
     private func prepareHazkeyStep(workID: UInt64) {
-        beginActiveWork()
-        defer { endActiveWork() }
+        let started = DispatchTime.now().uptimeNanoseconds
+        withHazkeySpeculationLock {
+            beginActiveWork()
+            defer { endActiveWork() }
+            // The nested call owns every plaintext local. It returns and drops
+            // those locals before the active-work fence is released.
+            performAdmittedHazkeyStep(workID: workID, started: started)
+        }
+    }
+
+    private func performAdmittedHazkeyStep(workID: UInt64, started: UInt64) {
         // Keep plaintext context and prepared candidates in a nested frame.
         // It returns before the active-work fence is released, so a secure
         // purge cannot return while that local result is still live.
-        performHazkeyStep(workID: workID)
-    }
-
-    private func performHazkeyStep(workID: UInt64) {
-        let started = DispatchTime.now().uptimeNanoseconds
         var preparedContext: SpeculativeConversionContext?
         var invokedHazkey = false
-        let prepared: Result<PreparedStep, Error> = Result {
-            try withHazkeyLock {
-                guard let context = withStateLock({ () -> SpeculativeConversionContext? in
-                    if case .pending(let currentWorkID, let current) = speculationState,
-                       currentWorkID == workID {
+        let prepared: Result<
+            (step: PreparedStep, fence: HazkeySpeculationFenceToken?),
+            Error
+        > = Result {
+            guard let context = withStateLock({ () -> SpeculativeConversionContext? in
+                if case .pending(let currentWorkID, let current) = speculationState,
+                   currentWorkID == workID {
+                    let learningRevision = learningRevisionProvider()
+                    guard current.learningRevision != learningRevision else {
                         return current
                     }
-                    return nil
-                }) else {
-                    throw SpeculationError.stale
+                    let refreshed = SpeculativeConversionContext(
+                        revision: current.revision,
+                        input: current.input,
+                        options: current.options,
+                        projectRevision: current.projectRevision,
+                        learningRevision: learningRevision
+                    )
+                    speculationState = .pending(currentWorkID, refreshed)
+                    return refreshed
                 }
-                preparedContext = context
-                invokedHazkey = true
-                defer { hazkey.stopComposition() }
-                return try makeHazkeyStep(for: context, workID: workID)
+                return nil
+            }) else {
+                throw SpeculationError.stale
             }
+            preparedContext = context
+            invokedHazkey = true
+            defer { hazkey.stopComposition() }
+            let step = try makeHazkeyStep(for: context, workID: workID)
+            let hasLearnableRoute = context.options.allowLearning
+                && step.output.candidates.contains {
+                    $0.isLearnable && $0.sourceID != nil
+                }
+            let fence = hasLearnableRoute
+                ? hazkeyExecutionGate.acquireSpeculationFence()
+                : nil
+            return (step, fence)
         }
         let elapsed = elapsedNanoseconds(since: started)
 
+        var fenceToRelease: HazkeySpeculationFenceToken?
         withStateLock {
             if invokedHazkey {
                 diagnostics.hazkeyRequestCount += 1
@@ -545,16 +771,37 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
                 if invokedHazkey {
                     diagnostics.lateCompletionDiscarded += 1
                 }
+                if case .success(let prepared) = prepared {
+                    fenceToRelease = prepared.fence
+                }
+                return
+            }
+            guard context.learningRevision == learningRevisionProvider() else {
+                speculationState = .idle
+                diagnostics.learningRevisionMismatch += 1
+                diagnostics.staleResultDiscarded += 1
+                if case .success(let prepared) = prepared {
+                    fenceToRelease = prepared.fence
+                }
                 return
             }
             switch prepared {
-            case .success(let step):
-                speculationState = .ready(workID, context, step)
+            case .success(let prepared):
+                speculationState = .ready(workID, context, prepared.step)
+                if let fence = prepared.fence {
+                    candidateFence = fence
+                    candidateFencePublished = false
+                    candidateFenceDeferredForLearning = false
+                    diagnostics.candidateFencesAcquired += 1
+                }
                 diagnostics.prefetchReady += 1
             case .failure:
                 speculationState = .idle
                 diagnostics.hazkeyFailure += 1
             }
+        }
+        if let fenceToRelease {
+            hazkeyExecutionGate.releaseSpeculationFence(fenceToRelease)
         }
     }
 
@@ -618,8 +865,16 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
     ) -> ConversionOutput {
         guard let primaryFirst = primary.candidates.first else {
             let limited = Array(secondary.candidates.prefix(options.suggestionListLimit))
+            let candidates = limited.map { route($0, backend: .hazkey) }
+            if candidates.contains(where: \.isLearnable) {
+                withStateLock {
+                    candidateFencePublished = candidateFence != nil
+                }
+            } else {
+                releaseUnusedCandidateFence()
+            }
             return ConversionOutput(
-                candidates: limited.map { route($0, backend: .hazkey) },
+                candidates: candidates,
                 pageSize: min(secondary.pageSize, limited.count)
             )
         }
@@ -632,6 +887,7 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
             if !secondary.candidates.isEmpty {
                 withStateLock { diagnostics.boundaryMismatch += 1 }
             }
+            releaseUnusedCandidateFence()
             return route(primary, backend: .mozc)
         }
 
@@ -656,15 +912,26 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
         }
 
         var seen = Set<String>()
-        let limited = ordered.compactMap { backend, candidate -> ConverterCandidate? in
+        var candidates: [ConverterCandidate] = []
+        var publishedLearnableHazkeyCandidate = false
+        for (backend, candidate) in ordered where candidates.count < options.suggestionListLimit {
             let key = deduplicationKey(candidate)
-            guard seen.insert(key).inserted else { return nil }
-            return route(candidate, backend: backend)
-        }.prefix(options.suggestionListLimit)
-        let candidates = Array(limited)
+            guard seen.insert(key).inserted else { continue }
+            let routed = route(candidate, backend: backend)
+            if backend == .hazkey, routed.isLearnable {
+                publishedLearnableHazkeyCandidate = true
+            }
+            candidates.append(routed)
+        }
         withStateLock {
             diagnostics.mergedRequests += 1
             if promote { diagnostics.top1Promotions += 1 }
+            if publishedLearnableHazkeyCandidate {
+                candidateFencePublished = candidateFence != nil
+            }
+        }
+        if !publishedLearnableHazkeyCandidate {
+            releaseUnusedCandidateFence()
         }
         return ConversionOutput(
             candidates: candidates,
@@ -777,6 +1044,64 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
 
     private func withHazkeyLock<T>(_ body: () throws -> T) rethrows -> T {
         try hazkeyExecutionGate.withLock(body)
+    }
+
+    private func withHazkeySpeculationLock<T>(
+        _ body: () throws -> T
+    ) rethrows -> T {
+        try hazkeyExecutionGate.withSpeculationLock(body)
+    }
+
+    private func takeCandidateFenceLocked() -> HazkeySpeculationFenceToken? {
+        // A prepared Hazkey step and its fence form one capability. Once the
+        // fence goes away, retaining the step would let a retry republish a
+        // learnable candidate without protection.
+        discardFrozenStepLocked()
+        guard let fence = candidateFence else { return nil }
+        candidateFence = nil
+        candidateFencePublished = false
+        candidateFenceDeferredForLearning = false
+        diagnostics.candidateFencesReleased += 1
+        return fence
+    }
+
+    private func discardFrozenStepLocked() {
+        guard case .frozen(let revision, let context, .some(_)) = speculationState else {
+            return
+        }
+        speculationState = .frozen(
+            revision: revision,
+            context: context,
+            step: nil
+        )
+    }
+
+    private func releaseCandidateFence(_ fence: HazkeySpeculationFenceToken?) {
+        guard let fence else { return }
+        _ = hazkeyExecutionGate.releaseSpeculationFence(fence)
+    }
+
+    private func releaseUnusedCandidateFence() {
+        let fence = withStateLock { () -> HazkeySpeculationFenceToken? in
+            guard stagedRoutes.isEmpty && !candidateFenceDeferredForLearning else {
+                return nil
+            }
+            return takeCandidateFenceLocked()
+        }
+        releaseCandidateFence(fence)
+    }
+
+    private func releaseUnpublishedFrozenFence() {
+        let fence = withStateLock { () -> HazkeySpeculationFenceToken? in
+            guard case .frozen = speculationState,
+                  !candidateFencePublished,
+                  stagedRoutes.isEmpty,
+                  !candidateFenceDeferredForLearning else {
+                return nil
+            }
+            return takeCandidateFenceLocked()
+        }
+        releaseCandidateFence(fence)
     }
 
     private func recordFormalDuration(since started: UInt64) {

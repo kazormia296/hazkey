@@ -479,14 +479,16 @@ final class HazkeySessionRegistry {
     }
 
     func reinitializeAll() {
-        let affectedSessions = Array(sessions.values)
-        for session in affectedSessions {
-            session.semanticController.invalidateForDictionaryChange()
+        hazkeyExecutionGate.withSpeculationSuspended {
+            let affectedSessions = Array(sessions.values)
+            for session in affectedSessions {
+                session.semanticController.invalidateForDictionaryChange()
+            }
+            hazkeyExecutionGate.withLock {
+                reinitializeEnvironments(affectedSessions)
+            }
+            resumeSpeculation(in: affectedSessions)
         }
-        hazkeyExecutionGate.withLock {
-            reinitializeEnvironments(affectedSessions)
-        }
-        resumeSpeculation(in: affectedSessions)
     }
 
     /// Configuration objects are shared by every session adapter. Keep the
@@ -505,20 +507,22 @@ final class HazkeySessionRegistry {
                 resumeSpeculation(in: affectedSessions)
             }
         }
-        return try hazkeyExecutionGate.withLock {
-            let result = try mutation()
-            guard shouldReinitialize(result) else { return result }
-            // The mutation has succeeded and no Hazkey worker can start while
-            // this fence is held. Only now invalidate published candidate
-            // state; a failed configuration write must be observationally
-            // inert for every active composition.
-            for session in affectedSessions {
-                session.semanticController.invalidateForDictionaryChange()
+        return try hazkeyExecutionGate.withSpeculationSuspended {
+            try hazkeyExecutionGate.withLock {
+                let result = try mutation()
+                guard shouldReinitialize(result) else { return result }
+                // The mutation has succeeded and no Hazkey worker can start while
+                // this fence is held. Only now invalidate published candidate
+                // state; a failed configuration write must be observationally
+                // inert for every active composition.
+                for session in affectedSessions {
+                    session.semanticController.invalidateForDictionaryChange()
+                }
+                invalidated = true
+                onChanged(result)
+                reinitializeEnvironments(affectedSessions)
+                return result
             }
-            invalidated = true
-            onChanged(result)
-            reinitializeEnvironments(affectedSessions)
-            return result
         }
     }
 
@@ -540,31 +544,33 @@ final class HazkeySessionRegistry {
     }
 
     func clearAllLearningData() {
-        if sessions.isEmpty {
+        hazkeyExecutionGate.withSpeculationSuspended {
+            if sessions.isEmpty {
+                hazkeyExecutionGate.withLock {
+                    idleLearningDataClearer()
+                    _ = learningRevisionStore.recordCommit()
+                }
+                return
+            }
+            let affectedSessions = Array(sessions.values)
+            // Cancel every reader before the first converter resets the shared
+            // persisted history. Invalidating one session at a time is not a
+            // cross-session fence.
+            for session in affectedSessions {
+                session.semanticController.invalidateForDictionaryChange()
+            }
             hazkeyExecutionGate.withLock {
-                idleLearningDataClearer()
+                for session in affectedSessions {
+                // A staged transaction was derived from the history that is about
+                // to be deleted. Discard it first so the next client action cannot
+                // resurrect cleared learning data.
+                    session.semanticController.finalizePendingLearning(commit: false)
+                    session.environment.clearProfileLearningData()
+                }
                 _ = learningRevisionStore.recordCommit()
             }
-            return
+            resumeSpeculation(in: affectedSessions)
         }
-        let affectedSessions = Array(sessions.values)
-        // Cancel every reader before the first converter resets the shared
-        // persisted history. Invalidating one session at a time is not a
-        // cross-session fence.
-        for session in affectedSessions {
-            session.semanticController.invalidateForDictionaryChange()
-        }
-        hazkeyExecutionGate.withLock {
-            for session in affectedSessions {
-            // A staged transaction was derived from the history that is about
-            // to be deleted. Discard it first so the next client action cannot
-            // resurrect cleared learning data.
-                session.semanticController.finalizePendingLearning(commit: false)
-                session.environment.clearProfileLearningData()
-            }
-            _ = learningRevisionStore.recordCommit()
-        }
-        resumeSpeculation(in: affectedSessions)
     }
 
     func userDictionaryEntries() -> [UserDictionaryEntry] {
@@ -575,24 +581,32 @@ final class HazkeySessionRegistry {
     func addUserDictionaryEntry(
         _ entry: UserDictionaryEntry
     ) throws -> UserDictionaryEntry {
-        let result = try userDictionaryStore.add(entry)
-        applyUserDictionaryToSessions()
-        return result
+        try hazkeyExecutionGate.withSpeculationSuspended {
+            let result = try userDictionaryStore.add(entry)
+            applyUserDictionaryToSessions()
+            return result
+        }
     }
 
     func updateUserDictionaryEntry(_ entry: UserDictionaryEntry) throws {
-        try userDictionaryStore.update(entry)
-        applyUserDictionaryToSessions()
+        try hazkeyExecutionGate.withSpeculationSuspended {
+            try userDictionaryStore.update(entry)
+            applyUserDictionaryToSessions()
+        }
     }
 
     func removeUserDictionaryEntry(id: String) throws {
-        try userDictionaryStore.remove(id: id)
-        applyUserDictionaryToSessions()
+        try hazkeyExecutionGate.withSpeculationSuspended {
+            try userDictionaryStore.remove(id: id)
+            applyUserDictionaryToSessions()
+        }
     }
 
     func importUserDictionary(_ data: Data, merge: Bool) throws {
-        try userDictionaryStore.importJSON(data, merge: merge)
-        applyUserDictionaryToSessions()
+        try hazkeyExecutionGate.withSpeculationSuspended {
+            try userDictionaryStore.importJSON(data, merge: merge)
+            applyUserDictionaryToSessions()
+        }
     }
 
     func exportUserDictionary() throws -> Data {
@@ -600,14 +614,16 @@ final class HazkeySessionRegistry {
     }
 
     func saveAll() {
-        let affectedSessions = Array(sessions.values)
-        for session in affectedSessions {
-            session.semanticController.invalidateForDictionaryChange()
-        }
-        hazkeyExecutionGate.withLock {
+        hazkeyExecutionGate.withSpeculationSuspended {
+            let affectedSessions = Array(sessions.values)
             for session in affectedSessions {
-                session.semanticController.finalizePendingLearning(commit: true)
-                session.environment.close()
+                session.semanticController.invalidateForDictionaryChange()
+            }
+            hazkeyExecutionGate.withLock {
+                for session in affectedSessions {
+                    session.semanticController.finalizePendingLearning(commit: true)
+                    session.environment.close()
+                }
             }
         }
     }
@@ -666,28 +682,32 @@ final class HazkeySessionRegistry {
         sessionID: String,
         reason: HazkeySessionRemovalReason
     ) {
-        guard let session = sessions.removeValue(forKey: sessionID) else { return }
-        session.semanticController.invalidateForDictionaryChange()
-        hazkeyExecutionGate.withLock {
-            session.semanticController.finalizePendingLearning(
-                commit: reason.commitsPendingLearning
-            )
-            session.environment.close()
+        hazkeyExecutionGate.withSpeculationSuspended {
+            guard let session = sessions.removeValue(forKey: sessionID) else { return }
+            session.semanticController.invalidateForDictionaryChange()
+            hazkeyExecutionGate.withLock {
+                session.semanticController.finalizePendingLearning(
+                    commit: reason.commitsPendingLearning
+                )
+                session.environment.close()
+            }
         }
     }
 
     private func applyUserDictionaryToSessions() {
-        let entries = userDictionaryStore.entries
-        let affectedSessions = Array(sessions.values)
-        for session in affectedSessions {
-            session.semanticController.invalidateForDictionaryChange()
-        }
-        hazkeyExecutionGate.withLock {
+        hazkeyExecutionGate.withSpeculationSuspended {
+            let entries = userDictionaryStore.entries
+            let affectedSessions = Array(sessions.values)
             for session in affectedSessions {
-                session.environment.replaceUserDictionary(entries)
+                session.semanticController.invalidateForDictionaryChange()
             }
+            hazkeyExecutionGate.withLock {
+                for session in affectedSessions {
+                    session.environment.replaceUserDictionary(entries)
+                }
+            }
+            resumeSpeculation(in: affectedSessions)
         }
-        resumeSpeculation(in: affectedSessions)
     }
 
     private func leastRecentlyUsedSession(ownerFd: Int32?) -> String? {

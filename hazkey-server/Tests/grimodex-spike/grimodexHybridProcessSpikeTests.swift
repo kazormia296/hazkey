@@ -37,7 +37,7 @@ final class GrimodexHybridProcessSpikeTests: XCTestCase {
     let iterationsPerCase: Int
     let mozcFirstDisplayRoundTripMilliseconds: Latency
     let formalConversionRoundTripMilliseconds: Latency
-    let candidateAugmentationCount: Int
+    let candidateWindowsWithNonbaselineSurfaceCount: Int
     let mozcTop1ChangeCount: Int
     let candidateJumpViolations: Int
 
@@ -49,14 +49,15 @@ final class GrimodexHybridProcessSpikeTests: XCTestCase {
         "mozc_first_display_round_trip_ms"
       case formalConversionRoundTripMilliseconds =
         "formal_conversion_round_trip_ms"
-      case candidateAugmentationCount = "candidate_augmentation_count"
+      case candidateWindowsWithNonbaselineSurfaceCount =
+        "candidate_windows_with_nonbaseline_surface_count"
       case mozcTop1ChangeCount = "mozc_top1_change_count"
       case candidateJumpViolations = "candidate_jump_violations"
     }
   }
 
   private struct Report: Encodable {
-    let schema = "hazkey.mozc-hybrid-runtime-spike.v1"
+    let schema = "hazkey.mozc-hybrid-runtime-spike.v2"
     let runtimePolicy = "preserve-mozc-top1-h0"
     let diagnosticOnly = true
     let timingBoundary = "one_protocol_v2_round_trip"
@@ -187,7 +188,7 @@ final class GrimodexHybridProcessSpikeTests: XCTestCase {
     for delay in delays {
       var firstDisplaySamples: [Double] = []
       var formalSamples: [Double] = []
-      var augmentationCount = 0
+      var windowsWithNonbaselineSurfaceCount = 0
       var top1Changes = 0
       var jumpViolations = 0
       for testCase in cases {
@@ -219,10 +220,10 @@ final class GrimodexHybridProcessSpikeTests: XCTestCase {
           let baselineSurfaces = Set(baseline.map {
             $0.precomposedStringWithCanonicalMapping
           })
-          let addsUniqueSurface = hybridCandidates.contains {
+          let containsNonbaselineSurface = hybridCandidates.contains {
             !baselineSurfaces.contains($0.precomposedStringWithCanonicalMapping)
           }
-          augmentationCount += addsUniqueSurface ? 1 : 0
+          windowsWithNonbaselineSurfaceCount += containsNonbaselineSurface ? 1 : 0
           if hybridCandidates.first != baseline.first { top1Changes += 1 }
 
           let generation = formal.candidateWindow.generation
@@ -254,7 +255,8 @@ final class GrimodexHybridProcessSpikeTests: XCTestCase {
         iterationsPerCase: iterations,
         mozcFirstDisplayRoundTripMilliseconds: latency(firstDisplaySamples),
         formalConversionRoundTripMilliseconds: latency(formalSamples),
-        candidateAugmentationCount: augmentationCount,
+        candidateWindowsWithNonbaselineSurfaceCount:
+          windowsWithNonbaselineSurfaceCount,
         mozcTop1ChangeCount: top1Changes,
         candidateJumpViolations: jumpViolations
       ))

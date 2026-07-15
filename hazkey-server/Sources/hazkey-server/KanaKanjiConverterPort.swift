@@ -292,6 +292,11 @@ protocol KanaKanjiConverting: AnyObject {
     /// snapshot an already-completed immutable prefix, but unfinished work must
     /// never be inserted after this call returns.
     func lockCandidateOrder(for revision: CompositionRevision)
+
+    /// Signals that every candidate previously published to the reducer has
+    /// become unreachable. Implementations may release foreground reservations
+    /// that were retained for candidate-origin learning.
+    func retireCandidateWindow()
 }
 
 extension KanaKanjiConverting {
@@ -367,6 +372,8 @@ extension KanaKanjiConverting {
     func invalidateSpeculativeConversion(reason: SpeculationInvalidationReason) {}
 
     func lockCandidateOrder(for revision: CompositionRevision) {}
+
+    func retireCandidateWindow() {}
 }
 
 final class NoopKanaKanjiConverter: KanaKanjiConverting {

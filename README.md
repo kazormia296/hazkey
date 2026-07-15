@@ -160,9 +160,14 @@ GRIMODEX_HYBRID_SPIKE_OUTPUT=/tmp/mozc-hybrid-runtime.json \
 ```
 
 Zenzai有効条件では`GRIMODEX_HYBRID_SPIKE_ZENZAI_ENABLED=true`、有効な
-`FCITX5_GRIMODEX_ZENZAI_MODEL`、`--traits ZenzaiSupport`を指定します。全sessionが共有する
-Hazkey gate上で別sessionの投機requestとHazkey候補学習が競合する経路は、この単一session
-初期スパイクの既知制約です。
+`FCITX5_GRIMODEX_ZENZAI_MODEL`、`--traits ZenzaiSupport`を指定します。
+
+複数sessionでは、learnableなHazkey候補がreadyになった時点から、その候補windowの
+commit/discard/cancelが完了するまでregistry-wideのcandidate-learning fenceを保持します。
+fence中もMozc表示とMozc-only正式変換は共有Hazkey gateへ入らず、新しいHazkey投機だけを
+待機させます。これにより、別sessionの投機requestが選択候補の同期学習を先取りして
+socket処理全体を止める経路を防ぎます。代償として、候補windowまたはundo待ちが開いている間は
+全sessionのHazkey先読みが一時停止します。activeなHazkey request自体はpreemptできません。
 
 2026-07-15の診断結果と解釈は
 [Mozc-first speculative hybrid spike](docs/spikes/mozc-hybrid-2026-07-15/README.md)

@@ -136,6 +136,10 @@ final class LearningSynchronizedKanaKanjiConverter: KanaKanjiConverting {
         base.lockCandidateOrder(for: revision)
     }
 
+    func retireCandidateWindow() {
+        base.retireCandidateWindow()
+    }
+
     private func synchronizePersistedLearningIfNeeded() {
         let currentRevision = revisionStore.current()
         guard currentRevision != observedRevision else { return }

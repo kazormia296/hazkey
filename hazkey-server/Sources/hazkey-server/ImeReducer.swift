@@ -1189,6 +1189,7 @@ final class ImeReducer {
             )
             session.segments = prefixSegments + rebuiltSuffix
             activateSegment(at: activeIndex)
+            retireCandidateWindowIfNoLearnableCandidateRemains()
             session.phase = .selecting
             session.advanceRevision()
             return success()
@@ -1504,6 +1505,7 @@ final class ImeReducer {
             )
             session.candidates = candidates
             syncActiveSegmentCandidates(candidates)
+            retireCandidateWindowIfNoLearnableCandidateRemains()
             session.phase = .selecting
         } else {
             endConverterComposition()
@@ -1897,14 +1899,35 @@ final class ImeReducer {
     }
 
     private func clearSegmentedConversion() {
+        if !session.segments.isEmpty {
+            converter.retireCandidateWindow()
+        }
         session.segments = []
         session.activeSegmentIndex = nil
     }
 
     private func clearConversionState() {
+        // This is also the rollback path for a partially-built multi-segment
+        // result. A converter may already have published a candidate window
+        // internally even though nothing has reached session state yet.
+        converter.retireCandidateWindow()
         session.candidates = nil
         session.activeBoundary = nil
-        clearSegmentedConversion()
+        session.segments = []
+        session.activeSegmentIndex = nil
+    }
+
+    private func retireCandidateWindowIfNoLearnableCandidateRemains() {
+        let activeHasLearnableCandidate = session.candidates?.items.contains {
+            $0.isLearnable
+        } ?? false
+        let segmentedHasLearnableCandidate = session.segments.contains { segment in
+            segment.candidates.items.contains { $0.isLearnable }
+        }
+        guard !activeHasLearnableCandidate, !segmentedHasLearnableCandidate else {
+            return
+        }
+        converter.retireCandidateWindow()
     }
 
     private func endConverterComposition() {
