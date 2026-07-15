@@ -862,20 +862,11 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
                     producer["sha256"], f"{producer_context}.sha256"
                 )
                 if producer_path == "<product-executable>":
-                    expected_producer_sha = product_executable[1]
-                else:
-                    repository_root = Path(__file__).resolve().parents[2]
-                    expected_producer_sha = _sha256_bytes(
-                        _read_regular(
-                            repository_root / producer_path,
-                            f"{producer_context}.path",
-                        )
+                    _expect(
+                        producer_sha,
+                        product_executable[1],
+                        f"{producer_context}.sha256",
                     )
-                _expect(
-                    producer_sha,
-                    expected_producer_sha,
-                    f"{producer_context}.sha256",
-                )
             else:
                 if producer["sha256"] is not None:
                     raise ValueError(
@@ -894,17 +885,6 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
                 if runner_path.startswith("/") or ".." in Path(runner_path).parts:
                     raise ValueError(f"{runner_context}.path must be repo-relative")
                 runner_sha = _sha256(runner["sha256"], f"{runner_context}.sha256")
-                repository_root = Path(__file__).resolve().parents[2]
-                _expect(
-                    runner_sha,
-                    _sha256_bytes(
-                        _read_regular(
-                            repository_root / runner_path,
-                            f"{runner_context}.path",
-                        )
-                    ),
-                    f"{runner_context}.sha256",
-                )
             package_value = check["execution_package"]
             if package_value is None:
                 package_path = None
@@ -939,18 +919,6 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
                     )
                 package_fingerprint = _sha256(
                     package["fingerprint"], f"{package_context}.fingerprint"
-                )
-                actual_package_identity = (
-                    run_mozc_b0_stability._swift_package_identity_from_files(
-                        run_mozc_b0_stability._read_swift_package_inputs(
-                            Path(__file__).resolve().parents[2]
-                        )
-                    )
-                )
-                _expect(
-                    (package_file_count, package_size, package_fingerprint),
-                    actual_package_identity,
-                    package_context,
                 )
             fixture_identity = check["recovery_fixture_identity"]
             if fixture_identity is not None:
@@ -1131,14 +1099,13 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
     )
     if measurement_status not in {"pending", "ready"}:
         raise ValueError(f"{measurement_context}.status must be pending or ready")
+    measurement_producer_sha256 = _sha256(
+        raw_measurement["producer_sha256"],
+        f"{measurement_context}.producer_sha256",
+    )
     expected_measurement = {
         "schema": summarize_ab_probe.INPUT_SCHEMA_V3,
-        "producer_sha256": _sha256_bytes(
-            _read_regular(
-                Path(run_mozc_b0_measurement.__file__).resolve(),
-                "measurement producer",
-            )
-        ),
+        "producer_sha256": measurement_producer_sha256,
         "runs_per_backend": 4,
         "execution_order": list(EXPECTED_RUN_SEQUENCE),
         "warmups_per_case": 5,
@@ -1204,16 +1171,6 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
     )
     orchestrator_sha = _sha256(
         orchestrator["sha256"], f"{orchestrator_context}.sha256"
-    )
-    _expect(
-        orchestrator_sha,
-        _sha256_bytes(
-            _read_regular(
-                Path(run_mozc_b0_stability.__file__).resolve(),
-                "stability orchestrator",
-            )
-        ),
-        f"{orchestrator_context}.sha256",
     )
     producer_contracts_ready = all(
         check.native_producer_sha256 is not None
@@ -2486,6 +2443,7 @@ def evaluate(policy_path: Path, evidence_path: Path) -> dict[str, Any]:
                 artifacts=policy.artifacts,
                 native_producer_sha256=contract.native_producer_sha256,
                 recovery_fixture_identity=contract.recovery_fixture_identity,
+                orchestrator_sha256=policy.stability_orchestrator_sha256,
                 input_snapshot_fingerprint=contract.input_snapshot_fingerprint,
                 execution_runner_path=contract.execution_runner_path,
                 execution_runner_sha256=contract.execution_runner_sha256,

@@ -47,7 +47,12 @@ def load_fcitx_runner():
 
 
 class MozcB0StabilityContractTests(unittest.TestCase):
-    def _prepare_recovery_inputs(self, root: Path) -> tuple[Path, Path, Path]:
+    def _prepare_recovery_inputs(
+        self,
+        root: Path,
+        *,
+        bind_current_package: bool = True,
+    ) -> tuple[Path, Path, Path]:
         server = root / "hazkey-server"
         server.write_bytes(b"recovery server\n")
         server.chmod(0o700)
@@ -60,6 +65,23 @@ class MozcB0StabilityContractTests(unittest.TestCase):
             "size_bytes": server.stat().st_size,
             "sha256": digest(server.read_bytes()),
         }
+        policy["measurement_contracts"]["long_running_stability"][
+            "orchestrator"
+        ]["sha256"] = digest(
+            (REPOSITORY_ROOT / stability.ORCHESTRATOR_PATH).read_bytes()
+        )
+        if bind_current_package:
+            package_identity = stability._swift_package_identity_from_files(
+                stability._read_swift_package_inputs(REPOSITORY_ROOT)
+            )
+            for item in policy["gates"]["long_running_stability"]["checks"]:
+                if item["execution_package"] is not None:
+                    item["execution_package"] = {
+                        "path": stability.SWIFT_PACKAGE_ROOT,
+                        "file_count": package_identity[0],
+                        "size_bytes": package_identity[1],
+                        "fingerprint": package_identity[2],
+                    }
         for index, item in enumerate(
             policy["candidate"]["runtime_dependencies"]["files"]
         ):
@@ -111,6 +133,10 @@ class MozcB0StabilityContractTests(unittest.TestCase):
         self.assertEqual(orchestrator["path"], stability.ORCHESTRATOR_PATH)
         self.assertEqual(
             orchestrator["sha256"],
+            "sha256:3c51447b21062a16c6dd1534b30991a33ab827dc9c8733675c01b3aeae3cb8d7",
+        )
+        self.assertNotEqual(
+            orchestrator["sha256"],
             digest((REPOSITORY_ROOT / stability.ORCHESTRATOR_PATH).read_bytes()),
         )
         self.assertEqual(
@@ -121,6 +147,23 @@ class MozcB0StabilityContractTests(unittest.TestCase):
         self.assertFalse(policy["readiness"]["formal_decision_enabled"])
         self.assertEqual(policy["decision_tier"], "pilot")
         self.assertFalse(policy["formal_adoption_allowed"])
+        historical_package = (
+            111,
+            1233657,
+            "sha256:9df303a7d7015717d87f6a64f040c4797c747b544c4ea84fccbecd8200a69e6e",
+        )
+        self.assertEqual(
+            {
+                (
+                    check["execution_package"]["file_count"],
+                    check["execution_package"]["size_bytes"],
+                    check["execution_package"]["fingerprint"],
+                )
+                for check in checks
+                if check["execution_package"] is not None
+            },
+            {historical_package},
+        )
         frozen_snapshot = (
             "sha256:bb4f63a09a16fd0cb00bc41ee6091dca"
             "7e3fa85c118ebae688cd7ada6bd99573"
@@ -163,6 +206,26 @@ class MozcB0StabilityContractTests(unittest.TestCase):
             self.assertNotIn("passed", record)
             self.assertNotIn("observations", record)
             self.assertNotIn("counts", record)
+
+    def test_record_can_bind_captured_orchestrator_without_reopening_it(self) -> None:
+        captured = "sha256:" + "a" * 64
+        with tempfile.TemporaryDirectory() as temporary:
+            native = Path(temporary) / "native.json"
+            native.write_bytes(b"{}\n")
+            with mock.patch.object(
+                stability,
+                "_read_regular",
+                side_effect=AssertionError("orchestrator was reopened"),
+            ):
+                record = stability.build_record(
+                    stability.FCITX_LONG_SOAK_ID,
+                    native,
+                    native.read_bytes(),
+                    artifact_fingerprint=stability.B0_RESOURCE_FINGERPRINT,
+                    recovery_fixture_identity_value=None,
+                    orchestrator_sha256_value=captured,
+                )
+        self.assertEqual(record["orchestrator"]["sha256"], captured)
 
     def test_swift_package_identity_excludes_v1_and_v2_evaluation_fixtures(
         self,
@@ -208,6 +271,18 @@ class MozcB0StabilityContractTests(unittest.TestCase):
                 before_identity,
             )
 
+    def test_protocol_acquisition_preflights_live_corpus_identity(self) -> None:
+        package_files = stability._read_swift_package_inputs(REPOSITORY_ROOT)
+        corpus = stability._preflight_protocol_corpus(package_files)
+        self.assertEqual(len(corpus), stability.ADAPTER_CORPUS_SIZE)
+        relative = Path(stability.ADAPTER_CORPUS_PATH).relative_to(
+            stability.SWIFT_PACKAGE_ROOT
+        ).as_posix()
+        changed = dict(package_files)
+        changed[relative] = corpus + b"tampered\n"
+        with self.assertRaisesRegex(ValueError, "live corpus size|SHA-256"):
+            stability._preflight_protocol_corpus(changed)
+
     def test_protocol_native_counts_are_rederived_and_forgery_is_rejected(self) -> None:
         payload = json.loads(PROTOCOL_FIXTURE.read_text(encoding="utf-8"))
         payload["execution"]["build_configuration"] = "formal-stability"
@@ -233,6 +308,9 @@ class MozcB0StabilityContractTests(unittest.TestCase):
             },
             native_producer_sha256=digest(benchmark_source.read_bytes()),
             recovery_fixture_identity=None,
+            orchestrator_sha256=digest(
+                (REPOSITORY_ROOT / stability.ORCHESTRATOR_PATH).read_bytes()
+            ),
             execution_runner_path=stability.SWIFT_TEST_RUNNER_PATH,
             execution_runner_sha256=digest(test_runner.read_bytes()),
             swift_package_file_count=package_identity[0],
@@ -626,6 +704,69 @@ class MozcB0StabilityContractTests(unittest.TestCase):
                 )
             )
 
+    def test_run_recovery_does_not_reopen_orchestrator_after_final_check(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            server, runtime, policy_path = self._prepare_recovery_inputs(root)
+            orchestrator_path = REPOSITORY_ROOT / stability.ORCHESTRATOR_PATH
+            orchestrator_bytes = orchestrator_path.read_bytes()
+            replacement_bytes = b"replaced after final verification\n"
+            original_read = stability._read_regular
+            orchestrator_reads = 0
+            next_pid = 905_000
+
+            class FakeProcess:
+                def __init__(self, command: list[str]):
+                    nonlocal next_pid
+                    next_pid += 1
+                    self.pid = next_pid
+                    self.returncode = 0
+                    self.test_name = command[-1].rsplit("/", 1)[-1]
+
+                def communicate(
+                    self, timeout: int | None = None
+                ) -> tuple[bytes, bytes]:
+                    del timeout
+                    return f"{self.test_name} passed\n".encode(), b""
+
+            def read_with_post_check_swap(path: Path, context: str) -> bytes:
+                nonlocal orchestrator_reads
+                if Path(path) == orchestrator_path:
+                    orchestrator_reads += 1
+                    if orchestrator_reads > 2:
+                        return replacement_bytes
+                return original_read(path, context)
+
+            with (
+                mock.patch.object(
+                    stability.subprocess,
+                    "Popen",
+                    side_effect=lambda command, **_: FakeProcess(command),
+                ),
+                mock.patch.object(
+                    stability,
+                    "_read_regular",
+                    side_effect=read_with_post_check_swap,
+                ),
+            ):
+                _, record_path, passed = stability.run_recovery(
+                    server=server,
+                    output_directory=root / "recovery-output",
+                    runtime_lib_dir=runtime,
+                    policy_path=policy_path,
+                    timeout_seconds=30,
+                )
+
+            self.assertTrue(passed)
+            self.assertEqual(orchestrator_reads, 2)
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                record["orchestrator"]["sha256"],
+                digest(orchestrator_bytes),
+            )
+
     def test_run_recovery_cleans_group_and_session_when_communicate_raises(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -678,6 +819,29 @@ class MozcB0StabilityContractTests(unittest.TestCase):
                 )
             group.assert_called_once_with(process.pid)
             session.assert_called_once_with(process.pid)
+
+    def test_historical_policy_rejects_current_package_before_acquisition(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            server, runtime, policy_path = self._prepare_recovery_inputs(
+                root,
+                bind_current_package=False,
+            )
+            output = root / "recovery-output"
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "recovery Swift package (size|fingerprint)",
+            ):
+                stability.run_recovery(
+                    server=server,
+                    output_directory=output,
+                    runtime_lib_dir=runtime,
+                    policy_path=policy_path,
+                    timeout_seconds=30,
+                )
+
+            self.assertFalse(output.exists())
 
     def test_process_audit_cleans_group_and_session_on_general_runner_error(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -759,16 +923,105 @@ class MozcB0StabilityContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pilot evaluation is not ready"):
             gate.parse_policy(json.dumps(policy).encode())
 
-    def test_policy_rejects_forged_swift_test_runner_hash(self) -> None:
-        policy = json.loads(POLICY.read_text(encoding="utf-8"))
-        steady = next(
-            item
-            for item in policy["gates"]["long_running_stability"]["checks"]
-            if item["id"] == stability.PROTOCOL_STEADY_ID
-        )
-        steady["execution_runner"]["sha256"] = "sha256:" + "0" * 64
-        with self.assertRaisesRegex(ValueError, "execution_runner.sha256"):
-            gate.parse_policy(json.dumps(policy).encode())
+    def test_fcitx_acquisition_preflights_trusted_checkout_not_product_ref(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary).resolve()
+            producer = repository / stability.FCITX_PRODUCER_PATH
+            producer.parent.mkdir(parents=True)
+            producer_data = b"trusted Fcitx producer\n"
+            producer.write_bytes(producer_data)
+            trusted_head = "a" * 40
+            expected = stability.NativeExpectations(
+                product_source_ref="b" * 40,
+                artifact_fingerprint="sha256:" + "c" * 64,
+                product_server_size=1,
+                product_server_sha256="sha256:" + "d" * 64,
+                artifacts={},
+                native_producer_sha256=digest(producer_data),
+                recovery_fixture_identity=None,
+            )
+            payload = {
+                "producer": {
+                    "path": str(producer),
+                    "size": len(producer_data),
+                    "sha256": digest(producer_data),
+                },
+                "source": {
+                    "repository_root": str(repository),
+                    "git_head": trusted_head,
+                    "worktree_clean": True,
+                },
+            }
+            native = json.dumps(payload).encode()
+            with mock.patch.object(
+                stability,
+                "_trusted_repository_state",
+                return_value=(trusted_head, True),
+            ):
+                binding = stability._preflight_fcitx_acquisition_source(
+                    native,
+                    expected,
+                    trusted_repository_root=repository,
+                )
+            self.assertEqual(binding, (producer_data, trusted_head))
+            self.assertNotEqual(trusted_head, expected.product_source_ref)
+
+            dirty_report = copy.deepcopy(payload)
+            dirty_report["source"]["worktree_clean"] = False
+            with (
+                mock.patch.object(
+                    stability,
+                    "_trusted_repository_state",
+                    return_value=(trusted_head, True),
+                ),
+                self.assertRaisesRegex(ValueError, "source.worktree_clean"),
+            ):
+                stability._preflight_fcitx_acquisition_source(
+                    json.dumps(dirty_report).encode(),
+                    expected,
+                    trusted_repository_root=repository,
+                )
+
+            with (
+                mock.patch.object(
+                    stability,
+                    "_trusted_repository_state",
+                    return_value=(trusted_head, False),
+                ),
+                self.assertRaisesRegex(ValueError, "trusted worktree clean"),
+            ):
+                stability._preflight_fcitx_acquisition_source(
+                    native,
+                    expected,
+                    trusted_repository_root=repository,
+                )
+
+    def test_acquisition_rejects_forged_swift_test_runner_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            server, runtime, policy_path = self._prepare_recovery_inputs(root)
+            policy = json.loads(policy_path.read_text(encoding="utf-8"))
+            recovery = next(
+                item
+                for item in policy["gates"]["long_running_stability"]["checks"]
+                if item["id"] == stability.PROTOCOL_RECOVERY_ID
+            )
+            recovery["execution_runner"]["sha256"] = "sha256:" + "0" * 64
+            policy_path.write_text(json.dumps(policy), encoding="utf-8")
+            output = root / "recovery-output"
+
+            with self.assertRaisesRegex(ValueError, "test runner SHA-256"):
+                stability.run_recovery(
+                    server=server,
+                    output_directory=output,
+                    runtime_lib_dir=runtime,
+                    policy_path=policy_path,
+                    timeout_seconds=30,
+                )
+
+            self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

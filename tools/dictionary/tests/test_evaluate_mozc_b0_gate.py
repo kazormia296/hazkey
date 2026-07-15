@@ -1347,6 +1347,9 @@ class RawEvidenceTests(unittest.TestCase):
         mozc_bundle.mkdir()
 
         policy = json.loads(POLICY_FIXTURE.read_text(encoding="utf-8"))
+        package_file_count, package_size, package_fingerprint = (
+            self._ensure_swift_package_snapshot(root)
+        )
         policy["formal_suite"]["components"]["ajimee_unconditional"]["sha256"] = components[0]["sha256"]
         policy["external_sources"]["ajimee_bench"]["derived_sha256"] = components[0]["sha256"]
         policy["candidate"]["product_source_revision"] = source_ref
@@ -1365,6 +1368,13 @@ class RawEvidenceTests(unittest.TestCase):
             (REPOSITORY_ROOT / stability.FCITX_PRODUCER_PATH).read_bytes()
         )
         for contract in stability_contracts:
+            if contract["execution_package"] is not None:
+                contract["execution_package"] = {
+                    "path": stability.SWIFT_PACKAGE_ROOT,
+                    "file_count": package_file_count,
+                    "size_bytes": package_size,
+                    "fingerprint": package_fingerprint,
+                }
             if contract["id"] == stability.ADAPTER_SOAK_ID:
                 contract["native_producer"]["sha256"] = digest(
                     executable.read_bytes()
@@ -1839,12 +1849,11 @@ class RawEvidenceTests(unittest.TestCase):
             "latency": ("latency_statistic", "opaque-p95-v1"),
             "pss": ("pss_statistic", "opaque-pss-v1"),
             "cpu": ("cpu_policy", "pinned-affinity"),
-            "producer": ("producer_sha256", "sha256:" + "0" * 64),
             "timeout": ("per_run_timeout_seconds", 899),
         }
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            policy_path, _ = self._build(root)
+            policy_path, evidence_path = self._build(root)
             base = json.loads(policy_path.read_text(encoding="utf-8"))
             for name, (field, value) in mutations.items():
                 policy = copy.deepcopy(base)
@@ -1853,6 +1862,17 @@ class RawEvidenceTests(unittest.TestCase):
                     ValueError, "must be"
                 ):
                     gate.parse_policy(json.dumps(policy).encode())
+
+            producer_drift = copy.deepcopy(base)
+            producer_drift["measurement_contracts"]["formal_abprobe_v3"][
+                "producer_sha256"
+            ] = "sha256:" + "0" * 64
+            policy_path.write_text(json.dumps(producer_drift), encoding="utf-8")
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            evidence["policy"]["sha256"] = digest(policy_path.read_bytes())
+            evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "producer.sha256"):
+                gate.evaluate(policy_path, evidence_path)
 
             opaque = copy.deepcopy(base)
             opaque["measurement_contracts"] = {
@@ -1935,10 +1955,12 @@ class RawEvidenceTests(unittest.TestCase):
                 "runtime/hazkey-server",
             )
 
-    def test_fcitx_collect_accepts_audit_head_and_dirty_metadata(self) -> None:
+    def test_fcitx_collect_requires_current_clean_trusted_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             policy, evidence = self._build(root)
+            historical = gate.evaluate(policy, evidence)
+            self.assertEqual(historical["pilot_result"], "pilot_pass")
             payload = json.loads(evidence.read_text(encoding="utf-8"))
             entry = next(
                 item
@@ -1956,7 +1978,7 @@ class RawEvidenceTests(unittest.TestCase):
             native = json.loads(native_path.read_text(encoding="utf-8"))
             self.assertEqual(native["source"]["git_head"], "1" * 40)
             self.assertFalse(native["source"]["worktree_clean"])
-            collected = native_path.parent / "collected-fcitx-lifecycle.json"
+            rejected_dirty = native_path.parent / "rejected-dirty-fcitx.json"
             with mock.patch.object(
                 sys,
                 "argv",
@@ -1968,10 +1990,41 @@ class RawEvidenceTests(unittest.TestCase):
                     "--native-result",
                     str(native_path),
                     "--output",
-                    str(collected),
+                    str(rejected_dirty),
                     "--policy",
                     str(policy),
                 ],
+            ):
+                self.assertEqual(stability.main(), 2)
+            self.assertFalse(rejected_dirty.exists())
+
+            trusted_head = "2" * 40
+            native["source"]["git_head"] = trusted_head
+            native["source"]["worktree_clean"] = True
+            native_path.write_text(json.dumps(native), encoding="utf-8")
+            collected = native_path.parent / "collected-fcitx-lifecycle.json"
+            with (
+                mock.patch.object(
+                    stability,
+                    "_trusted_repository_state",
+                    return_value=(trusted_head, True),
+                ),
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        stability.ORCHESTRATOR_PATH,
+                        "collect",
+                        "--suite-id",
+                        stability.FCITX_LIFECYCLE_ID,
+                        "--native-result",
+                        str(native_path),
+                        "--output",
+                        str(collected),
+                        "--policy",
+                        str(policy),
+                    ],
+                ),
             ):
                 self.assertEqual(stability.main(), 0)
             collected_record = json.loads(collected.read_text(encoding="utf-8"))
@@ -1980,24 +2033,74 @@ class RawEvidenceTests(unittest.TestCase):
             native["producer"]["path"] = str(root / "forged-producer.py")
             native_path.write_text(json.dumps(native), encoding="utf-8")
             rejected = native_path.parent / "rejected-fcitx-lifecycle.json"
-            with mock.patch.object(
-                sys,
-                "argv",
-                [
-                    stability.ORCHESTRATOR_PATH,
-                    "collect",
-                    "--suite-id",
-                    stability.FCITX_LIFECYCLE_ID,
-                    "--native-result",
-                    str(native_path),
-                    "--output",
-                    str(rejected),
-                    "--policy",
-                    str(policy),
-                ],
+            with (
+                mock.patch.object(
+                    stability,
+                    "_trusted_repository_state",
+                    return_value=(trusted_head, True),
+                ),
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        stability.ORCHESTRATOR_PATH,
+                        "collect",
+                        "--suite-id",
+                        stability.FCITX_LIFECYCLE_ID,
+                        "--native-result",
+                        str(native_path),
+                        "--output",
+                        str(rejected),
+                        "--policy",
+                        str(policy),
+                    ],
+                ),
             ):
                 self.assertEqual(stability.main(), 2)
             self.assertFalse(rejected.exists())
+
+    def test_historical_fcitx_producer_checkout_is_audit_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            policy, evidence = self._build(root)
+            unavailable_producer = (
+                "/unavailable/historical-checkout/" + stability.FCITX_PRODUCER_PATH
+            )
+
+            def detach_reported_checkout(raw: dict[str, object]) -> None:
+                raw["producer"]["path"] = unavailable_producer
+                raw["source"]["repository_root"] = "/unavailable/historical-checkout"
+                raw["command"][0] = "/unavailable/python3"
+                raw["command"][1] = unavailable_producer
+
+            self._rewrite_stability_raw(
+                root,
+                evidence,
+                stability.FCITX_LIFECYCLE_ID,
+                detach_reported_checkout,
+            )
+            result = gate.evaluate(policy, evidence)
+            self.assertEqual(result["pilot_result"], "pilot_pass")
+
+    def test_historical_protocol_corpus_never_reopens_current_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            policy, evidence = self._build(root)
+            current_corpus = (REPOSITORY_ROOT / stability.ADAPTER_CORPUS_PATH).resolve()
+            original_read = stability._read_regular
+
+            def reject_current_corpus(path: Path, context: str) -> bytes:
+                if Path(path).resolve() == current_corpus:
+                    raise AssertionError("historical validation reopened current corpus")
+                return original_read(path, context)
+
+            with mock.patch.object(
+                stability,
+                "_read_regular",
+                side_effect=reject_current_corpus,
+            ):
+                result = gate.evaluate(policy, evidence)
+            self.assertEqual(result["pilot_result"], "pilot_pass")
 
     def test_acquisition_raw_files_must_be_self_contained_exact_names(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -2451,6 +2554,10 @@ class RawEvidenceTests(unittest.TestCase):
             cycles[1]["server"]["observed_identities"][0]["session_id"] = session_id
             cycles[1]["helper"]["observed_identities"][0]["session_id"] = session_id
 
+        def make_producer_relative(raw: dict[str, object]) -> None:
+            raw["producer"]["path"] = stability.FCITX_PRODUCER_PATH
+            raw["command"][1] = stability.FCITX_PRODUCER_PATH
+
         mutations: dict[str, Callable[[dict[str, object]], None]] = {
             "source-schema": lambda raw: raw["source"].__setitem__("unknown", True),
             "git-head-format": lambda raw: raw["source"].__setitem__(
@@ -2459,14 +2566,12 @@ class RawEvidenceTests(unittest.TestCase):
             "worktree-type": lambda raw: raw["source"].__setitem__(
                 "worktree_clean", "dirty"
             ),
-            "repository-root": lambda raw: raw["source"].__setitem__(
-                "repository_root", "/tmp/forged-repository"
+            "relative-producer-path": make_producer_relative,
+            "producer-unrelated-to-source-root": lambda raw: raw["source"].__setitem__(
+                "repository_root", "/unrelated/historical-checkout"
             ),
             "producer-path": lambda raw: raw["producer"].__setitem__(
                 "path", "/tmp/forged-repository/fcitx5-hazkey/tests/run_fcitx_full_stack_test.py"
-            ),
-            "python-interpreter": lambda raw: raw["command"].__setitem__(
-                0, "/tmp/python3"
             ),
             "duplicate-command-option": duplicate_command_option,
             "missing-artifact": lambda raw: raw["artifacts"].pop("mozc_helper"),

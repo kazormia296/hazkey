@@ -81,6 +81,7 @@ ADAPTER_CORPUS_PATH = (
 ADAPTER_CORPUS_SHA256 = (
     "sha256:e5c61cc92042c24ff334f702c7bd3e01473e37002c9d64d6c652462721520e9e"
 )
+ADAPTER_CORPUS_SIZE = 1390
 PRODUCT_SOURCE_REF = "6e0354f2514edf1fe8219657ed23e7a02c8a7f7a"
 B0_RESOURCE_FINGERPRINT = (
     "sha256:2ba2cccb3c7489def988b63b0f0fd2cd96469521569c4807b63c80d2b50d3063"
@@ -337,6 +338,7 @@ class NativeExpectations:
     artifacts: Mapping[str, tuple[int, str]]
     native_producer_sha256: str | None
     recovery_fixture_identity: str | None
+    orchestrator_sha256: str | None = None
     input_snapshot_fingerprint: str | None = None
     execution_runner_path: str | None = None
     execution_runner_sha256: str | None = None
@@ -755,6 +757,7 @@ def _validate_protocol_benchmark(
     context: str,
     expected: NativeExpectations,
     expected_dictionary_path: str,
+    native_path: Path,
 ) -> tuple[dict[str, int | None], set[int], set[int]]:
     payload = _object(load_json_bytes(data, context), context)
     _exact(
@@ -786,15 +789,31 @@ def _validate_protocol_benchmark(
     _exact(policy, {"auto_conversion", "learning", "zenzai"}, f"{context}.policy")
     _expect(policy, {"auto_conversion": False, "learning": False, "zenzai": False}, f"{context}.policy")
     _validate_protocol_execution(payload["execution"], f"{context}.execution")
-    corpus_data = _read_regular(
-        Path(__file__).resolve().parents[2] / ADAPTER_CORPUS_PATH,
-        "Protocol v2 benchmark corpus",
+    corpus_relative = Path(ADAPTER_CORPUS_PATH).relative_to(
+        SWIFT_PACKAGE_ROOT
+    ).as_posix()
+    corpus_snapshot_path = f"{SWIFT_PACKAGE_SNAPSHOT_PATH}/{corpus_relative}"
+    corpus_data = _binding_bytes(
+        {
+            "path": corpus_snapshot_path,
+            "sha256": ADAPTER_CORPUS_SHA256,
+        },
+        native_path.parent,
+        f"{context}.corpus retained Swift-package snapshot",
     )
+    corpus = _object(payload["corpus"], f"{context}.corpus")
     _artifact_identity(
-        payload["corpus"],
+        corpus,
         f"{context}.corpus",
-        (len(corpus_data), ADAPTER_CORPUS_SHA256),
+        (ADAPTER_CORPUS_SIZE, ADAPTER_CORPUS_SHA256),
     )
+    corpus_path = Path(_string(corpus["path"], f"{context}.corpus.path"))
+    corpus_suffix = Path("Fixtures/ime-base-ab-v1/conversion-quality-v1.tsv")
+    if tuple(corpus_path.parts[-len(corpus_suffix.parts) :]) != corpus_suffix.parts:
+        raise ValueError(
+            f"{context}.corpus.path does not identify the frozen sentinel corpus"
+        )
+    _expect(len(corpus_data), ADAPTER_CORPUS_SIZE, f"{context}.corpus retained size")
     _artifact_identity(
         payload["server"],
         f"{context}.server",
@@ -1171,13 +1190,19 @@ def _process_audit(
     return runner_identity, servers, helpers
 
 
-def _validate_wrapper_producer(value: Any, context: str) -> None:
+def _validate_wrapper_producer(
+    value: Any,
+    context: str,
+    expected: NativeExpectations,
+) -> None:
     producer = _object(value, context)
     _exact(producer, {"path", "sha256"}, context)
     _expect(producer["path"], ORCHESTRATOR_PATH, f"{context}.path")
+    if expected.orchestrator_sha256 is None:
+        raise ValueError(f"{context}: stability orchestrator SHA-256 is not frozen")
     _expect(
         _sha256(producer["sha256"], f"{context}.sha256"),
-        sha256_bytes(_read_regular(Path(__file__).resolve(), "stability orchestrator")),
+        expected.orchestrator_sha256,
         f"{context}.sha256",
     )
 
@@ -1307,7 +1332,9 @@ def _validate_adapter_soak(
         context,
     )
     _expect(payload["schema"], ADAPTER_SOAK_SCHEMA, f"{context}.schema")
-    _validate_wrapper_producer(payload["producer"], f"{context}.producer")
+    _validate_wrapper_producer(
+        payload["producer"], f"{context}.producer", expected
+    )
     _expect(
         payload["product_source_ref"],
         expected.product_source_ref,
@@ -1367,7 +1394,9 @@ def _validate_protocol_v2_steady(
         context,
     )
     _expect(payload["schema"], PROTOCOL_STEADY_SCHEMA, f"{context}.schema")
-    _validate_wrapper_producer(payload["producer"], f"{context}.producer")
+    _validate_wrapper_producer(
+        payload["producer"], f"{context}.producer", expected
+    )
     _expect(
         payload["product_source_ref"],
         expected.product_source_ref,
@@ -1479,6 +1508,7 @@ def _validate_protocol_v2_steady(
         f"{context}.benchmark",
         expected,
         dictionary_path,
+        native_path,
     )
     _expect({item[0] for item in servers}, reported_servers, f"{context}.server process identities")
     _expect({item[0] for item in helpers}, reported_helpers, f"{context}.helper process identities")
@@ -1517,13 +1547,8 @@ def _validate_recovery(
     )
     _expect(payload["schema"], RECOVERY_SCHEMA, f"{context}.schema")
     _expect(payload["product_source_ref"], expected.product_source_ref, f"{context}.product_source_ref")
-    producer = _object(payload["producer"], f"{context}.producer")
-    _exact(producer, {"path", "sha256"}, f"{context}.producer")
-    _expect(producer["path"], ORCHESTRATOR_PATH, f"{context}.producer.path")
-    _expect(
-        _sha256(producer["sha256"], f"{context}.producer.sha256"),
-        sha256_bytes(_read_regular(Path(__file__).resolve(), "stability orchestrator")),
-        f"{context}.producer.sha256",
+    _validate_wrapper_producer(
+        payload["producer"], f"{context}.producer", expected
     )
     server = _object(payload["product_server"], f"{context}.product_server")
     _exact(server, {"size_bytes", "sha256"}, f"{context}.product_server")
@@ -2532,24 +2557,12 @@ def _validate_fcitx(
     if expected.native_producer_sha256 is None:
         raise ValueError(f"{context}: Fcitx native producer SHA-256 is not frozen")
     _expect(_sha256(producer["sha256"], f"{context}.producer.sha256"), expected.native_producer_sha256, f"{context}.producer.sha256")
-    producer_path = _string(producer["path"], f"{context}.producer.path")
-    if not producer_path.endswith("/" + FCITX_PRODUCER_PATH) and producer_path != FCITX_PRODUCER_PATH:
-        raise ValueError(f"{context}.producer.path does not identify {FCITX_PRODUCER_PATH}")
-    producer_bytes = _read_regular(
-        Path(__file__).resolve().parents[2] / FCITX_PRODUCER_PATH,
-        "Fcitx stability producer",
+    producer_path = Path(
+        _string(producer["path"], f"{context}.producer.path")
     )
-    _expect(
-        sha256_bytes(producer_bytes),
-        expected.native_producer_sha256,
-        f"{context}.producer.sha256",
-    )
-    _expect(
-        _integer(producer["size"], f"{context}.producer.size", minimum=1),
-        len(producer_bytes),
-        f"{context}.producer.size",
-    )
-
+    if not producer_path.is_absolute():
+        raise ValueError(f"{context}.producer.path must be absolute")
+    _integer(producer["size"], f"{context}.producer.size", minimum=1)
     source = _object(payload["source"], f"{context}.source")
     _exact(source, {"repository_root", "git_head", "worktree_clean"}, f"{context}.source")
     repository_root = Path(
@@ -2557,25 +2570,15 @@ def _validate_fcitx(
     )
     if not repository_root.is_absolute():
         raise ValueError(f"{context}.source.repository_root must be absolute")
+    _expect(
+        producer_path,
+        repository_root / FCITX_PRODUCER_PATH,
+        f"{context}.producer.path",
+    )
     git_head = _string(source["git_head"], f"{context}.source.git_head")
     if re.fullmatch(r"[0-9a-f]{40}", git_head) is None:
         raise ValueError(f"{context}.source.git_head must be a full lowercase commit")
     _boolean(source["worktree_clean"], f"{context}.source.worktree_clean")
-    expected_producer_path = repository_root / FCITX_PRODUCER_PATH
-    _expect(Path(producer_path), expected_producer_path, f"{context}.producer.path")
-    reported_producer_bytes = _binding_bytes(
-        {
-            "path": FCITX_PRODUCER_PATH,
-            "sha256": expected.native_producer_sha256,
-        },
-        repository_root,
-        f"{context}.producer reported repository blob",
-    )
-    _expect(
-        len(reported_producer_bytes),
-        _integer(producer["size"], f"{context}.producer.size", minimum=1),
-        f"{context}.producer reported repository size",
-    )
 
     if expected.input_snapshot_fingerprint is None:
         raise ValueError(f"{context}: Fcitx input snapshot fingerprint is not frozen")
@@ -2885,14 +2888,7 @@ def _validate_fcitx(
         raise ValueError(f"{context}.command[0] must be an absolute Python executable")
     if re.fullmatch(r"python(?:[0-9]+(?:\.[0-9]+)*)?", Path(command[0]).name) is None:
         raise ValueError(f"{context}.command[0] must identify Python")
-    try:
-        command_python = Path(command[0]).resolve(strict=True)
-        trusted_python = Path(sys.executable).resolve(strict=True)
-    except OSError as error:
-        raise ValueError(f"{context}.command[0] Python executable is unavailable") from error
-    _expect(command_python, trusted_python, f"{context}.command[0] trusted Python")
-    _read_regular(trusted_python, f"{context}.command[0] trusted Python")
-    _expect(Path(command[1]), expected_producer_path, f"{context}.command producer")
+    _expect(Path(command[1]), producer_path, f"{context}.command producer")
     command_options: dict[str, str] = {}
     for offset in range(2, len(command), 2):
         flag, argument = command[offset : offset + 2]
@@ -2913,7 +2909,7 @@ def _validate_fcitx(
     }
     for flag, relative in command_path_bindings.items():
         _expect(
-            Path(command_options[flag]).resolve(strict=True),
+            Path(command_options[flag]),
             Path(snapshot_entries[relative]["source_path"]),
             f"{context}.command {flag}",
         )
@@ -2922,7 +2918,7 @@ def _validate_fcitx(
         ("--llama-lib-dir", "llama_lib"),
         ("--system-test-addon-dir", "system_test_addon"),
     ):
-        source_root = Path(command_options[flag]).resolve(strict=True)
+        source_root = Path(command_options[flag])
         if not source_root.is_absolute():
             raise ValueError(f"{context}.command {flag} must be absolute")
         matching_entries = [
@@ -2940,7 +2936,7 @@ def _validate_fcitx(
                 raise ValueError(
                     f"{context}.command {flag} does not contain all snapshot sources"
                 ) from error
-    mozc_source_root = Path(command_options["--mozc-generation"]).resolve(strict=True)
+    mozc_source_root = Path(command_options["--mozc-generation"])
     if not mozc_source_root.is_absolute():
         raise ValueError(f"{context}.command --mozc-generation must be absolute")
     _expect(mozc_source_root.name, content_address, f"{context}.command --mozc-generation")
@@ -3110,6 +3106,7 @@ def build_record(
     *,
     artifact_fingerprint: str,
     recovery_fixture_identity_value: str | None,
+    orchestrator_sha256_value: str | None = None,
 ) -> dict[str, Any]:
     if suite_id not in SUITE_IDS:
         raise ValueError(f"unknown Mozc B0 stability suite {suite_id!r}")
@@ -3130,14 +3127,20 @@ def build_record(
                 recovery_fixture_identity_value, "recovery fixture identity"
             ),
         }
+    if orchestrator_sha256_value is None:
+        orchestrator_sha256_value = sha256_bytes(
+            _read_regular(Path(__file__).resolve(), "stability orchestrator")
+        )
+    else:
+        orchestrator_sha256_value = _sha256(
+            orchestrator_sha256_value, "stability orchestrator SHA-256"
+        )
     return {
         "schema": RECORD_SCHEMA,
         "id": suite_id,
         "orchestrator": {
             "path": ORCHESTRATOR_PATH,
-            "sha256": sha256_bytes(
-                _read_regular(Path(__file__).resolve(), "stability orchestrator")
-            ),
+            "sha256": orchestrator_sha256_value,
         },
         "command": list(CANONICAL_COMMANDS[suite_id]),
         "product_source_ref": PRODUCT_SOURCE_REF,
@@ -3255,6 +3258,35 @@ def expectations_from_policy(
         set(run_mozc_b0_measurement.RUNTIME_DEPENDENCY_FILENAMES),
         f"{policy_path}.candidate.runtime_dependencies file names",
     )
+    measurement_contracts = _object(
+        policy.get("measurement_contracts"),
+        f"{policy_path}.measurement_contracts",
+    )
+    stability_contract = _object(
+        measurement_contracts.get("long_running_stability"),
+        f"{policy_path}.measurement_contracts.long_running_stability",
+    )
+    _expect(
+        stability_contract.get("status"),
+        "ready",
+        f"{policy_path}.measurement_contracts.long_running_stability.status",
+    )
+    orchestrator_context = (
+        f"{policy_path}.measurement_contracts.long_running_stability.orchestrator"
+    )
+    orchestrator = _object(
+        stability_contract.get("orchestrator"), orchestrator_context
+    )
+    _exact(orchestrator, {"schema", "path", "sha256"}, orchestrator_context)
+    _expect(
+        orchestrator["schema"], RECORD_SCHEMA, f"{orchestrator_context}.schema"
+    )
+    _expect(
+        orchestrator["path"], ORCHESTRATOR_PATH, f"{orchestrator_context}.path"
+    )
+    orchestrator_sha = _sha256(
+        orchestrator["sha256"], f"{orchestrator_context}.sha256"
+    )
     gates = _object(policy.get("gates"), f"{policy_path}.gates")
     stability_gate = _object(
         gates.get("long_running_stability"),
@@ -3357,6 +3389,7 @@ def expectations_from_policy(
         artifacts=artifacts,
         native_producer_sha256=producer_sha,
         recovery_fixture_identity=fixture_identity,
+        orchestrator_sha256=orchestrator_sha,
         input_snapshot_fingerprint=snapshot_fingerprint,
         execution_runner_path=runner_path,
         execution_runner_sha256=runner_sha,
@@ -3591,6 +3624,23 @@ def _read_swift_package_inputs(repository_root: Path) -> dict[str, bytes]:
             "Swift package input is missing generated Sources/hazkey-server/constants.swift"
         )
     return files
+
+
+def _preflight_protocol_corpus(package_files: Mapping[str, bytes]) -> bytes:
+    relative = Path(ADAPTER_CORPUS_PATH).relative_to(
+        SWIFT_PACKAGE_ROOT
+    ).as_posix()
+    try:
+        data = package_files[relative]
+    except KeyError as error:
+        raise ValueError("Protocol v2 corpus is missing from the Swift package") from error
+    _expect(len(data), ADAPTER_CORPUS_SIZE, "Protocol v2 live corpus size")
+    _expect(
+        sha256_bytes(data),
+        ADAPTER_CORPUS_SHA256,
+        "Protocol v2 live corpus SHA-256",
+    )
+    return data
 
 
 def _read_swift_snapshot_directory(
@@ -4064,6 +4114,129 @@ def _controlled_swift_environment() -> dict[str, str]:
     return environment
 
 
+def _read_acquisition_orchestrator(expected: NativeExpectations) -> bytes:
+    if expected.orchestrator_sha256 is None:
+        raise ValueError("stability orchestrator SHA-256 is not frozen by policy")
+    data = _read_regular(Path(__file__).resolve(), "stability orchestrator")
+    _expect(
+        sha256_bytes(data),
+        expected.orchestrator_sha256,
+        "live stability orchestrator SHA-256",
+    )
+    return data
+
+
+def _trusted_repository_state(repository_root: Path) -> tuple[str, bool]:
+    environment = {
+        "LANG": "C",
+        "LC_ALL": "C",
+        "PATH": os.defpath,
+    }
+
+    def run_git(arguments: list[str], context: str) -> str:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(repository_root), *arguments],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10,
+                check=False,
+                env=environment,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise ValueError(f"trusted repository {context} is unavailable") from error
+        if result.returncode != 0:
+            raise ValueError(f"trusted repository {context} failed")
+        return result.stdout
+
+    head = run_git(["rev-parse", "--verify", "HEAD"], "HEAD").strip()
+    if re.fullmatch(r"[0-9a-f]{40}", head) is None:
+        raise ValueError("trusted repository HEAD is not a full lowercase commit")
+    status = run_git(
+        ["status", "--porcelain=v1", "--untracked-files=normal"],
+        "worktree status",
+    )
+    return head, not bool(status)
+
+
+def _preflight_fcitx_acquisition_source(
+    data: bytes,
+    expected: NativeExpectations,
+    *,
+    trusted_repository_root: Path | None = None,
+) -> tuple[bytes, str]:
+    context = "Fcitx acquisition source"
+    payload = _object(load_json_bytes(data, context), context)
+    producer = _object(payload.get("producer"), f"{context}.producer")
+    _exact(producer, {"path", "size", "sha256"}, f"{context}.producer")
+    if expected.native_producer_sha256 is None:
+        raise ValueError(f"{context}: producer SHA-256 is not frozen")
+    _expect(
+        _sha256(producer["sha256"], f"{context}.producer.sha256"),
+        expected.native_producer_sha256,
+        f"{context}.producer.sha256",
+    )
+
+    if trusted_repository_root is None:
+        trusted_repository_root = Path(__file__).resolve().parents[2]
+    trusted_repository_root = trusted_repository_root.resolve(strict=True)
+    metadata = trusted_repository_root.lstat()
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError(f"{context}: trusted repository root must be a directory")
+    trusted_producer_path = trusted_repository_root / FCITX_PRODUCER_PATH
+    _expect(
+        Path(_string(producer["path"], f"{context}.producer.path")),
+        trusted_producer_path,
+        f"{context}.producer.path",
+    )
+    producer_data = _binding_bytes(
+        {
+            "path": FCITX_PRODUCER_PATH,
+            "sha256": expected.native_producer_sha256,
+        },
+        trusted_repository_root,
+        f"{context}.trusted producer",
+    )
+    _expect(
+        _integer(producer["size"], f"{context}.producer.size", minimum=1),
+        len(producer_data),
+        f"{context}.producer.size",
+    )
+
+    source = _object(payload.get("source"), f"{context}.source")
+    _exact(
+        source,
+        {"repository_root", "git_head", "worktree_clean"},
+        f"{context}.source",
+    )
+    _expect(
+        Path(
+            _string(
+                source["repository_root"],
+                f"{context}.source.repository_root",
+            )
+        ),
+        trusted_repository_root,
+        f"{context}.source.repository_root",
+    )
+    reported_head = _string(source["git_head"], f"{context}.source.git_head")
+    if re.fullmatch(r"[0-9a-f]{40}", reported_head) is None:
+        raise ValueError(f"{context}.source.git_head must be a full lowercase commit")
+    actual_head, actual_clean = _trusted_repository_state(trusted_repository_root)
+    _expect(reported_head, actual_head, f"{context}.source.git_head")
+    _expect(
+        _boolean(
+            source["worktree_clean"], f"{context}.source.worktree_clean"
+        ),
+        True,
+        f"{context}.source.worktree_clean",
+    )
+    _expect(actual_clean, True, f"{context}.trusted worktree clean")
+    return producer_data, actual_head
+
+
 def _write_native_and_record(
     *,
     suite_id: str,
@@ -4085,6 +4258,7 @@ def _write_native_and_record(
         native_bytes,
         artifact_fingerprint=expected.artifact_fingerprint,
         recovery_fixture_identity_value=expected.recovery_fixture_identity,
+        orchestrator_sha256_value=expected.orchestrator_sha256,
     )
     _write_private(
         record_path,
@@ -4120,7 +4294,7 @@ def run_adapter(
     timeout_seconds: int,
 ) -> tuple[Path, Path, bool]:
     expected = expectations_from_policy(policy_path.resolve(strict=True), ADAPTER_SOAK_ID)
-    orchestrator_before = _read_regular(Path(__file__).resolve(), "stability orchestrator")
+    orchestrator_before = _read_acquisition_orchestrator(expected)
     server_target, _, _, retained, server_data = _prepare_b0_snapshot(
         server=server,
         runtime_lib_dir=runtime_lib_dir,
@@ -4182,8 +4356,9 @@ def run_protocol_steady(
 ) -> tuple[Path, Path, bool]:
     repository_root = Path(__file__).resolve().parents[2]
     expected = expectations_from_policy(policy_path.resolve(strict=True), PROTOCOL_STEADY_ID)
-    orchestrator_before = _read_regular(Path(__file__).resolve(), "stability orchestrator")
+    orchestrator_before = _read_acquisition_orchestrator(expected)
     package_files = _read_swift_package_inputs(repository_root)
+    _preflight_protocol_corpus(package_files)
     package_identity = _swift_package_identity_from_files(package_files)
     _expect_swift_package_identity(
         package_identity, expected, "Protocol v2 Swift package"
@@ -4399,7 +4574,7 @@ def run_recovery(
         expected.execution_runner_sha256,
         "recovery Swift test runner SHA-256",
     )
-    orchestrator_before = _read_regular(Path(__file__).resolve(), "stability orchestrator")
+    orchestrator_before = _read_acquisition_orchestrator(expected)
     output_directory.mkdir(mode=0o700, parents=False, exist_ok=False)
     package_target, runner_path, package_retained, snapshot_identity = (
         _materialize_swift_package_snapshot(output_directory, package_files)
@@ -4611,6 +4786,7 @@ def run_recovery(
         native_bytes,
         artifact_fingerprint=expected.artifact_fingerprint,
         recovery_fixture_identity_value=expected.recovery_fixture_identity,
+        orchestrator_sha256_value=sha256_bytes(orchestrator_before),
     )
     _write_private(
         record_path,
@@ -4719,6 +4895,13 @@ def main() -> int:
         expectations = expectations_from_policy(
             args.policy.resolve(strict=True), args.suite_id
         )
+        orchestrator_before = _read_acquisition_orchestrator(expectations)
+        fcitx_source_before: tuple[bytes, str] | None = None
+        if args.suite_id in {FCITX_LONG_SOAK_ID, FCITX_LIFECYCLE_ID}:
+            fcitx_source_before = _preflight_fcitx_acquisition_source(
+                native_bytes,
+                expectations,
+            )
         validate_native_result(
             args.suite_id,
             native_bytes,
@@ -4726,12 +4909,35 @@ def main() -> int:
             expectations,
             native_path=native_path,
         )
+        if fcitx_source_before is not None:
+            _expect(
+                _preflight_fcitx_acquisition_source(
+                    native_bytes,
+                    expectations,
+                ),
+                fcitx_source_before,
+                "Fcitx acquisition source after validation",
+            )
         record = build_record(
             args.suite_id,
             native_path,
             native_bytes,
             artifact_fingerprint=expectations.artifact_fingerprint,
             recovery_fixture_identity_value=expectations.recovery_fixture_identity,
+            orchestrator_sha256_value=sha256_bytes(orchestrator_before),
+        )
+        _expect(
+            _read_regular(native_path, "native result after validation"),
+            native_bytes,
+            "native result after validation",
+        )
+        _expect(
+            _read_regular(
+                Path(__file__).resolve(),
+                "stability orchestrator after collection",
+            ),
+            orchestrator_before,
+            "stability orchestrator after collection",
         )
         rendered = json.dumps(record, ensure_ascii=False, sort_keys=True, indent=2)
         atomic_publish(output_path, (rendered + "\n").encode("utf-8"))

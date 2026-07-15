@@ -14,6 +14,19 @@ be ready, but a complete `pilot_pass` requires all five. The legacy policy key
 `formal_suite` names this frozen v1 shape only and does not authorize a formal
 adoption decision.
 
+## Immutable historical pilot evidence
+
+v1 is an immutable historical pilot contract. Its policy and retained evidence
+remain pinned to the runner, Swift package, and orchestration code used for the
+original acquisition. A newer repository HEAD does not invalidate that
+historical evidence, but it also must not be presented as having produced it.
+
+Do not rewrite `b0-policy.json`, the published `decision.json`, or any retained
+v1 evidence to match current source files. Acquiring evidence after a
+policy-bound runner, package, or orchestrator changes requires a new policy
+ID/revision with identities derived from that implementation, followed by a
+fresh acquisition of every required result.
+
 All policy rates use integer basis points. A score delta of `-800` means minus
 8 percentage points; a ratio of `5000` means 50% of the Hazkey value. The human
 net preference is `(B0 wins - B0 losses) / 256`: it must be at least -300 basis
@@ -299,16 +312,27 @@ The gate compares this policy value to the native manifest before accepting
 the manifest's independently rederived fingerprint, so replacing an otherwise
 unlisted harness, addon, configuration, test addon, or verifier and merely
 rewriting the manifest cannot satisfy the frozen pilot contract.
-`producer.path` must be exactly the fixed producer path beneath the
-reported absolute `source.repository_root`; that reported file is reopened by
-component with no-follow directory descriptors and must match the
-policy-pinned producer size and SHA-256. `source.git_head` and
-`source.worktree_clean` remain typed audit metadata rather than acceptance
-conditions, so collection stays reachable in a dirty acquisition checkout and
-historical evidence is not invalidated merely because the evaluator later has
-a newer HEAD. Re-evaluation requires both the reported producer checkout and
-the retained evidence root to remain available. Process and session identities
-remain unique across cycles.
+Historical re-evaluation requires the reported producer path to be the exact
+absolute lexical child `source.repository_root/<fixed producer path>`, and
+checks its positive reported size and policy-pinned SHA-256, but never reopens
+the reported acquisition checkout. The repository root is used only for that
+lexical relation; `source.git_head` and `source.worktree_clean` remain typed
+audit metadata. The retained evidence root is therefore sufficient even when
+the acquisition checkout and its Python interpreter no longer exist. Protocol
+v2 likewise
+re-hashes its sentinel corpus from the retained Swift-package snapshot rather
+than from the evaluator's current tree. Process and session identities remain
+unique across cycles.
+
+New Fcitx collection has a separate fail-closed preflight. It selects the
+collector's trusted current repository root, never a path supplied by evidence,
+and verifies the current producer size/SHA-256, exact reported producer path,
+reported Git HEAD against the actual trusted-checkout HEAD, and both reported
+and actual clean-worktree state before publishing a record. The Fcitx tooling
+HEAD is distinct from `product_source_ref`: the latter identifies the frozen
+product server and continues to be checked independently in the result and
+command provenance. Keep native and retained output outside the trusted
+checkout so producing that evidence does not itself dirty the checkout.
 
 Acquire the adapter soak from policy-pinned private snapshots:
 
