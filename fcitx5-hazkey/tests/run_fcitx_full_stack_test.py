@@ -31,6 +31,7 @@ RESULT_VERSION = 1
 SNAPSHOT_SCHEMA = "hazkey.fcitx-full-stack-input-snapshot.v1"
 SNAPSHOT_FINGERPRINT_DOMAIN = "hazkey.fcitx-input-snapshot.v1"
 MOZC_RUNTIME_FINGERPRINT_DOMAIN = "hazkey.mozc-runtime-fingerprint.v1"
+RETAINED_EVIDENCE_ROOT_PREFIX = "fcitx-evidence"
 MOZC_RUNTIME_FILES = (
     "fcitx5-grimodex-mozc-helper",
     "manifest.json",
@@ -223,6 +224,16 @@ class ProcessInspectionError(RuntimeError):
 
 class ResultEvidenceError(RuntimeError):
     pass
+
+
+def retained_evidence_root_name(result_filename: str, fingerprint: str) -> str:
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", fingerprint) is None:
+        raise ResultEvidenceError("retained evidence requires a SHA-256 fingerprint")
+    filename_identity = hashlib.sha256(result_filename.encode("utf-8")).hexdigest()[:16]
+    return (
+        f"{RETAINED_EVIDENCE_ROOT_PREFIX}-{filename_identity}-"
+        f"sha256-{fingerprint.removeprefix('sha256:')}"
+    )
 
 
 def process_owner(pid: int) -> int | None:
@@ -1231,6 +1242,213 @@ def verify_input_snapshot(snapshot: InputSnapshot) -> None:
         raise ResultEvidenceError("input snapshot manifest fingerprint changed")
 
 
+def bind_content_addressed_evidence_root(
+    root: Path,
+    snapshot_args: argparse.Namespace,
+    snapshot: InputSnapshot,
+    destination: ResultOutput,
+) -> tuple[Path, argparse.Namespace, InputSnapshot]:
+    if root.parent.resolve(strict=True) != destination.parent_path:
+        raise ResultEvidenceError(
+            "private evidence root must be created beside the result output"
+        )
+    final_name = retained_evidence_root_name(
+        destination.filename, snapshot.fingerprint
+    )
+    before = root.stat(follow_symlinks=False)
+    if (
+        root.is_symlink()
+        or not stat.S_ISDIR(before.st_mode)
+        or before.st_uid != os.getuid()
+        or stat.S_IMODE(before.st_mode) != 0o700
+    ):
+        raise ResultEvidenceError("private evidence root has unsafe metadata")
+    final_root = destination.parent_path / final_name
+    try:
+        os.mkdir(final_name, 0o700, dir_fd=destination.parent_fd)
+    except FileExistsError as error:
+        raise FileExistsError(
+            f"retained evidence root already exists: {final_root}"
+        ) from error
+
+    moved_children: list[tuple[str, int, bool]] = []
+    old_removed = False
+    try:
+        for child in tuple(root.iterdir()):
+            metadata = child.stat(follow_symlinks=False)
+            original_mode = stat.S_IMODE(metadata.st_mode)
+            is_directory = stat.S_ISDIR(metadata.st_mode)
+            if is_directory:
+                # Linux must update the moved directory's ``..`` entry when it
+                # crosses parents, which requires owner-write permission on the
+                # directory itself.  The snapshot is otherwise kept 0555.
+                child.chmod(original_mode | stat.S_IWUSR)
+            try:
+                os.rename(
+                    f"{root.name}/{child.name}",
+                    f"{final_name}/{child.name}",
+                    src_dir_fd=destination.parent_fd,
+                    dst_dir_fd=destination.parent_fd,
+                )
+            except BaseException:
+                if is_directory and child.exists():
+                    child.chmod(original_mode)
+                raise
+            moved_children.append((child.name, original_mode, is_directory))
+            if is_directory:
+                (final_root / child.name).chmod(original_mode)
+        os.rmdir(root.name, dir_fd=destination.parent_fd)
+        old_removed = True
+        os.fsync(destination.parent_fd)
+
+        rebound_args = argparse.Namespace(**vars(snapshot_args))
+        for field in (
+            "harness",
+            "addon",
+            "server",
+            "dictionary",
+            "addon_config",
+            "input_method_config",
+            "system_test_addon_dir",
+            "llama_lib_dir",
+            "mozc_verifier",
+            "mozc_generation",
+        ):
+            value = getattr(rebound_args, field, None)
+            if isinstance(value, Path) and value.is_relative_to(root):
+                setattr(rebound_args, field, final_root / value.relative_to(root))
+        rebound_snapshot = InputSnapshot(
+            root=final_root / snapshot.root.relative_to(root),
+            entries=snapshot.entries,
+            directories=snapshot.directories,
+            fingerprint=snapshot.fingerprint,
+        )
+        verify_input_snapshot(rebound_snapshot)
+        return final_root, rebound_args, rebound_snapshot
+    except BaseException as error:
+        rollback_errors: list[str] = []
+        if old_removed and not root.exists():
+            try:
+                root.mkdir(mode=0o700)
+            except OSError as rollback_error:
+                rollback_errors.append(
+                    f"cannot restore private root: {rollback_error}"
+                )
+        for name, original_mode, is_directory in reversed(moved_children):
+            source = final_root / name
+            destination_path = root / name
+            try:
+                if is_directory:
+                    source.chmod(original_mode | stat.S_IWUSR)
+                os.rename(
+                    f"{final_name}/{name}",
+                    f"{root.name}/{name}",
+                    src_dir_fd=destination.parent_fd,
+                    dst_dir_fd=destination.parent_fd,
+                )
+                if is_directory:
+                    destination_path.chmod(original_mode)
+            except OSError as rollback_error:
+                rollback_errors.append(
+                    f"cannot restore private child {name}: {rollback_error}"
+                )
+        try:
+            os.rmdir(final_name, dir_fd=destination.parent_fd)
+        except FileNotFoundError:
+            pass
+        except OSError as rollback_error:
+            rollback_errors.append(
+                f"cannot remove retained-root reservation: {rollback_error}"
+            )
+        try:
+            os.fsync(destination.parent_fd)
+        except OSError as rollback_error:
+            rollback_errors.append(
+                f"cannot persist retained-root rollback: {rollback_error}"
+            )
+        if rollback_errors:
+            raise ResultEvidenceError(
+                "content-addressed evidence-root rollback was incomplete: "
+                + "; ".join(rollback_errors)
+            ) from error
+        if isinstance(error, ResultEvidenceError):
+            raise
+        raise ResultEvidenceError(
+            f"cannot publish content-addressed evidence root: {error}"
+        ) from error
+
+
+def finalize_retained_evidence_root(
+    root: Path,
+    snapshot: InputSnapshot,
+    private_generation: Path,
+    bindings: dict[str, object],
+) -> None:
+    retained_children = {snapshot.root.name, private_generation.parent.name}
+    if snapshot.root.parent != root or private_generation.parent.parent != root:
+        raise ResultEvidenceError("retained evidence paths escaped their private root")
+    for child in tuple(root.iterdir()):
+        if child.name in retained_children:
+            continue
+        metadata = child.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ResultEvidenceError(
+                f"refusing to retain an evidence root with symlink {child.name}"
+            )
+        if stat.S_ISDIR(metadata.st_mode):
+            make_runtime_writable(child)
+            shutil.rmtree(child)
+        elif stat.S_ISREG(metadata.st_mode):
+            child.chmod(0o600)
+            child.unlink()
+        else:
+            raise ResultEvidenceError(
+                f"refusing to retain special evidence entry {child.name}"
+            )
+    actual_children = {child.name for child in root.iterdir()}
+    if actual_children != retained_children:
+        raise ResultEvidenceError("retained evidence root has an unexpected file set")
+    verify_input_snapshot(snapshot)
+    verify_post_run_evidence(snapshot, bindings)
+    runtime_root = private_generation.parent
+    runtime_root.chmod(0o555)
+    root.chmod(0o500)
+    for current, directory_names, file_names in os.walk(
+        root, topdown=False, followlinks=False
+    ):
+        current_path = Path(current)
+        for name in file_names:
+            path = current_path / name
+            if path.is_symlink():
+                raise ResultEvidenceError(
+                    f"retained evidence contains a symlink: {path}"
+                )
+            descriptor = os.open(
+                path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+            )
+            try:
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    raise ResultEvidenceError(
+                        f"retained evidence contains a special file: {path}"
+                    )
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        for name in directory_names:
+            if (current_path / name).is_symlink():
+                raise ResultEvidenceError(
+                    f"retained evidence contains a directory symlink: {current_path / name}"
+                )
+        descriptor = os.open(
+            current_path,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        )
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+
 def source_binding() -> dict[str, object]:
     repository_root = Path(__file__).resolve().parents[2]
     head: str | None = None
@@ -1833,6 +2051,8 @@ def atomic_publish_json(
 def observed_residue_count(
     root: Path,
     observations: list[CycleObservation],
+    *,
+    retained_root: Path | None = None,
 ) -> int:
     residues: set[tuple[object, ...]] = set()
     for observation in observations:
@@ -1852,7 +2072,7 @@ def observed_residue_count(
             residues.add(("process", identity.pid, identity.start_time))
     for audit in ACTIVE_PROCESS_AUDITS:
         residues.add(("active-audit", str(audit)))
-    if os.path.lexists(root):
+    if os.path.lexists(root) and retained_root != root:
         residues.add(("private-root", str(root)))
     return len(residues)
 
@@ -1864,9 +2084,34 @@ def publish_success_result(
     bindings: dict[str, object],
     command: list[str],
     destination: ResultOutput,
+    *,
+    retained_root: Path | None = None,
 ) -> None:
     assert args.result_output is not None
-    residue_count = observed_residue_count(root, observations)
+    if retained_root is not None:
+        snapshot_binding = bindings.get("input_snapshot")
+        if not isinstance(snapshot_binding, dict):
+            raise ResultEvidenceError("retained evidence snapshot binding is missing")
+        fingerprint = snapshot_binding.get("fingerprint")
+        snapshot_root_value = snapshot_binding.get("root")
+        if not isinstance(fingerprint, str) or not isinstance(snapshot_root_value, str):
+            raise ResultEvidenceError("retained evidence snapshot identity is invalid")
+        expected_root = destination.parent_path / retained_evidence_root_name(
+            destination.filename, fingerprint
+        )
+        metadata = retained_root.stat(follow_symlinks=False)
+        if (
+            retained_root != expected_root
+            or retained_root.is_symlink()
+            or not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o500
+            or Path(snapshot_root_value).parent != retained_root
+        ):
+            raise ResultEvidenceError("retained evidence root is not exact and readonly")
+    residue_count = observed_residue_count(
+        root, observations, retained_root=retained_root
+    )
     if residue_count != 0:
         raise ResultEvidenceError(
             "refusing to publish Fcitx evidence with "
@@ -1876,16 +2121,23 @@ def publish_success_result(
         raise ResultEvidenceError(
             "refusing to publish incomplete Fcitx cycle evidence"
         )
-    atomic_publish_json(
-        destination,
-        build_structured_result(
-            args,
-            observations,
-            bindings,
-            command,
-            residue_count,
-        ),
-    )
+    try:
+        atomic_publish_json(
+            destination,
+            build_structured_result(
+                args,
+                observations,
+                bindings,
+                command,
+                residue_count,
+            ),
+        )
+    except BaseException:
+        if retained_root is not None and retained_root.exists():
+            make_runtime_writable(retained_root)
+            shutil.rmtree(retained_root)
+            os.fsync(destination.parent_fd)
+        raise
 
 
 def verifier_environment(root: Path) -> dict[str, str]:
@@ -2530,7 +2782,12 @@ def main() -> int:
             *sys.argv[1:],
         ]
     try:
-        root = Path(tempfile.mkdtemp(prefix="grimodex-fcitx-full-stack-"))
+        root = Path(
+            tempfile.mkdtemp(
+                prefix=".grimodex-fcitx-full-stack-",
+                dir=(result_output.parent_path if result_output is not None else None),
+            )
+        )
         execution_args = args
         input_snapshot: InputSnapshot | None = None
         private_generation: Path | None = None
@@ -2545,7 +2802,16 @@ def main() -> int:
                         args,
                         root,
                     )
-                except (OSError, ResultEvidenceError) as error:
+                    assert result_output is not None
+                    root, execution_args, input_snapshot = (
+                        bind_content_addressed_evidence_root(
+                            root,
+                            execution_args,
+                            input_snapshot,
+                            result_output,
+                        )
+                    )
+                except (FileExistsError, OSError, ResultEvidenceError) as error:
                     print(f"ERROR: cannot snapshot Fcitx evidence inputs: {error}")
 
             if input_snapshot is not None or args.result_output is None:
@@ -2648,7 +2914,19 @@ def main() -> int:
             if processes_gone:
                 if input_snapshot is not None:
                     try:
-                        if evidence_bindings is None:
+                        if (
+                            result == 0
+                            and evidence_bindings is not None
+                            and result_output is not None
+                            and private_generation is not None
+                        ):
+                            finalize_retained_evidence_root(
+                                root,
+                                input_snapshot,
+                                private_generation,
+                                evidence_bindings,
+                            )
+                        elif evidence_bindings is None:
                             verify_input_snapshot(input_snapshot)
                         else:
                             verify_post_run_evidence(
@@ -2661,12 +2939,19 @@ def main() -> int:
                             f"{error}"
                         )
                         result = 1
-                try:
-                    make_runtime_writable(root)
-                    shutil.rmtree(root)
-                except OSError as error:
-                    print(f"ERROR: cannot remove private Fcitx test root: {error}")
-                    result = 1
+                if (
+                    result != 0
+                    or args.result_output is None
+                    or input_snapshot is None
+                    or evidence_bindings is None
+                    or private_generation is None
+                ):
+                    try:
+                        make_runtime_writable(root)
+                        shutil.rmtree(root)
+                    except OSError as error:
+                        print(f"ERROR: cannot remove private Fcitx test root: {error}")
+                        result = 1
             else:
                 print(
                     "Preserving private test root because an exact test process "
@@ -2687,6 +2972,7 @@ def main() -> int:
                     evidence_bindings,
                     evidence_command,
                     result_output,
+                    retained_root=root,
                 )
             except (
                 FileExistsError,
@@ -2696,6 +2982,15 @@ def main() -> int:
             ) as error:
                 print(f"ERROR: could not publish Fcitx result evidence: {error}")
                 result = 1
+                if root.exists():
+                    try:
+                        make_runtime_writable(root)
+                        shutil.rmtree(root)
+                    except OSError as cleanup_error:
+                        print(
+                            "ERROR: could not roll back retained Fcitx evidence: "
+                            f"{cleanup_error}"
+                        )
         return result
     finally:
         if result_output is not None:

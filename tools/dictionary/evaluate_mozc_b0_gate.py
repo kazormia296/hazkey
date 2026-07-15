@@ -27,6 +27,7 @@ if __package__:
         blind_conversion_ab,
         build_frozen_corpus,
         run_mozc_b0_measurement,
+        run_mozc_b0_stability,
         summarize_ab_probe,
     )
     from .evaluate_conversion_quality import load_corpus_bytes
@@ -34,6 +35,7 @@ else:
     import blind_conversion_ab  # type: ignore[no-redef]
     import build_frozen_corpus  # type: ignore[no-redef]
     import run_mozc_b0_measurement  # type: ignore[no-redef]
+    import run_mozc_b0_stability  # type: ignore[no-redef]
     import summarize_ab_probe  # type: ignore[no-redef]
     from evaluate_conversion_quality import load_corpus_bytes
 
@@ -41,8 +43,7 @@ else:
 POLICY_SCHEMA = "hazkey.mozc-adoption-b0-policy.v1"
 EVIDENCE_SCHEMA = "hazkey.mozc-b0-gate-evidence.v1"
 CORPUS_MANIFEST_SCHEMA = "hazkey.frozen-conversion-corpus-manifest.v1"
-STABILITY_SCHEMA = "hazkey.mozc-b0-stability-evidence.v1"
-STABILITY_RAW_RESULT_SCHEMA = "hazkey.mozc-b0-stability-raw-result.v1"
+STABILITY_SCHEMA = run_mozc_b0_stability.RECORD_SCHEMA
 OUTPUT_SCHEMA = "hazkey.mozc-b0-gate-result.v1"
 
 EXPECTED_TOTAL_CASES = 256
@@ -178,6 +179,88 @@ def _path(value: Any, root: Path, context: str) -> Path:
     return path if path.is_absolute() else root / path
 
 
+def _self_contained_path(
+    value: Any,
+    root: Path,
+    context: str,
+) -> tuple[Path, bytes]:
+    raw = _string(value, context)
+    if "\0" in raw:
+        raise ValueError(f"{context} contains NUL")
+    path = Path(raw)
+    if path.is_absolute() or ".." in path.parts or path.name in {"", ".", ".."}:
+        raise ValueError(f"{context} must be a self-contained relative path")
+    directory_flags = (
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    file_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptors: list[int] = []
+    try:
+        descriptor = os.open(root, directory_flags)
+        descriptors.append(descriptor)
+        for component in path.parts[:-1]:
+            descriptor = os.open(
+                component,
+                directory_flags,
+                dir_fd=descriptor,
+            )
+            descriptors.append(descriptor)
+        final_name = path.parts[-1]
+        file_descriptor = os.open(final_name, file_flags, dir_fd=descriptor)
+        descriptors.append(file_descriptor)
+        before = os.fstat(file_descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError(f"{context} must be a non-symlink regular file")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(file_descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        after = os.fstat(file_descriptor)
+        final = os.stat(final_name, dir_fd=descriptor, follow_symlinks=False)
+    except OSError as error:
+        raise ValueError(
+            f"{context} must not contain a symlink ancestor or non-directory ancestor"
+        ) from error
+    finally:
+        for open_descriptor in reversed(descriptors):
+            os.close(open_descriptor)
+    if (
+        before.st_dev,
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+    ) != (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+    ) or (
+        final.st_dev,
+        final.st_ino,
+        final.st_size,
+        final.st_mtime_ns,
+    ) != (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+    ) or not stat.S_ISREG(final.st_mode):
+        raise ValueError(f"{context} changed while it was read")
+    data = b"".join(chunks)
+    if len(data) != before.st_size:
+        raise ValueError(f"{context} was not read completely")
+    return root / path, data
+
+
 def _read_regular(path: Path, context: str) -> bytes:
     metadata = path.lstat()
     if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
@@ -231,6 +314,10 @@ def _read_regular(path: Path, context: str) -> bytes:
 
 def _verified_bytes(path: Path, expected: str, context: str) -> bytes:
     data = _read_regular(path, context)
+    return _verified_data(data, expected, context)
+
+
+def _verified_data(data: bytes, expected: str, context: str) -> bytes:
     actual = _sha256_bytes(data)
     if actual != expected:
         raise ValueError(
@@ -273,15 +360,26 @@ class MeasurementContract:
 @dataclass(frozen=True)
 class StabilityCheck:
     check_id: str
-    protocol: str
+    native_schema: str
+    artifact_kind: str
     command: tuple[str, ...]
     minimum_conversions: int
     minimum_cycles: int
-    helper_launches: int
-    server_launches: int
-    helper_recoveries: int
-    server_recoveries: int
-    residue_count: int
+    helper_launches: int | None
+    server_launches: int | None
+    helper_recoveries: int | None
+    server_recoveries: int | None
+    residue_count: int | None
+    native_producer_path: str
+    native_producer_sha256: str | None
+    execution_runner_path: str | None
+    execution_runner_sha256: str | None
+    execution_package_path: str | None
+    execution_package_file_count: int | None
+    execution_package_size_bytes: int | None
+    execution_package_fingerprint: str | None
+    recovery_fixture_identity: str | None
+    input_snapshot_fingerprint: str | None
 
 
 @dataclass(frozen=True)
@@ -302,6 +400,7 @@ class ParsedPolicy:
     manifest_sha256: str
     policy_sha256: str
     measurement: MeasurementContract
+    stability_orchestrator_sha256: str
     stability_checks: dict[str, StabilityCheck]
 
 
@@ -355,6 +454,11 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
         raise ValueError(
             f"{context}.candidate.product_source_revision must be a 40-hex commit"
         )
+    _expect(
+        product_source_revision,
+        run_mozc_b0_stability.PRODUCT_SOURCE_REF,
+        f"{context}.candidate.product_source_revision",
+    )
     artifact_source_revision = _string(
         candidate["artifact_source_revision"],
         f"{context}.candidate.artifact_source_revision",
@@ -365,6 +469,11 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
         )
     candidate_fingerprint = _sha256(
         candidate["resource_fingerprint"],
+        f"{context}.candidate.resource_fingerprint",
+    )
+    _expect(
+        candidate_fingerprint,
+        run_mozc_b0_stability.B0_RESOURCE_FINGERPRINT,
         f"{context}.candidate.resource_fingerprint",
     )
     executable_context = f"{context}.candidate.product_executable"
@@ -650,11 +759,17 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
                 check,
                 {
                     "id",
-                    "protocol",
+                    "native_schema",
+                    "artifact_kind",
                     "command",
                     "minimum_conversions",
                     "minimum_cycles",
                     "expected_counts",
+                    "native_producer",
+                    "execution_runner",
+                    "execution_package",
+                    "recovery_fixture_identity",
+                    "input_snapshot_fingerprint",
                 },
                 check_context,
             )
@@ -689,19 +804,158 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
             minimum_cycles = _nonnegative_int(
                 check["minimum_cycles"], f"{check_context}.minimum_cycles"
             )
-            parsed_counts = {
-                field: _nonnegative_int(counts[field], f"{counts_context}.{field}")
-                for field in count_fields
-            }
+            parsed_counts: dict[str, int | None] = {}
+            for field in count_fields:
+                value = counts[field]
+                parsed_counts[field] = (
+                    None
+                    if value is None
+                    else _nonnegative_int(value, f"{counts_context}.{field}")
+                )
             if not any(
-                (minimum_conversions, minimum_cycles, *parsed_counts.values())
+                value
+                for value in (
+                    minimum_conversions,
+                    minimum_cycles,
+                    *(value for value in parsed_counts.values() if value is not None),
+                )
             ):
                 raise ValueError(
                     f"{check_context} must contain at least one non-zero requirement"
                 )
+            producer_context = f"{check_context}.native_producer"
+            producer = _object(check["native_producer"], producer_context)
+            _exact(
+                producer,
+                {"path", "status", "sha256"},
+                producer_context,
+            )
+            producer_path = _string(producer["path"], f"{producer_context}.path")
+            if producer_path.startswith("/") or ".." in Path(producer_path).parts:
+                raise ValueError(f"{producer_context}.path must be repo-relative")
+            producer_status = _string(
+                producer["status"], f"{producer_context}.status"
+            )
+            if producer_status not in {"pending", "ready"}:
+                raise ValueError(f"{producer_context}.status must be pending or ready")
+            if producer_status == "ready":
+                producer_sha = _sha256(
+                    producer["sha256"], f"{producer_context}.sha256"
+                )
+                if producer_path == "<product-executable>":
+                    expected_producer_sha = product_executable[1]
+                else:
+                    repository_root = Path(__file__).resolve().parents[2]
+                    expected_producer_sha = _sha256_bytes(
+                        _read_regular(
+                            repository_root / producer_path,
+                            f"{producer_context}.path",
+                        )
+                    )
+                _expect(
+                    producer_sha,
+                    expected_producer_sha,
+                    f"{producer_context}.sha256",
+                )
+            else:
+                if producer["sha256"] is not None:
+                    raise ValueError(
+                        f"{producer_context}.sha256 must be null while pending"
+                    )
+                producer_sha = None
+            runner_value = check["execution_runner"]
+            if runner_value is None:
+                runner_path = None
+                runner_sha = None
+            else:
+                runner_context = f"{check_context}.execution_runner"
+                runner = _object(runner_value, runner_context)
+                _exact(runner, {"path", "sha256"}, runner_context)
+                runner_path = _string(runner["path"], f"{runner_context}.path")
+                if runner_path.startswith("/") or ".." in Path(runner_path).parts:
+                    raise ValueError(f"{runner_context}.path must be repo-relative")
+                runner_sha = _sha256(runner["sha256"], f"{runner_context}.sha256")
+                repository_root = Path(__file__).resolve().parents[2]
+                _expect(
+                    runner_sha,
+                    _sha256_bytes(
+                        _read_regular(
+                            repository_root / runner_path,
+                            f"{runner_context}.path",
+                        )
+                    ),
+                    f"{runner_context}.sha256",
+                )
+            package_value = check["execution_package"]
+            if package_value is None:
+                package_path = None
+                package_file_count = None
+                package_size = None
+                package_fingerprint = None
+            else:
+                package_context = f"{check_context}.execution_package"
+                package = _object(package_value, package_context)
+                _exact(
+                    package,
+                    {"path", "file_count", "size_bytes", "fingerprint"},
+                    package_context,
+                )
+                package_path = _string(
+                    package["path"], f"{package_context}.path"
+                )
+                _expect(
+                    package_path,
+                    run_mozc_b0_stability.SWIFT_PACKAGE_ROOT,
+                    f"{package_context}.path",
+                )
+                package_file_count = _nonnegative_int(
+                    package["file_count"], f"{package_context}.file_count"
+                )
+                package_size = _nonnegative_int(
+                    package["size_bytes"], f"{package_context}.size_bytes"
+                )
+                if package_file_count < 1 or package_size < 1:
+                    raise ValueError(
+                        f"{package_context} file_count and size_bytes must be positive"
+                    )
+                package_fingerprint = _sha256(
+                    package["fingerprint"], f"{package_context}.fingerprint"
+                )
+                actual_package_identity = (
+                    run_mozc_b0_stability._swift_package_identity_from_files(
+                        run_mozc_b0_stability._read_swift_package_inputs(
+                            Path(__file__).resolve().parents[2]
+                        )
+                    )
+                )
+                _expect(
+                    (package_file_count, package_size, package_fingerprint),
+                    actual_package_identity,
+                    package_context,
+                )
+            fixture_identity = check["recovery_fixture_identity"]
+            if fixture_identity is not None:
+                fixture_identity = _sha256(
+                    fixture_identity,
+                    f"{check_context}.recovery_fixture_identity",
+                )
+            snapshot_fingerprint_value = check["input_snapshot_fingerprint"]
+            snapshot_fingerprint = (
+                None
+                if snapshot_fingerprint_value is None
+                else _sha256(
+                    snapshot_fingerprint_value,
+                    f"{check_context}.input_snapshot_fingerprint",
+                )
+            )
             stability_checks[check_id] = StabilityCheck(
                 check_id=check_id,
-                protocol=_string(check["protocol"], f"{check_context}.protocol"),
+                native_schema=_string(
+                    check["native_schema"], f"{check_context}.native_schema"
+                ),
+                artifact_kind=_string(
+                    check["artifact_kind"], f"{check_context}.artifact_kind"
+                ),
                 command=command,
                 minimum_conversions=minimum_conversions,
                 minimum_cycles=minimum_cycles,
@@ -710,6 +964,16 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
                 helper_recoveries=parsed_counts["helper_recoveries"],
                 server_recoveries=parsed_counts["server_recoveries"],
                 residue_count=parsed_counts["residue_count"],
+                native_producer_path=producer_path,
+                native_producer_sha256=producer_sha,
+                execution_runner_path=runner_path,
+                execution_runner_sha256=runner_sha,
+                execution_package_path=package_path,
+                execution_package_file_count=package_file_count,
+                execution_package_size_bytes=package_size,
+                execution_package_fingerprint=package_fingerprint,
+                recovery_fixture_identity=fixture_identity,
+                input_snapshot_fingerprint=snapshot_fingerprint,
             )
     elif stability["checks"] is not None:
         raise ValueError(
@@ -717,6 +981,102 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
             "until frozen"
         )
     required_ids = tuple(stability_checks)
+    if frozen:
+        _expect(
+            required_ids,
+            run_mozc_b0_stability.SUITE_IDS,
+            f"{context}.gates.long_running_stability check IDs",
+        )
+        for check_id, check in stability_checks.items():
+            requirements = run_mozc_b0_stability.SUITE_REQUIREMENTS[check_id]
+            _expect(
+                check.native_schema,
+                run_mozc_b0_stability.native_schema(check_id),
+                f"{context}.stability.{check_id}.native_schema",
+            )
+            _expect(
+                check.command,
+                run_mozc_b0_stability.CANONICAL_COMMANDS[check_id],
+                f"{context}.stability.{check_id}.command",
+            )
+            expected_kind = (
+                "b0"
+                if check_id in run_mozc_b0_stability.B0_SUITE_IDS
+                else "fault-fixture"
+            )
+            _expect(
+                check.artifact_kind,
+                expected_kind,
+                f"{context}.stability.{check_id}.artifact_kind",
+            )
+            _expect(
+                check.minimum_conversions,
+                requirements["minimum_conversions"],
+                f"{context}.stability.{check_id}.minimum_conversions",
+            )
+            _expect(
+                check.minimum_cycles,
+                requirements["minimum_cycles"],
+                f"{context}.stability.{check_id}.minimum_cycles",
+            )
+            for field, expected_count in requirements["expected_counts"].items():
+                _expect(
+                    getattr(check, field),
+                    expected_count,
+                    f"{context}.stability.{check_id}.expected_counts.{field}",
+                )
+            _expect(
+                check.native_producer_path,
+                requirements["native_producer_path"],
+                f"{context}.stability.{check_id}.native_producer.path",
+            )
+            _expect(
+                check.execution_runner_path,
+                requirements["execution_runner_path"],
+                f"{context}.stability.{check_id}.execution_runner.path",
+            )
+            _expect(
+                check.execution_package_path,
+                requirements["execution_package_path"],
+                f"{context}.stability.{check_id}.execution_package.path",
+            )
+            if check_id == run_mozc_b0_stability.PROTOCOL_RECOVERY_ID:
+                if check.recovery_fixture_identity is None:
+                    raise ValueError(
+                        f"{context}.stability.{check_id} requires fixture identity"
+                    )
+            elif check.recovery_fixture_identity is not None:
+                raise ValueError(
+                    f"{context}.stability.{check_id} must not claim a fixture identity"
+                )
+            if check_id in {
+                run_mozc_b0_stability.FCITX_LONG_SOAK_ID,
+                run_mozc_b0_stability.FCITX_LIFECYCLE_ID,
+            }:
+                if check.input_snapshot_fingerprint is None:
+                    raise ValueError(
+                        f"{context}.stability.{check_id} requires a frozen "
+                        "input snapshot fingerprint"
+                    )
+            elif check.input_snapshot_fingerprint is not None:
+                raise ValueError(
+                    f"{context}.stability.{check_id} must not claim an input "
+                    "snapshot fingerprint"
+                )
+        fcitx_snapshot_fingerprints = {
+            check.input_snapshot_fingerprint
+            for check_id, check in stability_checks.items()
+            if check_id
+            in {
+                run_mozc_b0_stability.FCITX_LONG_SOAK_ID,
+                run_mozc_b0_stability.FCITX_LIFECYCLE_ID,
+            }
+        }
+        if len(fcitx_snapshot_fingerprints) != 1:
+            raise ValueError(
+                f"{context}.gates.long_running_stability Fcitx suites must "
+                "freeze the same input snapshot fingerprint"
+            )
 
     contracts = _object(
         root["measurement_contracts"], f"{context}.measurement_contracts"
@@ -792,7 +1152,11 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
     stability_contract = _object(
         contracts["long_running_stability"], stability_contract_context
     )
-    _exact(stability_contract, {"status"}, stability_contract_context)
+    _exact(
+        stability_contract,
+        {"status", "orchestrator"},
+        stability_contract_context,
+    )
     stability_status = _string(
         stability_contract["status"], f"{stability_contract_context}.status"
     )
@@ -800,7 +1164,47 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
         raise ValueError(
             f"{stability_contract_context}.status must be pending or ready"
         )
-    contracts_ready = measurement_status == "ready" and stability_status == "ready"
+    orchestrator_context = f"{stability_contract_context}.orchestrator"
+    orchestrator = _object(
+        stability_contract["orchestrator"], orchestrator_context
+    )
+    _exact(
+        orchestrator,
+        {"schema", "path", "sha256"},
+        orchestrator_context,
+    )
+    _expect(
+        orchestrator["schema"],
+        run_mozc_b0_stability.RECORD_SCHEMA,
+        f"{orchestrator_context}.schema",
+    )
+    _expect(
+        orchestrator["path"],
+        run_mozc_b0_stability.ORCHESTRATOR_PATH,
+        f"{orchestrator_context}.path",
+    )
+    orchestrator_sha = _sha256(
+        orchestrator["sha256"], f"{orchestrator_context}.sha256"
+    )
+    _expect(
+        orchestrator_sha,
+        _sha256_bytes(
+            _read_regular(
+                Path(run_mozc_b0_stability.__file__).resolve(),
+                "stability orchestrator",
+            )
+        ),
+        f"{orchestrator_context}.sha256",
+    )
+    producer_contracts_ready = all(
+        check.native_producer_sha256 is not None
+        for check in stability_checks.values()
+    )
+    contracts_ready = (
+        measurement_status == "ready"
+        and stability_status == "ready"
+        and producer_contracts_ready
+    )
 
     binding = _object(root["manifest_binding"], f"{context}.manifest_binding")
     _exact(binding, {"required_for_formal_decision", "expected_schema", "status", "path", "sha256"}, f"{context}.manifest_binding")
@@ -867,6 +1271,7 @@ def parse_policy(data: bytes, context: str = "policy") -> ParsedPolicy:
         manifest_sha256=manifest_sha256,
         policy_sha256=_sha256_bytes(data),
         measurement=measurement,
+        stability_orchestrator_sha256=orchestrator_sha,
         stability_checks=stability_checks,
     )
 
@@ -1899,7 +2304,7 @@ def evaluate(policy_path: Path, evidence_path: Path) -> dict[str, Any]:
     stability_entries = _array(evidence["stability"], f"{evidence_path}.stability")
     stability_values: dict[str, bool] = {}
     stability_hashes: dict[str, dict[str, str]] = {}
-    stability_observations: dict[str, dict[str, int]] = {}
+    stability_observations: dict[str, dict[str, int | None]] = {}
     for index, raw in enumerate(stability_entries):
         context = f"{evidence_path}.stability[{index}]"
         item = _object(raw, context)
@@ -1907,20 +2312,22 @@ def evaluate(policy_path: Path, evidence_path: Path) -> dict[str, Any]:
         check_id = _string(item["id"], f"{context}.id")
         if check_id in stability_values:
             raise ValueError(f"{evidence_path}.stability contains duplicate id {check_id!r}")
-        path = _path(item["path"], root, f"{context}.path")
         digest = _sha256(item["sha256"], f"{context}.sha256")
-        data = _verified_bytes(path, digest, context)
+        path, data = _self_contained_path(
+            item["path"], root, f"{context}.path"
+        )
+        _verified_data(data, digest, context)
         record = _object(_load_json_bytes(data, str(path)), str(path))
         _exact(
             record,
             {
                 "schema",
                 "id",
-                "protocol",
+                "orchestrator",
                 "command",
                 "product_source_ref",
-                "artifact_fingerprint",
-                "raw_result",
+                "artifact",
+                "native_result",
             },
             str(path),
         )
@@ -1929,7 +2336,19 @@ def evaluate(policy_path: Path, evidence_path: Path) -> dict[str, Any]:
         contract = policy.stability_checks.get(check_id)
         if contract is None:
             raise ValueError(f"{path}.id is not a frozen stability check")
-        _expect(record["protocol"], contract.protocol, f"{path}.protocol")
+        orchestrator_context = f"{path}.orchestrator"
+        orchestrator = _object(record["orchestrator"], orchestrator_context)
+        _exact(orchestrator, {"path", "sha256"}, orchestrator_context)
+        _expect(
+            orchestrator["path"],
+            run_mozc_b0_stability.ORCHESTRATOR_PATH,
+            f"{orchestrator_context}.path",
+        )
+        _expect(
+            _sha256(orchestrator["sha256"], f"{orchestrator_context}.sha256"),
+            policy.stability_orchestrator_sha256,
+            f"{orchestrator_context}.sha256",
+        )
         command = tuple(
             _string(value, f"{path}.command[{item_index}]")
             for item_index, value in enumerate(
@@ -1942,104 +2361,87 @@ def evaluate(policy_path: Path, evidence_path: Path) -> dict[str, Any]:
             product_source_ref,
             f"{path}.product_source_ref",
         )
-        _expect(
-            record["artifact_fingerprint"],
-            policy.candidate_resource_fingerprint,
-            f"{path}.artifact_fingerprint",
-        )
-        raw_result_contract = _object(record["raw_result"], f"{path}.raw_result")
-        _exact(raw_result_contract, {"path", "sha256"}, f"{path}.raw_result")
-        raw_result_path = _path(
-            raw_result_contract["path"], path.parent, f"{path}.raw_result.path"
-        )
-        raw_result_sha = _sha256(
-            raw_result_contract["sha256"], f"{path}.raw_result.sha256"
-        )
-        raw_result_bytes = _verified_bytes(
-            raw_result_path, raw_result_sha, f"{path}.raw_result"
-        )
-        raw_result = _object(
-            _load_json_bytes(raw_result_bytes, str(raw_result_path)),
-            str(raw_result_path),
-        )
-        _exact(
-            raw_result,
-            {
-                "schema",
-                "id",
-                "protocol",
-                "command",
-                "product_source_ref",
-                "artifact_fingerprint",
-                "observations",
-            },
-            str(raw_result_path),
-        )
-        _expect(
-            raw_result["schema"],
-            STABILITY_RAW_RESULT_SCHEMA,
-            f"{raw_result_path}.schema",
-        )
-        _expect(raw_result["id"], check_id, f"{raw_result_path}.id")
-        _expect(
-            raw_result["protocol"], contract.protocol, f"{raw_result_path}.protocol"
-        )
-        raw_command = tuple(
-            _string(value, f"{raw_result_path}.command[{item_index}]")
-            for item_index, value in enumerate(
-                _array(raw_result["command"], f"{raw_result_path}.command")
+        artifact_context = f"{path}.artifact"
+        artifact = _object(record["artifact"], artifact_context)
+        if contract.artifact_kind == "b0":
+            _exact(artifact, {"kind", "fingerprint"}, artifact_context)
+            _expect(artifact["kind"], "b0", f"{artifact_context}.kind")
+            _expect(
+                _sha256(artifact["fingerprint"], f"{artifact_context}.fingerprint"),
+                policy.candidate_resource_fingerprint,
+                f"{artifact_context}.fingerprint",
             )
-        )
-        _expect(raw_command, contract.command, f"{raw_result_path}.command")
-        _expect(
-            raw_result["product_source_ref"],
-            product_source_ref,
-            f"{raw_result_path}.product_source_ref",
-        )
-        _expect(
-            raw_result["artifact_fingerprint"],
-            policy.candidate_resource_fingerprint,
-            f"{raw_result_path}.artifact_fingerprint",
-        )
-        observations_context = f"{raw_result_path}.observations"
-        raw_observations = _object(raw_result["observations"], observations_context)
-        observation_fields = {
-            "exit_code",
-            "conversions",
-            "cycles",
-            "helper_launches",
-            "server_launches",
-            "helper_recoveries",
-            "server_recoveries",
-            "residue_count",
-        }
-        _exact(raw_observations, observation_fields, observations_context)
-        observations = {
-            field: _nonnegative_int(
-                raw_observations[field], f"{observations_context}.{field}"
+        else:
+            _exact(artifact, {"kind", "fixture_identity"}, artifact_context)
+            _expect(
+                artifact["kind"], "fault-fixture", f"{artifact_context}.kind"
             )
-            for field in observation_fields
-        }
-        expected_counts = {
+            _expect(
+                _sha256(
+                    artifact["fixture_identity"],
+                    f"{artifact_context}.fixture_identity",
+                ),
+                contract.recovery_fixture_identity,
+                f"{artifact_context}.fixture_identity",
+            )
+        native_context = f"{path}.native_result"
+        native = _object(record["native_result"], native_context)
+        _exact(native, {"schema", "path", "sha256"}, native_context)
+        _expect(native["schema"], contract.native_schema, f"{native_context}.schema")
+        native_sha = _sha256(native["sha256"], f"{native_context}.sha256")
+        native_path, native_bytes = _self_contained_path(
+            native["path"], path.parent, f"{native_context}.path"
+        )
+        _verified_data(native_bytes, native_sha, native_context)
+        observations = run_mozc_b0_stability.validate_native_result(
+            check_id,
+            native_bytes,
+            str(native_path),
+            run_mozc_b0_stability.NativeExpectations(
+                product_source_ref=product_source_ref,
+                artifact_fingerprint=policy.candidate_resource_fingerprint,
+                product_server_size=policy.product_executable[0],
+                product_server_sha256=policy.product_executable[1],
+                artifacts=policy.artifacts,
+                native_producer_sha256=contract.native_producer_sha256,
+                recovery_fixture_identity=contract.recovery_fixture_identity,
+                input_snapshot_fingerprint=contract.input_snapshot_fingerprint,
+                execution_runner_path=contract.execution_runner_path,
+                execution_runner_sha256=contract.execution_runner_sha256,
+                swift_package_file_count=contract.execution_package_file_count,
+                swift_package_size_bytes=contract.execution_package_size_bytes,
+                swift_package_fingerprint=contract.execution_package_fingerprint,
+                runtime_dependencies=policy.runtime_dependencies,
+                baseline_resource_fingerprint=policy.baseline_resource_fingerprint,
+            ),
+            native_path=native_path,
+        )
+        expected_counts: dict[str, int | None] = {
             "helper_launches": contract.helper_launches,
             "server_launches": contract.server_launches,
             "helper_recoveries": contract.helper_recoveries,
             "server_recoveries": contract.server_recoveries,
             "residue_count": contract.residue_count,
         }
+        exit_code = observations["exit_code"]
+        conversions = observations["conversions"]
+        cycles = observations["cycles"]
+        if exit_code is None or conversions is None or cycles is None:
+            raise ValueError(f"{native_path}: core stability observations are missing")
         stability_values[check_id] = (
-            observations["exit_code"] == 0
-            and observations["conversions"] >= contract.minimum_conversions
-            and observations["cycles"] >= contract.minimum_cycles
+            exit_code == 0
+            and conversions >= contract.minimum_conversions
+            and cycles >= contract.minimum_cycles
             and all(
                 observations[field] == expected
                 for field, expected in expected_counts.items()
+                if expected is not None
             )
         )
         stability_observations[check_id] = observations
         stability_hashes[check_id] = {
             "record_sha256": digest,
-            "raw_result_sha256": raw_result_sha,
+            "native_result_sha256": native_sha,
         }
     if set(stability_values) != set(policy.gate.required_stability_ids):
         raise ValueError("stability evidence IDs do not exactly match frozen policy")
@@ -2219,6 +2621,14 @@ def _write_atomic(path: Path, data: str) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        directory_descriptor = os.open(
+            path.parent,
+            os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0),
+        )
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
     except BaseException:
         try:
             os.unlink(temporary)

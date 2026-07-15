@@ -4,9 +4,11 @@ This directory locks the corpus shape and pass/fail thresholds for the first
 formal evaluation of the fixed B0 Mozc artifact. The pinned AJIMEE component is
 kept separate from the reviewed product-owned 140 cases and protected 16 cases.
 Their deterministic aggregate manifest and the ABProbe measurement contract are
-frozen. The exact long-running stability check contracts and native evidence
-producers remain pending. No formal adoption decision may be produced while
-`readiness.formal_decision_enabled` is `false`.
+frozen. The five long-running stability contracts and their native schemas are
+also frozen, including the committed Fcitx native producer identity. Formal
+decision readiness is enabled at the contract level; this does not assert that
+the five required native results exist or pass. Evidence results do not need to
+exist for the contract itself to be ready, but the final gate requires all five.
 
 All policy rates use integer basis points. A score delta of `-800` means minus
 8 percentage points; a ratio of `5000` means 50% of the Hazkey value. The human
@@ -191,17 +193,192 @@ gate also reloads every raw run and rejects any drift in the measurement values.
 Hazkey PSS observations must have parent readings only; Mozc observations must
 have complete parent and helper readings.
 
-Long-running stability check contracts are not yet frozen. A ready policy must
-carry a non-empty `checks` array. Each check freezes its protocol, exact argv,
-minimum conversions and cycles, and exact helper/server launch, recovery, and
-residue counts. Evidence records do not contain a trusted `passed` flag: they
-bind a separate raw structured result by path and SHA-256, and the gate derives
-pass/fail from exit code and the frozen observations. Until those contracts and
-their native evidence producers are ready, no gate runner may infer them to
-make the policy appear ready.
+The stability contract consists of exactly these five suite IDs:
 
-Once the stability contracts are frozen and their evidence exists, invoke the
-final evaluator with:
+| Suite | Native schema and frozen minimum |
+|---|---|
+| `adapter-soak-150k` | `hazkey.mozc-b0-adapter-soak-result.v1` wrapping exact B0 ABProbe v3, 150,000 conversions, one audited server/helper launch, no recovery or residue |
+| `protocol-v2-steady-1500` | `hazkey.mozc-b0-protocol-v2-steady-result.v3` wrapping `hazkey.protocol-v2-backend-benchmark.v1`, exact baseline dictionary and private Swift-package identities, 1,500 conversions per backend, two audited server launches (Hazkey and Mozc), one helper, no recovery or residue |
+| `protocol-v2-recovery` | `hazkey.mozc-b0-protocol-v2-recovery-result.v5`; exact fault-fixture source, private Swift package, fresh scratch, and private runtime-library identities plus four fixture-backed checks for EOF, partial-frame EOF, timeout, and external SIGKILL; all named checks and cleanup must pass |
+| `fcitx-long-soak-150k` | `hazkey.fcitx-full-stack-result.v1`, one continuous 150,000-conversion cycle, one server/helper launch, no recovery or residue |
+| `fcitx-lifecycle-3x100` | the same native Fcitx schema, three fresh 100-conversion cycles, exactly three server/helper launches, no recovery or residue |
+
+The recovery suite is deliberately identified as `fault-fixture`; it must not
+claim the B0 artifact fingerprint. The other four suites bind the exact B0
+fingerprint and product source revision. Every command in the policy is a
+deterministic repo-relative token list with explicit placeholders for private
+runtime paths.
+
+`tools/dictionary/run_mozc_b0_stability.py` emits schema
+`hazkey.mozc-b0-stability-record.v2`. A record has no `passed` field and no
+generic aggregate observations. It binds one native result by path and
+SHA-256. The final gate re-hashes that file and re-derives counts from its
+suite-specific native schema. It rejects schema substitution, aggregate-count
+forgery, producer drift, missing or renamed recovery subchecks, and B0 versus
+fault-fixture identity substitution.
+
+The adapter and Protocol v2 steady runners execute in a new Linux session and
+retain a native `process_audit`; server and helper counts are not filled in from
+generic caller assertions. The observer follows the complete session, including
+Swift children that create a separate process group. Every observed process is
+identified by PID plus Linux start-time ticks. Server classification requires
+the running `/proc/<pid>/exe` inode to be the policy-pinned private server
+snapshot. Helper classification reads the running executable through
+`/proc/<pid>/exe` and
+requires the B0 helper's exact size and SHA-256. Each process identity records
+that executable identity. The gate cross-checks the Protocol report's server
+and helper PIDs against the audit, cross-checks ABProbe's native helper launch
+diagnostics, and requires that no process remained for process-group cleanup.
+Server and helper PID/start-time identities must be disjoint; a process cannot
+change roles merely by claiming a different executable hash.
+It separately requires clean termination of the original process group and the
+complete same-session process set. PID reuse, basename-only classification, a
+same-session child in another process group, and an inferred zero residue
+therefore cannot satisfy either wrapper schema. This scope relies on the fixed
+Swift runner, product server, and B0 helper not calling `setsid(2)`; it does not
+claim containment of an adversarial child that creates a new session.
+
+The Protocol steady runner verifies the baseline dictionary fingerprint before
+and after execution, records both observations, and requires the native report
+to name the same dictionary and fingerprint. Its validator also fixes five
+warmups, 100 measured iterations, the ordered 15-case sentinel corpus, all
+latency samples and derived summaries, endpoint RSS/PSS snapshots, execution
+metadata, and derived comparison values for both backends. Every case must
+carry the exact ID/category and at least one concrete candidate, so null metric
+objects or an array of empty candidates cannot manufacture acceptance.
+
+The Protocol steady and recovery runners copy the policy-pinned Swift package
+to a read-only private snapshot and execute the copied
+`scripts/swift-test.sh`. The package fingerprint covers path, content, and
+mode for `Package.swift`, `Package.resolved`, the generated
+`Sources/hazkey-server/constants.swift`, all selected Sources and Tests,
+`prepare_azookey_dependency.cmake`, the AzooKey patches, and the runner. The
+self-referential `Fixtures/mozc-adoption-v1` policy/documentation directory,
+which the selected filters do not consume, is excluded. Both runners create a
+new private `swift-scratch` below the new output directory and reject an
+existing output directory; caller-selected incremental build products are
+never used. The native validator re-walks the read-only snapshot with
+no-follow descriptors and compares its file count, total size, and fingerprint
+to policy. Cleanup runs
+from a `finally` boundary even if process communication raises an unexpected
+exception. Evidence and native-result bindings are opened component by
+component with no-follow directory file descriptors; an ancestor swap is not
+reopened through a pathname after validation.
+
+The acquisition host is part of the trusted computing base: this contract does
+not attest the kernel, root, or the system Bash, Swift, CMake, and Git binaries
+selected by the fixed system `PATH`. SwiftPM dependencies are resolved only in
+the fresh scratch from the snapshotted `Package.resolved`; the repository CMake
+preparation additionally checks the AzooKey revision before applying the
+snapshotted patches. The contract binds the inputs and outputs used by these
+suites, but does not claim a reproducible proof of the system toolchain or
+remote package-host infrastructure.
+
+The Fcitx validators rederive their command, complete input-snapshot
+fingerprint, artifact/runtime bindings, and PID/start-time/executable
+identities. For formal output, the producer atomically reserves a
+content-addressed evidence root beside the native JSON before execution, runs
+the server/helper from that root, removes all ephemeral cycle/verifier state,
+and retains only the exact input snapshot and prepared Mozc runtime. The root
+is owner-only and read-only when the JSON is published. Re-evaluation opens it
+component by component without following symlinks, requires the exact
+top-level/directory/file sets and modes, and re-hashes every retained server,
+helper, data, runtime-library, configuration, and bundle byte. Missing, extra,
+modified, or symlink-substituted retained evidence therefore fails closed.
+Both Fcitx suites additionally freeze the same complete 3,428-entry,
+11-directory input closure in policy as
+`sha256:bb4f63a09a16fd0cb00bc41ee6091dca7e3fa85c118ebae688cd7ada6bd99573`.
+The gate compares this policy value to the native manifest before accepting
+the manifest's independently rederived fingerprint, so replacing an otherwise
+unlisted harness, addon, configuration, test addon, or verifier and merely
+rewriting the manifest cannot satisfy the formal contract.
+`producer.path` must be exactly the fixed producer path beneath the
+reported absolute `source.repository_root`; that reported file is reopened by
+component with no-follow directory descriptors and must match the
+policy-pinned producer size and SHA-256. `source.git_head` and
+`source.worktree_clean` remain typed audit metadata rather than acceptance
+conditions, so collection stays reachable in a dirty acquisition checkout and
+historical evidence is not invalidated merely because the evaluator later has
+a newer HEAD. Re-evaluation requires both the reported producer checkout and
+the retained evidence root to remain available. Process and session identities
+remain unique across cycles.
+
+Acquire the adapter soak from policy-pinned private snapshots:
+
+```bash
+python3 tools/dictionary/run_mozc_b0_stability.py run-adapter \
+  --server /absolute/path/to/hazkey-server \
+  --runtime-lib-dir /absolute/path/to/build-grimodex/bin \
+  --mozc-generation /absolute/path/to/sha256-b0-generation \
+  --output-directory /private/path/to/adapter-soak-150k
+```
+
+Acquire the Protocol v2 steady suite; the runner creates its own fresh private
+Swift scratch directory:
+
+```bash
+python3 tools/dictionary/run_mozc_b0_stability.py run-protocol-steady \
+  --server /absolute/path/to/hazkey-server \
+  --runtime-lib-dir /absolute/path/to/build-grimodex/bin \
+  --mozc-generation /absolute/path/to/sha256-b0-generation \
+  --dictionary /absolute/path/to/hazkey-dictionary \
+  --output-directory /private/path/to/protocol-v2-steady-1500
+```
+
+After a native result is produced, place the record beside it and collect it
+with the frozen policy:
+
+The frozen Fcitx closure intentionally uses the B0 verifier from commit
+`2e326f0`, not a potentially newer working-tree verifier. Materialize it from a
+clean detached worktree and verify its exact identity before acquisition:
+
+```bash
+git worktree add --detach /private/path/to/hazkey-b0-verifier 2e326f0
+B0_VERIFIER=/private/path/to/hazkey-b0-verifier/packaging/scripts/verify_mozc_artifact_bundle.py
+test "$(stat -c %s "$B0_VERIFIER")" = 49759
+test "$(sha256sum "$B0_VERIFIER" | cut -d' ' -f1)" = \
+  7b517e294ed306eafc84cc48290dc1e7eea7cb5c37d9b0fa46004570f9657850
+```
+
+Pass that absolute `B0_VERIFIER` path to both native Fcitx runs. The product
+server must likewise be the policy-pinned 106,248,768-byte executable with
+SHA-256
+`a476e8fa96855158f881cecbac75b3cce8fbd57b0c5dd338065e8a89a7eeee11`.
+Use `--cycles 1 --soak-iterations 150000` for `fcitx-long-soak-150k`, and
+`--cycles 3 --soak-iterations 100` for `fcitx-lifecycle-3x100`. The published
+native JSON must report the frozen `bb4f...` input-snapshot fingerprint; a
+different value is an input-closure mismatch, not a value to copy into policy.
+
+```bash
+python3 tools/dictionary/run_mozc_b0_stability.py collect \
+  --suite-id fcitx-lifecycle-3x100 \
+  --native-result /private/path/to/stability/fcitx-lifecycle.json \
+  --output /private/path/to/stability/fcitx-lifecycle-record.json \
+  --policy hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v1/b0-policy.json
+```
+
+The four recovery checks can be acquired without claiming a B0 helper:
+
+```bash
+python3 tools/dictionary/run_mozc_b0_stability.py run-recovery \
+  --server /absolute/path/to/hazkey-server \
+  --runtime-lib-dir /absolute/path/to/build-grimodex/bin \
+  --output-directory /private/path/to/protocol-v2-recovery
+```
+
+The recovery runner first checks the product server, fault-fixture source,
+Swift test runner, and exact runtime-library file set against the selected B0
+policy. It snapshots the verified server and runtime libraries, points both the
+dynamic loader and GGML backend discovery only at that private snapshot, and
+executes the four exact filters separately. It retains hashed
+stdout/stderr, rejects skipped or unnamed tests, audits and cleans both each
+private process group and its full same-session process set even on
+timeout/error, re-hashes every runtime and Swift-package snapshot file, and
+re-derives an exact named pass from each bound log before validating the native
+v5 result and publishing a record or
+returning success. A generic zero-count JSON cannot substitute for any suite.
+
+Once all native stability evidence exists, invoke the final evaluator with:
 
 ```bash
 python3 tools/dictionary/evaluate_mozc_b0_gate.py \

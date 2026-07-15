@@ -181,8 +181,203 @@
     },
     "long_running_stability": {
       "required_result": "all_pass",
-      "check_contracts_frozen": false,
-      "checks": null
+      "check_contracts_frozen": true,
+      "checks": [
+        {
+          "id": "adapter-soak-150k",
+          "native_schema": "hazkey.mozc-b0-adapter-soak-result.v1",
+          "artifact_kind": "b0",
+          "command": [
+            "python3",
+            "tools/dictionary/run_mozc_b0_stability.py",
+            "run-adapter",
+            "--server",
+            "<product-server>",
+            "--runtime-lib-dir",
+            "<runtime-lib-dir>",
+            "--mozc-generation",
+            "<b0-generation>",
+            "--output-directory",
+            "<output-directory>"
+          ],
+          "minimum_conversions": 150000,
+          "minimum_cycles": 1,
+          "expected_counts": {
+            "helper_launches": 1,
+            "server_launches": 1,
+            "helper_recoveries": 0,
+            "server_recoveries": 0,
+            "residue_count": 0
+          },
+          "native_producer": {
+            "path": "<product-executable>",
+            "status": "ready",
+            "sha256": "sha256:a476e8fa96855158f881cecbac75b3cce8fbd57b0c5dd338065e8a89a7eeee11"
+          },
+          "execution_runner": null,
+          "execution_package": null,
+          "recovery_fixture_identity": null,
+          "input_snapshot_fingerprint": null
+        },
+        {
+          "id": "protocol-v2-steady-1500",
+          "native_schema": "hazkey.mozc-b0-protocol-v2-steady-result.v3",
+          "artifact_kind": "b0",
+          "command": [
+            "python3",
+            "tools/dictionary/run_mozc_b0_stability.py",
+            "run-protocol-steady",
+            "--server",
+            "<product-server>",
+            "--runtime-lib-dir",
+            "<runtime-lib-dir>",
+            "--mozc-generation",
+            "<b0-generation>",
+            "--dictionary",
+            "<hazkey-dictionary>",
+            "--output-directory",
+            "<output-directory>"
+          ],
+          "minimum_conversions": 1500,
+          "minimum_cycles": 1,
+          "expected_counts": {
+            "helper_launches": 1,
+            "server_launches": 2,
+            "helper_recoveries": 0,
+            "server_recoveries": 0,
+            "residue_count": 0
+          },
+          "native_producer": {
+            "path": "hazkey-server/Tests/grimodex-spike/grimodexProcessBackendBenchmarkTests.swift",
+            "status": "ready",
+            "sha256": "sha256:c7c58debea839cbaecc6454feb18ba038a4ee7e28e45e594bcf52ac232e1e819"
+          },
+          "execution_runner": {
+            "path": "hazkey-server/scripts/swift-test.sh",
+            "sha256": "sha256:9e36cd6f3b7f181b01004c2ba7eecd5ce383e2442929aee2160c4d4a4dacbf81"
+          },
+          "execution_package": {
+            "path": "hazkey-server",
+            "file_count": 111,
+            "size_bytes": 1233657,
+            "fingerprint": "sha256:9df303a7d7015717d87f6a64f040c4797c747b544c4ea84fccbecd8200a69e6e"
+          },
+          "recovery_fixture_identity": null,
+          "input_snapshot_fingerprint": null
+        },
+        {
+          "id": "protocol-v2-recovery",
+          "native_schema": "hazkey.mozc-b0-protocol-v2-recovery-result.v5",
+          "artifact_kind": "fault-fixture",
+          "command": [
+            "python3",
+            "tools/dictionary/run_mozc_b0_stability.py",
+            "run-recovery",
+            "--server",
+            "<product-server>",
+            "--runtime-lib-dir",
+            "<runtime-lib-dir>",
+            "--output-directory",
+            "<output-directory>"
+          ],
+          "minimum_conversions": 0,
+          "minimum_cycles": 4,
+          "expected_counts": {
+            "helper_launches": null,
+            "server_launches": null,
+            "helper_recoveries": null,
+            "server_recoveries": null,
+            "residue_count": 0
+          },
+          "native_producer": {
+            "path": "hazkey-server/Tests/grimodex-spike/grimodexMozcSidecarTests.swift",
+            "status": "ready",
+            "sha256": "sha256:735dee24fe6c92bd54500a488279a9f8f52a4e47b77937aeaa9a87d6030615bc"
+          },
+          "execution_runner": {
+            "path": "hazkey-server/scripts/swift-test.sh",
+            "sha256": "sha256:9e36cd6f3b7f181b01004c2ba7eecd5ce383e2442929aee2160c4d4a4dacbf81"
+          },
+          "execution_package": {
+            "path": "hazkey-server",
+            "file_count": 111,
+            "size_bytes": 1233657,
+            "fingerprint": "sha256:9df303a7d7015717d87f6a64f040c4797c747b544c4ea84fccbecd8200a69e6e"
+          },
+          "recovery_fixture_identity": "sha256:b762e70ace01e09dd18adb9dd3f6be149d2858bf4645458e7750904264b1975f",
+          "input_snapshot_fingerprint": null
+        },
+        {
+          "id": "fcitx-long-soak-150k",
+          "native_schema": "hazkey.fcitx-full-stack-result.v1",
+          "artifact_kind": "b0",
+          "command": [
+            "python3",
+            "fcitx5-hazkey/tests/run_fcitx_full_stack_test.py",
+            "--converter-backend",
+            "mozc",
+            "--cycles",
+            "1",
+            "--soak-iterations",
+            "150000",
+            "--result-output",
+            "<native-result>"
+          ],
+          "minimum_conversions": 150000,
+          "minimum_cycles": 1,
+          "expected_counts": {
+            "helper_launches": 1,
+            "server_launches": 1,
+            "helper_recoveries": 0,
+            "server_recoveries": 0,
+            "residue_count": 0
+          },
+          "native_producer": {
+            "path": "fcitx5-hazkey/tests/run_fcitx_full_stack_test.py",
+            "status": "ready",
+            "sha256": "sha256:2fbab94436dfaaca1ea7e634d28117275155587d4c36e061f114519a54d60f26"
+          },
+          "execution_runner": null,
+          "execution_package": null,
+          "recovery_fixture_identity": null,
+          "input_snapshot_fingerprint": "sha256:bb4f63a09a16fd0cb00bc41ee6091dca7e3fa85c118ebae688cd7ada6bd99573"
+        },
+        {
+          "id": "fcitx-lifecycle-3x100",
+          "native_schema": "hazkey.fcitx-full-stack-result.v1",
+          "artifact_kind": "b0",
+          "command": [
+            "python3",
+            "fcitx5-hazkey/tests/run_fcitx_full_stack_test.py",
+            "--converter-backend",
+            "mozc",
+            "--cycles",
+            "3",
+            "--soak-iterations",
+            "100",
+            "--result-output",
+            "<native-result>"
+          ],
+          "minimum_conversions": 300,
+          "minimum_cycles": 3,
+          "expected_counts": {
+            "helper_launches": 3,
+            "server_launches": 3,
+            "helper_recoveries": 0,
+            "server_recoveries": 0,
+            "residue_count": 0
+          },
+          "native_producer": {
+            "path": "fcitx5-hazkey/tests/run_fcitx_full_stack_test.py",
+            "status": "ready",
+            "sha256": "sha256:2fbab94436dfaaca1ea7e634d28117275155587d4c36e061f114519a54d60f26"
+          },
+          "execution_runner": null,
+          "execution_package": null,
+          "recovery_fixture_identity": null,
+          "input_snapshot_fingerprint": "sha256:bb4f63a09a16fd0cb00bc41ee6091dca7e3fa85c118ebae688cd7ada6bd99573"
+        }
+      ]
     }
   },
   "measurement_contracts": {
@@ -211,7 +406,12 @@
       "per_run_timeout_seconds": 900
     },
     "long_running_stability": {
-      "status": "pending"
+      "status": "ready",
+      "orchestrator": {
+        "schema": "hazkey.mozc-b0-stability-record.v2",
+        "path": "tools/dictionary/run_mozc_b0_stability.py",
+        "sha256": "sha256:d99ba09f38b11acdbcb7918bfe1b460d9c86e470d9b505211660b94108790755"
+      }
     }
   },
   "manifest_binding": {
@@ -222,9 +422,7 @@
     "sha256": "sha256:b1319e356ba025e1e06221330479d48b12cc44ebb502ddda970ea5fa583336e3"
   },
   "readiness": {
-    "formal_decision_enabled": false,
-    "blocking_items": [
-      "long_running_stability_check_contracts"
-    ]
+    "formal_decision_enabled": true,
+    "blocking_items": []
   }
 }

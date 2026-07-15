@@ -989,6 +989,286 @@ class MozcArtifactBundleContractTests(unittest.TestCase):
             shutil.rmtree(private_root)
             self.assertFalse(private_root.exists())
 
+    def test_fcitx_retained_root_bind_is_no_replace_and_rolls_back_failure(
+        self,
+    ) -> None:
+        runner = load_fcitx_full_stack_runner()
+
+        def fixture(root: Path):
+            private = root / "private"
+            snapshot_root = private / "evidence-inputs"
+            snapshot_root.mkdir(parents=True, mode=0o700)
+            private.chmod(0o700)
+            snapshot_root.chmod(0o555)
+            snapshot = runner.InputSnapshot(
+                root=snapshot_root,
+                entries=(),
+                directories=(".",),
+                fingerprint=runner.snapshot_fingerprint((), (".",)),
+            )
+            return private, argparse.Namespace(), snapshot
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            output = root / "result.json"
+            private, args, snapshot = fixture(root)
+            destination = runner.open_result_output(output)
+            final = root / runner.retained_evidence_root_name(
+                output.name, snapshot.fingerprint
+            )
+            final.mkdir()
+            marker = final / "marker"
+            marker.write_bytes(b"do not replace\n")
+            try:
+                with self.assertRaisesRegex(FileExistsError, "already exists"):
+                    runner.bind_content_addressed_evidence_root(
+                        private, args, snapshot, destination
+                    )
+            finally:
+                destination.close()
+            self.assertEqual(marker.read_bytes(), b"do not replace\n")
+            self.assertTrue(private.is_dir())
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            output = root / "result.json"
+            private, args, snapshot = fixture(root)
+            destination = runner.open_result_output(output)
+            final = root / runner.retained_evidence_root_name(
+                output.name, snapshot.fingerprint
+            )
+            try:
+                with (
+                    mock.patch.object(
+                        runner,
+                        "verify_input_snapshot",
+                        side_effect=runner.ResultEvidenceError("injected failure"),
+                    ),
+                    self.assertRaisesRegex(
+                        runner.ResultEvidenceError, "injected failure"
+                    ),
+                ):
+                    runner.bind_content_addressed_evidence_root(
+                        private, args, snapshot, destination
+                    )
+            finally:
+                destination.close()
+            self.assertFalse(final.exists())
+            self.assertTrue(private.is_dir())
+            self.assertTrue((private / "evidence-inputs").is_dir())
+
+    def test_fcitx_retained_root_is_rebound_durable_and_publish_atomic(
+        self,
+    ) -> None:
+        runner = load_fcitx_full_stack_runner()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            parent = Path(temporary_directory)
+            output = parent / "result.json"
+            private = parent / "private"
+            snapshot_root = private / "evidence-inputs"
+            snapshot_root.mkdir(parents=True, mode=0o700)
+            private.chmod(0o700)
+            server = snapshot_root / "server"
+            server_bytes = b"fixed product server\n"
+            server.write_bytes(server_bytes)
+            server.chmod(0o555)
+            snapshot_root.chmod(0o555)
+            server_digest = hashlib.sha256(server_bytes).hexdigest()
+            entries = (
+                runner.SnapshotEntry(
+                    input_id="product_server",
+                    source_path=str(parent / "source-server"),
+                    relative_path="server",
+                    size=len(server_bytes),
+                    sha256=server_digest,
+                    mode=0o555,
+                ),
+            )
+            directories = (".",)
+            snapshot = runner.InputSnapshot(
+                root=snapshot_root,
+                entries=entries,
+                directories=directories,
+                fingerprint=runner.snapshot_fingerprint(entries, directories),
+            )
+            args = argparse.Namespace(
+                server=server,
+                converter_backend="mozc",
+                soak_iterations=1,
+                cycles=1,
+                timeout=30,
+                result_output=output,
+                product_source_ref="c" * 40,
+                product_server_sha256=server_digest,
+                product_server_size=len(server_bytes),
+            )
+            destination = runner.open_result_output(output)
+            retained_root = parent / runner.retained_evidence_root_name(
+                output.name,
+                snapshot.fingerprint,
+            )
+            try:
+                retained_root, rebound_args, rebound_snapshot = (
+                    runner.bind_content_addressed_evidence_root(
+                        private,
+                        args,
+                        snapshot,
+                        destination,
+                    )
+                )
+                self.assertFalse(private.exists())
+                self.assertEqual(
+                    rebound_args.server,
+                    retained_root / "evidence-inputs/server",
+                )
+                self.assertEqual(
+                    rebound_snapshot.root,
+                    retained_root / "evidence-inputs",
+                )
+                runner.verify_input_snapshot(rebound_snapshot)
+
+                runtime_root = retained_root / "mozc-runtime"
+                generation = runtime_root / ("sha256-" + "d" * 64)
+                generation.mkdir(parents=True, mode=0o700)
+                helper = generation / "fcitx5-grimodex-mozc-helper"
+                data = generation / "mozc.data"
+                helper.write_bytes(b"helper\n")
+                data.write_bytes(b"data\n")
+                helper.chmod(0o555)
+                data.chmod(0o444)
+                generation.chmod(0o555)
+                transient = retained_root / "cycle-001"
+                transient.mkdir(mode=0o700)
+                (transient / "state").write_bytes(b"ephemeral\n")
+
+                bindings = {
+                    "producer": {
+                        "path": "runner.py",
+                        "size": 1,
+                        "sha256": "a" * 64,
+                    },
+                    "source": {
+                        "repository_root": "/fixture",
+                        "git_head": "b" * 40,
+                        "worktree_clean": True,
+                    },
+                    "artifacts": {
+                        "mozc_generation": {
+                            "path": str(generation),
+                            "source_path": str(rebound_snapshot.root),
+                            "content_address": "sha256-" + "e" * 64,
+                            "prepared_content_address": generation.name,
+                            "artifact_fingerprint": "sha256:" + "f" * 64,
+                        },
+                        "mozc_helper": runner.readonly_runtime_binding(helper),
+                        "mozc_data": runner.readonly_runtime_binding(data),
+                    },
+                    "input_snapshot": runner.snapshot_payload(
+                        rebound_snapshot,
+                        post_run_verified=False,
+                    ),
+                    "runtime_integrity": {
+                        "post_run_verified": False,
+                        "verified_artifacts": [],
+                    },
+                }
+                original_fsync = os.fsync
+                fsynced_paths: set[str] = set()
+
+                def record_fsync(descriptor: int) -> None:
+                    try:
+                        fsynced_paths.add(
+                            os.readlink(f"/proc/self/fd/{descriptor}")
+                        )
+                    except OSError:
+                        pass
+                    original_fsync(descriptor)
+
+                with mock.patch.object(
+                    runner.os,
+                    "fsync",
+                    side_effect=record_fsync,
+                ):
+                    runner.finalize_retained_evidence_root(
+                        retained_root,
+                        rebound_snapshot,
+                        generation,
+                        bindings,
+                    )
+
+                self.assertEqual(
+                    {child.name for child in retained_root.iterdir()},
+                    {"evidence-inputs", "mozc-runtime"},
+                )
+                self.assertFalse(transient.exists())
+                self.assertEqual(stat.S_IMODE(retained_root.stat().st_mode), 0o500)
+                for directory in (
+                    rebound_snapshot.root,
+                    runtime_root,
+                    generation,
+                ):
+                    self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o555)
+                self.assertEqual(stat.S_IMODE(helper.stat().st_mode), 0o555)
+                self.assertEqual(stat.S_IMODE(data.stat().st_mode), 0o444)
+                self.assertTrue(
+                    {
+                        str(retained_root),
+                        str(rebound_snapshot.root),
+                        str(rebound_args.server),
+                        str(runtime_root),
+                        str(generation),
+                        str(helper),
+                        str(data),
+                    }.issubset(fsynced_paths)
+                )
+                self.assertTrue(
+                    bindings["input_snapshot"]["integrity"]["post_run_verified"]
+                )
+                self.assertTrue(bindings["runtime_integrity"]["post_run_verified"])
+
+                observation = runner.CycleObservation(
+                    cycle=1,
+                    conversions=1,
+                    server_launches=(),
+                    server_identities=(),
+                    helper_launches=(),
+                    helper_identities=(),
+                    lock_owner_observed=True,
+                    max_concurrent_helpers=1,
+                    server_cleanup_ok=True,
+                    helper_cleanup_ok=True,
+                    process_group_cleanup_ok=True,
+                )
+                with (
+                    mock.patch.object(
+                        runner,
+                        "atomic_publish_json",
+                        side_effect=runner.ResultEvidenceError(
+                            "injected publication failure"
+                        ),
+                    ),
+                    self.assertRaisesRegex(
+                        runner.ResultEvidenceError,
+                        "injected publication failure",
+                    ),
+                ):
+                    runner.publish_success_result(
+                        rebound_args,
+                        retained_root,
+                        [observation],
+                        bindings,
+                        ["python3", "runner.py"],
+                        destination,
+                        retained_root=retained_root,
+                    )
+                self.assertFalse(output.exists())
+                self.assertFalse(retained_root.exists())
+            finally:
+                if retained_root.exists():
+                    runner.make_runtime_writable(retained_root)
+                    shutil.rmtree(retained_root)
+                destination.close()
+
     def test_fcitx_formal_snapshot_rejects_server_mismatch_and_special_files(
         self,
     ) -> None:
