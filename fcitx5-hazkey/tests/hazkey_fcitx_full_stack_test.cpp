@@ -445,6 +445,30 @@ int main() {
                                     FcitxKey_Return});
         milestone("F7 transform passed");
 
+        frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("ｋａｎａ");
+        runKeys(clientPreeditUUID, {FcitxKey_k, FcitxKey_a, FcitxKey_n,
+                                    FcitxKey_a, FcitxKey_F9,
+                                    FcitxKey_Return});
+        milestone("F9 alphabet-fullwidth transform passed");
+
+        frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("kana");
+        runKeys(clientPreeditUUID, {FcitxKey_k, FcitxKey_a, FcitxKey_n,
+                                    FcitxKey_a, FcitxKey_F10,
+                                    FcitxKey_Return});
+        milestone("F10 alphabet-halfwidth transform passed");
+
+        frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("ｋａｎａ");
+        runKeys(clientPreeditUUID, {FcitxKey_k, FcitxKey_a, FcitxKey_n,
+                                    FcitxKey_a, FcitxKey_space,
+                                    FcitxKey_F9, FcitxKey_Return});
+        milestone("converted F9 raw-romaji transform passed");
+
+        frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("kana");
+        runKeys(clientPreeditUUID, {FcitxKey_k, FcitxKey_a, FcitxKey_n,
+                                    FcitxKey_a, FcitxKey_space,
+                                    FcitxKey_F10, FcitxKey_Return});
+        milestone("converted F10 raw-romaji transform passed");
+
         frontend->call<fcitx::ITestFrontend::pushCommitExpectation>("カナ");
         runKeys(clientPreeditUUID, {FcitxKey_k, FcitxKey_a, FcitxKey_n,
                                     FcitxKey_a, FcitxKey_Katakana,

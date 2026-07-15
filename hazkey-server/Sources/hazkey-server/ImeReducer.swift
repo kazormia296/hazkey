@@ -325,11 +325,10 @@ final class ImeReducer {
                 result = failure(.staleCandidate, "candidate generation or id is stale")
                 break
             }
-            guard session.policy.allowsLearning else {
+            guard session.policy.allowsLearning, candidate.isLearnable else {
                 // Preserve the successful forget wire behavior while making a
-                // conversion-only session incapable of reaching persistent
-                // converter state. Capability-aware clients should hide this
-                // action, but older clients remain safe until they upgrade.
+                // conversion-only session or synthesized transformed candidate
+                // incapable of reaching persistent converter state.
                 session.advanceRevision()
                 result = success()
                 break
@@ -997,6 +996,28 @@ final class ImeReducer {
         session.activeBoundary = session.segments[index].inputCount
     }
 
+    private func rawTextForActiveSegment(fallbackConsumingCount: Int) -> String {
+        let elements = session.composingText.elements
+        let fallbackCount = min(max(fallbackConsumingCount, 0), elements.count)
+        let fallback = elements.prefix(fallbackCount).map(\.text).joined()
+        if let activeIndex = session.activeSegmentIndex,
+           session.segments.indices.contains(activeIndex) {
+            var start = 0
+            for segment in session.segments.prefix(activeIndex) {
+                guard segment.inputCount > 0 else { return fallback }
+                let (next, overflow) = start.addingReportingOverflow(segment.inputCount)
+                guard !overflow else { return fallback }
+                start = next
+            }
+            let count = session.segments[activeIndex].inputCount
+            let (end, overflow) = start.addingReportingOverflow(count)
+            if count > 0, !overflow, end <= elements.count {
+                return elements[start..<end].map(\.text).joined()
+            }
+        }
+        return fallback
+    }
+
     private func moveActiveSegment(_ delta: Int) -> ImeReductionResult {
         guard !session.segments.isEmpty,
               let activeIndex = session.activeSegmentIndex,
@@ -1305,12 +1326,81 @@ final class ImeReducer {
 
     private func transformActiveSegment(_ transform: ImeTextTransform) -> ImeReductionResult {
         let resolvedLearning = resolvePendingLearning(commit: session.phase == .idle)
+        if session.phase == .composing {
+            switch transform {
+            case .alphabetFullwidth, .alphabetHalfwidth:
+                // F9/F10 operate on the raw editable composition. Conversion
+                // selection and reconversion phases deliberately stay on the
+                // active-candidate path below.
+                let source = session.composingText.text
+                let transformedElements = session.composingText.elements.map { element in
+                    CompositionElement(
+                        text: transformText(element.text, as: transform),
+                        composingCount: element.composingCount,
+                        inputStyle: .direct
+                    )
+                }
+                let transformed = transformedElements.map(\.text).joined()
+                guard !transformed.isEmpty else {
+                    if resolvedLearning {
+                        session.advanceRevision()
+                    }
+                    return success()
+                }
+
+                let isAlreadyDirect = session.composingText.elements.allSatisfy {
+                    $0.inputStyle == .direct
+                }
+                let hasConversionPresentation = session.candidates != nil
+                    || session.activeBoundary != nil
+                    || !session.segments.isEmpty
+                    || session.activeSegmentIndex != nil
+                    || session.livePresentation.materializedPrefix != nil
+                    || session.livePresentation.pendingRevision != nil
+                if transformed == source,
+                   isAlreadyDirect,
+                   !hasConversionPresentation {
+                    if resolvedLearning {
+                        session.advanceRevision()
+                    }
+                    return success()
+                }
+
+                let cursor = session.composingText.cursor
+                clearLivePresentation()
+                endConverterComposition()
+                clearConversionState()
+                session.composingText = CompositionBuffer(
+                    elements: transformedElements,
+                    cursor: cursor
+                )
+                session.advanceRevision()
+                return success()
+            case .hiragana, .katakanaFullwidth, .katakanaHalfwidth:
+                break
+            }
+        }
         clearLivePresentation()
+        let usesRawActiveAlphabet: Bool
+        switch transform {
+        case .alphabetFullwidth, .alphabetHalfwidth:
+            usesRawActiveAlphabet = session.phase == .previewing
+                || session.phase == .selecting
+                || session.phase == .reconverting
+        case .hiragana, .katakanaFullwidth, .katakanaHalfwidth:
+            usesRawActiveAlphabet = false
+        }
         let source: String
         if let candidates = session.candidates,
            let index = candidates.selectedIndex,
            candidates.items.indices.contains(index) {
-            source = candidates.items[index].text
+            source = if usesRawActiveAlphabet {
+                rawTextForActiveSegment(
+                    fallbackConsumingCount: candidates.items[index].consumingCount
+                )
+            } else {
+                candidates.items[index].text
+            }
         } else {
             source = currentDisplay().text
         }
@@ -1330,9 +1420,10 @@ final class ImeReducer {
                 text: transformed,
                 annotation: old.annotation,
                 consumingCount: old.consumingCount,
-                // Transformed candidates are direct text and must not learn or
-                // forget the converter's original, differently rendered item.
-                sourceID: nil
+                // The rendered surface no longer has the converter item's
+                // process-local identity and must not enter any learning API.
+                sourceID: nil,
+                isLearnable: false
             )
             session.candidates = candidates
             syncActiveSegmentCandidates(candidates)
@@ -1561,8 +1652,9 @@ final class ImeReducer {
         origin: LearningOrigin,
         reading: String
     ) {
-        guard !candidates.isEmpty else { return }
-        let converterCandidates = candidates.map { candidate in
+        let learnableCandidates = candidates.filter(\.isLearnable)
+        guard !learnableCandidates.isEmpty else { return }
+        let converterCandidates = learnableCandidates.map { candidate in
             ConverterCandidate(
                 text: candidate.text,
                 annotation: candidate.annotation,
@@ -1850,25 +1942,25 @@ final class ImeReducer {
                 reverse: false
             ) ?? katakana
         case .alphabetFullwidth:
-            return text.map { character in
-                let scalar = character.unicodeScalars.first?.value ?? 0
-                if scalar == 0x20 { return "　" }
-                if (0x21...0x7E).contains(scalar),
-                   let unicode = UnicodeScalar(scalar + 0xFEE0) {
-                    return String(unicode)
+            return String(String.UnicodeScalarView(text.unicodeScalars.map { scalar in
+                if scalar.value == 0x20 {
+                    return UnicodeScalar(0x3000) ?? scalar
                 }
-                return String(character)
-            }.joined()
+                if (0x21...0x7E).contains(scalar.value) {
+                    return UnicodeScalar(scalar.value + 0xFEE0) ?? scalar
+                }
+                return scalar
+            }))
         case .alphabetHalfwidth:
-            return text.map { character in
-                let scalar = character.unicodeScalars.first?.value ?? 0
-                if scalar == 0x3000 { return " " }
-                if (0xFF01...0xFF5E).contains(scalar),
-                   let unicode = UnicodeScalar(scalar - 0xFEE0) {
-                    return String(unicode)
+            return String(String.UnicodeScalarView(text.unicodeScalars.map { scalar in
+                if scalar.value == 0x3000 {
+                    return UnicodeScalar(0x20) ?? scalar
                 }
-                return String(character)
-            }.joined()
+                if (0xFF01...0xFF5E).contains(scalar.value) {
+                    return UnicodeScalar(scalar.value - 0xFEE0) ?? scalar
+                }
+                return scalar
+            }))
         }
     }
 

@@ -13,6 +13,9 @@ private final class ReducerFixtureConverter: KanaKanjiConverting {
   var stopCount = 0
   var realtimeRequests = 0
   var displayOverride: String?
+  var mappedDisplayOverride: String?
+  var primaryCandidateText = "変換"
+  var maxCandidateConsumingCount = 2
   var predictionCandidates: [ConverterCandidate] = []
   var lastOptions: ConversionOptions?
   var lastComposition: CompositionInput?
@@ -20,11 +23,17 @@ private final class ReducerFixtureConverter: KanaKanjiConverting {
   var stagedLearningCount = 0
   var committedStagedLearningCount = 0
   var discardedStagedLearningCount = 0
+  var commitLearningCount = 0
 
   func display(for composition: CompositionInput) -> CompositionDisplay {
     let raw = composition.elements.map(\.text).joined()
-    let text = displayOverride ?? raw
-    let caret = if displayOverride == nil {
+    let hasMappedInput = composition.elements.contains { element in
+      if case .mapped = element.inputStyle { return true }
+      return false
+    }
+    let mappedOverride = hasMappedInput ? mappedDisplayOverride : nil
+    let text = mappedOverride ?? displayOverride ?? raw
+    let caret = if mappedOverride == nil && displayOverride == nil {
       composition.elements.prefix(composition.cursor).reduce(0) {
         $0 + $1.text.utf8.count
       }
@@ -52,10 +61,10 @@ private final class ReducerFixtureConverter: KanaKanjiConverting {
       max(composition.targetCount ?? composition.elements.count, 1),
       composition.elements.count
     )
-    let count = min(2, target)
+    let count = min(maxCandidateConsumingCount, target)
     return ConversionOutput(
       candidates: [
-        ConverterCandidate(text: "変換", consumingCount: count),
+        ConverterCandidate(text: primaryCandidateText, consumingCount: count),
         ConverterCandidate(text: input, annotation: "読み", consumingCount: count),
       ],
       pageSize: 2
@@ -90,7 +99,7 @@ private final class ReducerFixtureConverter: KanaKanjiConverting {
 
   func setCompletedData(_ candidate: ConverterCandidate) { completed += 1 }
   func updateLearningData(_ candidate: ConverterCandidate) { learningUpdates += 1 }
-  func commitLearning() {}
+  func commitLearning() { commitLearningCount += 1 }
   func stageLearning(
     candidate: ConverterCandidate,
     reading: String
@@ -559,6 +568,485 @@ final class GrimodexImeReducerTests: XCTestCase {
     XCTAssertEqual(hiragana.snapshot.preedit.first?.text, "がく")
   }
 
+  func testAlphabetTransformsUseRawMappedRomajiAndCommitDirectText() {
+    let cases: [(ImeTextTransform, String)] = [
+      (.alphabetFullwidth, "ｋａｎａ"),
+      (.alphabetHalfwidth, "kana"),
+    ]
+
+    for (transform, expected) in cases {
+      let converter = ReducerFixtureConverter()
+      converter.mappedDisplayOverride = "かな"
+      let reducer = ImeReducer(converter: converter)
+
+      let composing = reducer.reduce(.insertText("kana"), requestID: "insert")
+      XCTAssertEqual(composing.snapshot.preedit.first?.text, "かな")
+
+      let stopCount = converter.stopCount
+      let transformed = reducer.reduce(
+        .transformActiveSegment(transform),
+        requestID: "transform"
+      )
+
+      XCTAssertEqual(transformed.snapshot.phase, .composing)
+      XCTAssertEqual(transformed.snapshot.preedit.first?.text, expected)
+      XCTAssertTrue(transformed.snapshot.effects.isEmpty)
+      XCTAssertTrue(transformed.snapshot.candidateWindow.items.isEmpty)
+      XCTAssertEqual(reducer.session.composingText.text, expected)
+      XCTAssertTrue(reducer.session.composingText.elements.allSatisfy { element in
+        if case .direct = element.inputStyle { return true }
+        return false
+      })
+      XCTAssertEqual(converter.stopCount, stopCount + 1)
+
+      let committed = reducer.reduce(.commitAll, requestID: "commit")
+      XCTAssertEqual(
+        committed.snapshot.effects,
+        [.commitText(effectID: 1, text: expected)]
+      )
+      XCTAssertEqual(converter.stopCount, stopCount + 2)
+    }
+  }
+
+  func testAlphabetTransformsCoverDirectASCIIWidthAndJapaneseText() {
+    let cases: [(String, ImeTextTransform, String)] = [
+      ("abc 123", .alphabetFullwidth, "ａｂｃ　１２３"),
+      ("ａｂｃ　１２３", .alphabetHalfwidth, "abc 123"),
+      ("日本語", .alphabetFullwidth, "日本語"),
+      ("日本語", .alphabetHalfwidth, "日本語"),
+    ]
+
+    for (input, transform, expected) in cases {
+      var session = CompositionSession()
+      session.phase = .composing
+      session.composingText.insert(input, inputStyle: .direct)
+      let converter = ReducerFixtureConverter()
+      let reducer = ImeReducer(session: session, converter: converter)
+
+      let transformed = reducer.reduce(
+        .transformActiveSegment(transform),
+        requestID: "transform"
+      )
+
+      XCTAssertEqual(transformed.snapshot.preedit.first?.text, expected)
+      XCTAssertEqual(reducer.session.composingText.text, expected)
+      XCTAssertTrue(reducer.session.composingText.elements.allSatisfy { element in
+        if case .direct = element.inputStyle { return true }
+        return false
+      })
+      XCTAssertEqual(converter.stopCount, input == expected ? 0 : 1)
+      XCTAssertEqual(transformed.snapshot.revision, input == expected ? 0 : 1)
+      XCTAssertTrue(transformed.snapshot.effects.isEmpty)
+    }
+  }
+
+  func testAlphabetWidthRoundTripPreservesEveryUnicodeScalar() {
+    let cases: [(String, [UInt32])] = [
+      ("a\u{0301}", [0xFF41, 0x0301]),
+      ("1\u{FE0F}\u{20E3}", [0xFF11, 0xFE0F, 0x20E3]),
+    ]
+
+    for (index, testCase) in cases.enumerated() {
+      let (input, fullwidthScalars) = testCase
+      var session = CompositionSession()
+      session.phase = .composing
+      session.composingText.insert(input, inputStyle: .direct)
+      let reducer = ImeReducer(session: session)
+
+      let fullwidth = reducer.reduce(
+        .transformActiveSegment(.alphabetFullwidth),
+        requestID: "f9-\(index)"
+      )
+      XCTAssertEqual(
+        fullwidth.snapshot.preedit.first?.text.unicodeScalars.map(\.value),
+        fullwidthScalars
+      )
+
+      let halfwidth = reducer.reduce(
+        .transformActiveSegment(.alphabetHalfwidth),
+        requestID: "f10-\(index)"
+      )
+      XCTAssertEqual(
+        halfwidth.snapshot.preedit.first?.text.unicodeScalars.map(\.value),
+        input.unicodeScalars.map(\.value)
+      )
+    }
+  }
+
+  func testAlphabetTransformPreservesMiddleCursorForSubsequentEditing() {
+    let converter = ReducerFixtureConverter()
+    let reducer = ImeReducer(converter: converter)
+    _ = reducer.reduce(.insertText("abcd"), requestID: "insert")
+    _ = reducer.reduce(.moveCursor(-2), requestID: "middle")
+
+    let transformed = reducer.reduce(
+      .transformActiveSegment(.alphabetFullwidth),
+      requestID: "f9"
+    )
+
+    XCTAssertEqual(transformed.snapshot.phase, .composing)
+    XCTAssertEqual(transformed.snapshot.preedit.first?.text, "ａｂｃｄ")
+    XCTAssertEqual(reducer.session.composingText.cursor, 2)
+    XCTAssertEqual(
+      transformed.snapshot.caretUtf8ByteOffset,
+      UInt32("ａｂ".utf8.count)
+    )
+
+    let deleted = reducer.reduce(.deleteBackward, requestID: "backspace")
+    XCTAssertEqual(deleted.snapshot.preedit.first?.text, "ａｃｄ")
+    XCTAssertEqual(reducer.session.composingText.cursor, 1)
+
+    let inserted = reducer.reduce(.insertText("X"), requestID: "insert-middle")
+    XCTAssertEqual(inserted.snapshot.preedit.first?.text, "ａXｃｄ")
+    XCTAssertEqual(reducer.session.composingText.cursor, 2)
+  }
+
+  func testAlphabetTransformPreservesMultiCharacterElementCursorBoundary() {
+    var session = CompositionSession()
+    session.phase = .composing
+    session.composingText = CompositionBuffer(
+      elements: [
+        CompositionElement(text: "ab"),
+        CompositionElement(text: "cd"),
+      ],
+      cursor: 1
+    )
+    let reducer = ImeReducer(session: session)
+
+    let transformed = reducer.reduce(
+      .transformActiveSegment(.alphabetFullwidth),
+      requestID: "f9"
+    )
+
+    XCTAssertEqual(reducer.session.composingText.elements.map(\.text), ["ａｂ", "ｃｄ"])
+    XCTAssertTrue(reducer.session.composingText.elements.allSatisfy { element in
+      if case .direct = element.inputStyle { return true }
+      return false
+    })
+    XCTAssertEqual(reducer.session.composingText.cursor, 1)
+    XCTAssertEqual(
+      transformed.snapshot.caretUtf8ByteOffset,
+      UInt32("ａｂ".utf8.count)
+    )
+
+    let deleted = reducer.reduce(.deleteBackward, requestID: "backspace")
+    XCTAssertEqual(deleted.snapshot.preedit.first?.text, "ｃｄ")
+    XCTAssertEqual(reducer.session.composingText.elements.map(\.text), ["ｃｄ"])
+    XCTAssertEqual(reducer.session.composingText.cursor, 0)
+
+    let inserted = reducer.reduce(.insertText("X"), requestID: "insert")
+    XCTAssertEqual(inserted.snapshot.preedit.first?.text, "Xｃｄ")
+    XCTAssertEqual(reducer.session.composingText.elements.map(\.text), ["X", "ｃｄ"])
+    XCTAssertEqual(reducer.session.composingText.cursor, 1)
+  }
+
+  func testAlphabetTransformKeepsSelectingActiveSegmentAndCandidates() throws {
+    let converter = ReducerFixtureConverter()
+    converter.primaryCandidateText = "ab"
+    let reducer = ImeReducer(converter: converter)
+    _ = reducer.reduce(.insertText("abcd"), requestID: "insert")
+    _ = reducer.reduce(.startConversion, requestID: "convert")
+    let selecting = reducer.reduce(.navigateCandidate(0), requestID: "select")
+    XCTAssertEqual(selecting.snapshot.phase, .selecting)
+    XCTAssertEqual(reducer.session.segments.count, 2)
+    let inactiveSegment = try XCTUnwrap(reducer.session.segments.dropFirst().first)
+
+    let stopCount = converter.stopCount
+    let transformed = reducer.reduce(
+      .transformActiveSegment(.alphabetFullwidth),
+      requestID: "f9"
+    )
+
+    XCTAssertEqual(transformed.snapshot.phase, .selecting)
+    XCTAssertEqual(transformed.snapshot.preedit.first?.text, "ａｂ")
+    XCTAssertEqual(transformed.snapshot.candidateWindow.selectedIndex, 0)
+    XCTAssertEqual(transformed.snapshot.candidateWindow.items.first?.text, "ａｂ")
+    XCTAssertEqual(reducer.session.composingText.text, "abcd")
+    XCTAssertEqual(reducer.session.segments.count, 2)
+    XCTAssertEqual(reducer.session.segments.dropFirst().first, inactiveSegment)
+    XCTAssertEqual(reducer.session.activeSegmentIndex, 0)
+    XCTAssertEqual(converter.stopCount, stopCount)
+    XCTAssertTrue(transformed.snapshot.effects.isEmpty)
+  }
+
+  func testAlphabetTransformUsesRawSegmentImmediatelyAfterStartConversion() {
+    let converter = ReducerFixtureConverter()
+    converter.primaryCandidateText = "仮名"
+    converter.maxCandidateConsumingCount = 4
+    let reducer = ImeReducer(converter: converter)
+    _ = reducer.reduce(.insertText("kana"), requestID: "insert")
+    let converted = reducer.reduce(.startConversion, requestID: "space")
+    XCTAssertEqual(converted.snapshot.phase, .previewing)
+    XCTAssertEqual(converted.snapshot.preedit.first?.text, "仮名")
+    XCTAssertEqual(reducer.session.segments.count, 1)
+
+    let transformed = reducer.reduce(
+      .transformActiveSegment(.alphabetFullwidth),
+      requestID: "f9"
+    )
+
+    XCTAssertEqual(transformed.snapshot.phase, .selecting)
+    XCTAssertEqual(transformed.snapshot.preedit.first?.text, "ｋａｎａ")
+    XCTAssertEqual(transformed.snapshot.candidateWindow.items.first?.text, "ｋａｎａ")
+    XCTAssertEqual(reducer.session.composingText.text, "kana")
+
+    let committed = reducer.reduce(.commitAll, requestID: "commit")
+    XCTAssertEqual(
+      committed.snapshot.effects,
+      [.commitText(effectID: 1, text: "ｋａｎａ")]
+    )
+  }
+
+  func testAlphabetTransformUsesRawSliceForSecondActiveSegment() throws {
+    func selectedSet(
+      generation: UInt64,
+      text: String,
+      consumingCount: Int
+    ) -> CandidateSet {
+      CandidateSet(
+        generation: generation,
+        items: [
+          CandidateSnapshot(
+            id: "\(generation)-0",
+            text: text,
+            consumingCount: consumingCount,
+            provenance: .standard
+          )
+        ],
+        selectedIndex: 0,
+        pageSize: 1,
+        origin: .conversion,
+        liveCandidate: nil
+      )
+    }
+
+    let first = selectedSet(generation: 1, text: "前", consumingCount: 2)
+    let active = selectedSet(generation: 2, text: "仮名", consumingCount: 4)
+    let last = selectedSet(generation: 3, text: "後", consumingCount: 2)
+    var session = CompositionSession()
+    session.phase = .selecting
+    session.composingText.insert("xxkanaYY")
+    session.segments = [
+      CompositionSegment(inputCount: 2, candidates: first),
+      CompositionSegment(inputCount: 4, candidates: active),
+      CompositionSegment(inputCount: 2, candidates: last),
+    ]
+    session.activeSegmentIndex = 1
+    session.activeBoundary = 4
+    session.candidates = active
+    let reducer = ImeReducer(session: session)
+
+    let transformed = reducer.reduce(
+      .transformActiveSegment(.alphabetFullwidth),
+      requestID: "f9"
+    )
+
+    XCTAssertEqual(transformed.snapshot.phase, .selecting)
+    XCTAssertEqual(transformed.snapshot.preedit[1].text, "ｋａｎａ")
+    XCTAssertEqual(transformed.snapshot.candidateWindow.items.first?.text, "ｋａｎａ")
+    XCTAssertEqual(reducer.session.composingText.text, "xxkanaYY")
+    XCTAssertEqual(reducer.session.activeSegmentIndex, 1)
+    XCTAssertEqual(reducer.session.segments[0].candidates, first)
+    XCTAssertEqual(reducer.session.segments[2].candidates, last)
+    let candidate = try XCTUnwrap(reducer.session.segments[1].selectedCandidate)
+    XCTAssertEqual(candidate.text, "ｋａｎａ")
+    XCTAssertFalse(candidate.isLearnable)
+  }
+
+  func testCommittingAlphabetTransformedCandidateCallsNoLearningAPI() throws {
+    let original = CandidateSet(
+      generation: 1,
+      items: [
+        CandidateSnapshot(
+          id: "1-0",
+          text: "仮名",
+          consumingCount: 4,
+          provenance: .standard
+        )
+      ],
+      selectedIndex: 0,
+      pageSize: 1,
+      origin: .conversion,
+      liveCandidate: nil
+    )
+    var session = CompositionSession()
+    session.policy.allowsLearning = true
+    session.phase = .selecting
+    session.composingText.insert("kana")
+    session.segments = [
+      CompositionSegment(inputCount: 4, candidates: original)
+    ]
+    session.activeSegmentIndex = 0
+    session.activeBoundary = 4
+    session.candidates = original
+    let converter = ReducerFixtureConverter()
+    converter.useStagedLearning = true
+    let reducer = ImeReducer(session: session, converter: converter)
+
+    let transformed = reducer.reduce(
+      .transformActiveSegment(.alphabetFullwidth),
+      requestID: "f9"
+    )
+    let candidate = try XCTUnwrap(reducer.session.segments[0].selectedCandidate)
+    XCTAssertEqual(candidate.text, "ｋａｎａ")
+    XCTAssertFalse(candidate.isLearnable)
+    XCTAssertTrue(transformed.snapshot.effects.isEmpty)
+
+    let committed = reducer.reduce(.commitSelected, requestID: "commit")
+
+    XCTAssertEqual(
+      committed.snapshot.effects,
+      [.commitText(effectID: 1, text: "ｋａｎａ")]
+    )
+    XCTAssertEqual(converter.completed, 0)
+    XCTAssertEqual(converter.learningUpdates, 0)
+    XCTAssertEqual(converter.stagedLearningCount, 0)
+    XCTAssertEqual(converter.committedStagedLearningCount, 0)
+    XCTAssertEqual(converter.discardedStagedLearningCount, 0)
+    XCTAssertEqual(converter.commitLearningCount, 0)
+  }
+
+  func testKanaTransformKeepsActiveCandidateSemantics() {
+    let converter = ReducerFixtureConverter()
+    converter.useStagedLearning = true
+    var session = CompositionSession()
+    session.policy.allowsLearning = true
+    let reducer = ImeReducer(session: session, converter: converter)
+    _ = reducer.reduce(.insertText("かな"), requestID: "insert")
+    _ = reducer.reduce(.startConversion, requestID: "convert")
+    let selected = reducer.reduce(.navigateCandidate(1), requestID: "next")
+    XCTAssertEqual(selected.snapshot.candidateWindow.selectedIndex, 1)
+
+    let stopCount = converter.stopCount
+    let transformed = reducer.reduce(
+      .transformActiveSegment(.katakanaFullwidth),
+      requestID: "katakana"
+    )
+
+    XCTAssertEqual(transformed.snapshot.phase, .selecting)
+    XCTAssertEqual(transformed.snapshot.preedit.first?.text, "カナ")
+    XCTAssertEqual(transformed.snapshot.candidateWindow.selectedIndex, 1)
+    XCTAssertEqual(transformed.snapshot.candidateWindow.items[1].text, "カナ")
+    XCTAssertEqual(reducer.session.composingText.text, "かな")
+    XCTAssertEqual(converter.stopCount, stopCount)
+    XCTAssertTrue(transformed.snapshot.effects.isEmpty)
+    XCTAssertFalse(reducer.session.segments[0].selectedCandidate?.isLearnable ?? true)
+
+    let committed = reducer.reduce(.commitSelected, requestID: "commit")
+    XCTAssertEqual(
+      committed.snapshot.effects,
+      [.commitText(effectID: 1, text: "カナ")]
+    )
+    XCTAssertEqual(converter.completed, 0)
+    XCTAssertEqual(converter.learningUpdates, 0)
+    XCTAssertEqual(converter.stagedLearningCount, 0)
+    XCTAssertEqual(converter.committedStagedLearningCount, 0)
+    XCTAssertEqual(converter.discardedStagedLearningCount, 0)
+    XCTAssertEqual(converter.commitLearningCount, 0)
+  }
+
+  func testAlphabetTransformClearsLiveConversionAndUsesRawComposition() {
+    let converter = ReducerFixtureConverter()
+    converter.mappedDisplayOverride = "かな"
+    var session = CompositionSession()
+    session.policy.autoConvertMode = .always
+    session.policy.liveConversionDelayMilliseconds = 0
+    let reducer = ImeReducer(session: session, converter: converter)
+
+    let live = reducer.reduce(.insertText("kana"), requestID: "insert")
+    XCTAssertEqual(live.snapshot.preedit.first?.text, "変換")
+    XCTAssertNotNil(reducer.session.candidates?.liveCandidate)
+    XCTAssertNotNil(reducer.session.livePresentation.materializedPrefix)
+
+    let stopCount = converter.stopCount
+    let transformed = reducer.reduce(
+      .transformActiveSegment(.alphabetHalfwidth),
+      requestID: "f10"
+    )
+
+    XCTAssertEqual(transformed.snapshot.phase, .composing)
+    XCTAssertEqual(transformed.snapshot.preedit.first?.text, "kana")
+    XCTAssertTrue(transformed.snapshot.candidateWindow.items.isEmpty)
+    XCTAssertNil(reducer.session.candidates)
+    XCTAssertNil(reducer.session.livePresentation.materializedPrefix)
+    XCTAssertNil(reducer.session.livePresentation.pendingRevision)
+    XCTAssertEqual(reducer.session.composingText.text, "kana")
+    XCTAssertEqual(converter.stopCount, stopCount + 1)
+    XCTAssertTrue(transformed.snapshot.effects.isEmpty)
+  }
+
+  func testAlphabetIdentityTransformDiscardsPendingLearningAndAdvancesRevision() {
+    let converter = ReducerFixtureConverter()
+    var session = CompositionSession()
+    session.phase = .composing
+    session.composingText.insert("日本語", inputStyle: .direct)
+    session.pendingLearningTransactions = [
+      PendingLearningTransaction(
+        token: ConverterLearningToken(rawValue: "pending"),
+        reading: "かな",
+        surface: "仮名",
+        origin: .explicitConversion,
+        createdRevision: 0
+      )
+    ]
+    let reducer = ImeReducer(session: session, converter: converter)
+
+    let transformed = reducer.reduce(
+      .transformActiveSegment(.alphabetFullwidth),
+      requestID: "f9"
+    )
+
+    XCTAssertEqual(transformed.snapshot.preedit.first?.text, "日本語")
+    XCTAssertEqual(transformed.snapshot.revision, 1)
+    XCTAssertFalse(transformed.snapshot.pendingLearning)
+    XCTAssertTrue(reducer.session.pendingLearningTransactions.isEmpty)
+    XCTAssertEqual(converter.committedStagedLearningCount, 0)
+    XCTAssertEqual(converter.discardedStagedLearningCount, 1)
+    XCTAssertEqual(converter.commitLearningCount, 0)
+    XCTAssertEqual(converter.stopCount, 0)
+  }
+
+  func testAlphabetTransformDuringReconversionPreservesReplacementUntilCommit() {
+    let converter = ReducerFixtureConverter()
+    converter.primaryCandidateText = "候補"
+    let reducer = ImeReducer(converter: converter)
+    let reconverted = reducer.reduce(
+      .reconvert(
+        text: "ab",
+        leftContext: "左",
+        rightContext: "右",
+        deleteBefore: 2,
+        deleteAfter: 0
+      ),
+      requestID: "reconvert"
+    )
+    XCTAssertEqual(reconverted.snapshot.phase, .reconverting)
+    XCTAssertEqual(reconverted.snapshot.preedit.first?.text, "候補")
+
+    let transformed = reducer.reduce(
+      .transformActiveSegment(.alphabetFullwidth),
+      requestID: "f9"
+    )
+
+    XCTAssertEqual(transformed.snapshot.phase, .selecting)
+    XCTAssertEqual(transformed.snapshot.preedit.first?.text, "ａｂ")
+    XCTAssertFalse(transformed.snapshot.candidateWindow.items.isEmpty)
+    XCTAssertEqual(reducer.session.composingText.text, "ab")
+    XCTAssertEqual(
+      reducer.session.reconversionReplacement,
+      ReconversionReplacement(before: 2, after: 0)
+    )
+
+    let committed = reducer.reduce(.commitSelected, requestID: "commit")
+    XCTAssertEqual(
+      committed.snapshot.effects,
+      [
+        .deleteSurroundingText(effectID: 1, before: 2, after: 0),
+        .commitText(effectID: 2, text: "ａｂ"),
+      ]
+    )
+  }
+
   func testCheckpointRestorePreservesCompositionAndNextEffectID() throws {
     let original = ImeReducer()
     _ = original.reduce(.insertText("a"), requestID: "a")
@@ -847,6 +1335,46 @@ final class GrimodexImeReducerTests: XCTestCase {
       forgotten
     )
     XCTAssertEqual(converter.forgotten, 0)
+  }
+
+  func testForgetTransformedCandidateIsSuccessfulNoOp() {
+    let cases: [(String, String, Int, ImeTextTransform, String)] = [
+      ("kana", "仮名", 4, .alphabetFullwidth, "ｋａｎａ"),
+      ("かな", "かな", 2, .katakanaFullwidth, "カナ"),
+    ]
+
+    for (index, testCase) in cases.enumerated() {
+      let (input, candidateText, consumingCount, transform, expected) = testCase
+      let converter = ReducerFixtureConverter()
+      converter.primaryCandidateText = candidateText
+      converter.maxCandidateConsumingCount = consumingCount
+      var session = CompositionSession()
+      session.policy.allowsLearning = true
+      let reducer = ImeReducer(session: session, converter: converter)
+      _ = reducer.reduce(.insertText(input), requestID: "insert-\(index)")
+      _ = reducer.reduce(.startConversion, requestID: "convert-\(index)")
+      let transformed = reducer.reduce(
+        .transformActiveSegment(transform),
+        requestID: "transform-\(index)"
+      )
+      let candidate = transformed.snapshot.candidateWindow.items[0]
+      XCTAssertEqual(candidate.text, expected)
+      XCTAssertFalse(candidate.isLearnable)
+
+      let forgotten = reducer.reduce(
+        .forgetCandidate(
+          id: candidate.id,
+          generation: transformed.snapshot.candidateWindow.generation
+        ),
+        requestID: "forget-\(index)"
+      )
+
+      XCTAssertEqual(forgotten.status, .success)
+      XCTAssertEqual(forgotten.snapshot.revision, transformed.snapshot.revision + 1)
+      XCTAssertTrue(forgotten.snapshot.effects.isEmpty)
+      XCTAssertEqual(converter.forgotten, 0)
+      XCTAssertFalse(reducer.session.composingText.isEmpty)
+    }
   }
 
   func testPredictionsStayInComposingUntilExplicitlySelected() {

@@ -23,6 +23,11 @@ struct CandidateSnapshot: Equatable, Hashable, Codable, Sendable {
     /// Internal converter provenance. It is deliberately omitted from the
     /// wire snapshot, just like sourceID.
     let provenance: CandidateProvenance
+    /// Process-local learning eligibility. Text synthesized by an IME action
+    /// rather than returned by the converter must never be fed back as a
+    /// converter candidate. This flag is deliberately omitted from Codable
+    /// and protobuf wire snapshots.
+    let isLearnable: Bool
 
     init(
         id: String,
@@ -30,7 +35,8 @@ struct CandidateSnapshot: Equatable, Hashable, Codable, Sendable {
         annotation: String? = nil,
         consumingCount: Int,
         sourceID: String? = nil,
-        provenance: CandidateProvenance = .unknown
+        provenance: CandidateProvenance = .unknown,
+        isLearnable: Bool = true
     ) {
         self.id = id
         self.text = text
@@ -38,6 +44,7 @@ struct CandidateSnapshot: Equatable, Hashable, Codable, Sendable {
         self.consumingCount = consumingCount
         self.sourceID = sourceID
         self.provenance = provenance
+        self.isLearnable = isLearnable
     }
 
     private enum CodingKeys: String, CodingKey {
