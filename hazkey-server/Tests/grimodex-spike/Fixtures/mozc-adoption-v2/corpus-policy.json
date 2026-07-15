@@ -1,0 +1,179 @@
+{
+  "schema": "hazkey.mozc-adoption-corpus-policy.v2",
+  "policy_id": "mozc-adoption-v2",
+  "decision_tier": "formal",
+  "collection": {
+    "status": "pending_collection",
+    "manifest_path": null
+  },
+  "formal_suite": {
+    "total_cases": 1360,
+    "quality_cases": 1260,
+    "components": [
+      {
+        "id": "technical-mixed",
+        "category": "technical-mixed",
+        "cases": 240,
+        "tsv_path": "technical-mixed.tsv",
+        "provenance_path": "technical-mixed.provenance.jsonl",
+        "id_prefix": "v2-technical-"
+      },
+      {
+        "id": "proper-noun",
+        "category": "proper-noun",
+        "cases": 200,
+        "tsv_path": "proper-noun.tsv",
+        "provenance_path": "proper-noun.provenance.jsonl",
+        "id_prefix": "v2-proper-"
+      },
+      {
+        "id": "colloquial",
+        "category": "colloquial",
+        "cases": 200,
+        "tsv_path": "colloquial.tsv",
+        "provenance_path": "colloquial.provenance.jsonl",
+        "id_prefix": "v2-colloquial-"
+      },
+      {
+        "id": "homophone-context",
+        "category": "homophone-context",
+        "cases": 200,
+        "tsv_path": "homophone-context.tsv",
+        "provenance_path": "homophone-context.provenance.jsonl",
+        "id_prefix": "v2-homophone-"
+      },
+      {
+        "id": "long-structural",
+        "category": "long-structural",
+        "cases": 200,
+        "tsv_path": "long-structural.tsv",
+        "provenance_path": "long-structural.provenance.jsonl",
+        "id_prefix": "v2-long-"
+      },
+      {
+        "id": "grimodex-regression",
+        "category": "grimodex-regression",
+        "cases": 220,
+        "tsv_path": "grimodex-regression.tsv",
+        "provenance_path": "grimodex-regression.provenance.jsonl",
+        "id_prefix": "v2-grimodex-"
+      },
+      {
+        "id": "protected",
+        "category": "protected",
+        "cases": 100,
+        "tsv_path": "protected.tsv",
+        "provenance_path": "protected.provenance.jsonl",
+        "id_prefix": "v2-protected-"
+      }
+    ],
+    "quality_categories": {
+      "technical-mixed": 240,
+      "proper-noun": 200,
+      "colloquial": 200,
+      "homophone-context": 200,
+      "long-structural": 200,
+      "grimodex-regression": 220
+    },
+    "quality_metrics": [
+      "top1",
+      "top10",
+      "human_preference",
+      "both_bad"
+    ],
+    "protected": {
+      "cases": 100,
+      "required_passes": 100,
+      "metric": "top1_exact",
+      "included_in_overall_quality_rates": false
+    }
+  },
+  "artifact_freezes": {
+    "eligible_candidate_ids": [
+      "B0",
+      "B1"
+    ],
+    "candidates": {
+      "B0": {
+        "generation": "sha256-ad277af2ad5a634f23c7b84b7f346b02f341905f10fcfa6eb9912db78a0866cb",
+        "helper_size_bytes": 5695048,
+        "helper_sha256": "sha256:8676275bb47aefe963c8b82047cc66fb7a5140caec72d1ebbfa17556b281577d",
+        "data_size_bytes": 18887468,
+        "data_sha256": "sha256:b9884362e37772f772a0d28d1e12622455c14353497b3435deed60aa7e592c5e",
+        "manifest_sha256": "sha256:ebdc1bff4da9fbafe3971de7e5f095c90ad78e00e3f40b10fa5a7249d78a7c16"
+      },
+      "B1": {
+        "generation": "sha256-046bcfa093aac43ad6ee64afd4b3a3e8325bab0f3d20b8cb083c447ba8c91a2f",
+        "helper_size_bytes": 5746568,
+        "helper_sha256": "sha256:728d9a79c0f540a832d3f404a2603f49080e1f9e7ee1d24df1a0a69f5a4a75e8",
+        "data_size_bytes": 18887468,
+        "data_sha256": "sha256:b9884362e37772f772a0d28d1e12622455c14353497b3435deed60aa7e592c5e",
+        "manifest_sha256": "sha256:c06ab9c7374ae1c4d114da6c0cabf2a6ef586e94449cb658a3c7927e4d30cb79"
+      }
+    },
+    "one_shot_exposure": {
+      "publish_only_after_all_eligible_candidates_are_frozen": true,
+      "post_publication_candidate_policy": "new_holdout_required",
+      "B2_eligible": false
+    }
+  },
+  "exclusions": {
+    "pilot_v1": {
+      "counted": false,
+      "manifest_sha256": "sha256:b1319e356ba025e1e06221330479d48b12cc44ebb502ddda970ea5fa583336e3",
+      "aggregate_sha256": "sha256:123f47cb6f747135451e5969b32d9868ec61d9574fa6eb4b0001e5409287c807",
+      "maximum_exact_overlap_cases": 0
+    },
+    "auxiliary_suites": [
+      "pilot-v1-256",
+      "ajimee-unconditional",
+      "sentinel-v1-15",
+      "mozc-stress",
+      "contextual"
+    ]
+  },
+  "case_contract": {
+    "tsv_columns": [
+      "id",
+      "reading",
+      "expected",
+      "category"
+    ],
+    "provenance_schema": "hazkey.frozen-conversion-case-provenance.v2",
+    "unique_case_ids": true,
+    "unique_normalized_readings": true,
+    "unique_family_ids": true,
+    "component_id_sequence": "id_prefix-plus-four-digit-decimal-0001-through-cases.v1",
+    "locator_contract": "canonical-case-and-family-json.v1",
+    "allowed_source_kinds": [
+      "project-authored"
+    ],
+    "allowed_licenses": [
+      "MIT"
+    ],
+    "required_exposure_status": "sealed-for-b0-b1",
+    "required_contamination_screens": [
+      "pilot-v1",
+      "ajimee-bench",
+      "sentinel-v1",
+      "mozc-stress",
+      "microsoft-ime-corpus",
+      "zenz-v2.5-dataset"
+    ]
+  },
+  "near_duplicate_review": {
+    "schema": "hazkey.frozen-conversion-near-duplicate-review.v2",
+    "match": "either",
+    "algorithms": [
+      {
+        "id": "normalized-reading-character-3gram-jaccard.v1",
+        "threshold_basis_points": 8000
+      },
+      {
+        "id": "normalized-reading-levenshtein-similarity.v1",
+        "threshold_basis_points": 9000
+      }
+    ],
+    "required_status": "closed"
+  }
+}
