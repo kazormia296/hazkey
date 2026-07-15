@@ -1,0 +1,123 @@
+{
+  "schema": "hazkey.frozen-conversion-review-approvals.v2",
+  "status": "approved",
+  "components": [
+    {
+      "id": "technical-mixed",
+      "status": "approved",
+      "tsv_sha256": "sha256:e12a6e5a06a2270ef7e440aa8bb1ce98ca07a9853065b23e71359d3f352975d0",
+      "source_id": "grimodex-project-holdout-v2-technical-mixed",
+      "author_id": "codex-author-technical-grimodex-v2",
+      "reviewer_id": "codex-review-technical-grimodex-v2",
+      "redistribution_approved": true,
+      "privacy_reviewed": true,
+      "family_assignment": {
+        "contract": "reviewed-case-to-family-map.v1",
+        "sha256": "sha256:343ae032eec9de3ed111b96afd8df5048ca00a5668be6b059d9179584343de4e"
+      }
+    },
+    {
+      "id": "proper-noun",
+      "status": "approved",
+      "tsv_sha256": "sha256:e14d9bac90482e912fce437294dcf4d398e1459b01a24c5ac726d7effc75fd29",
+      "source_id": "grimodex-project-holdout-v2-proper-noun",
+      "author_id": "codex-author-product-language-v2",
+      "reviewer_id": "codex-review-proper-colloquial-v2",
+      "redistribution_approved": true,
+      "privacy_reviewed": true,
+      "family_assignment": {
+        "contract": "reviewed-case-to-family-map.v1",
+        "sha256": "sha256:24197476fb86fc1de48bde8c3e8de6cbba033afae488c44be9dbe84428e7061b"
+      }
+    },
+    {
+      "id": "colloquial",
+      "status": "approved",
+      "tsv_sha256": "sha256:5b3a606a227b9aa388d643eb059d9ea2e20ffb1aae923cbb5f4c5f99b8244bcb",
+      "source_id": "grimodex-project-holdout-v2-colloquial",
+      "author_id": "codex-author-product-language-v2",
+      "reviewer_id": "codex-review-colloquial-noop-v2",
+      "redistribution_approved": true,
+      "privacy_reviewed": true,
+      "family_assignment": {
+        "contract": "reviewed-case-to-family-map.v1",
+        "sha256": "sha256:db0aa54926d8f478848cfa44d0f3d738c8143e5dc5ad5db8161d6de1fdabc575"
+      }
+    },
+    {
+      "id": "homophone-context",
+      "status": "approved",
+      "tsv_sha256": "sha256:cb4f4894dcac3eeb7262114ff3806b5d64dbfcfc100cf5c2e13d6db4aa306981",
+      "source_id": "grimodex-project-holdout-v2-homophone-context",
+      "author_id": "codex-author-homophone-protected-v2",
+      "reviewer_id": "codex-review-homophone-protected-v2",
+      "redistribution_approved": true,
+      "privacy_reviewed": true,
+      "family_assignment": {
+        "contract": "reviewed-case-to-family-map.v1",
+        "sha256": "sha256:e0e570d9f1b5661170f8c0a770c4304055209434f088910d32482699fec4b173"
+      }
+    },
+    {
+      "id": "long-structural",
+      "status": "approved",
+      "tsv_sha256": "sha256:ea36e93f3d45292221c559aa3b5748eff559fbb6485f59d34c21dbbaf1f0f3eb",
+      "source_id": "grimodex-project-holdout-v2-long-structural",
+      "author_id": "codex-author-product-language-v2",
+      "reviewer_id": "codex-review-long-v2",
+      "redistribution_approved": true,
+      "privacy_reviewed": true,
+      "family_assignment": {
+        "contract": "reviewed-case-to-family-map.v1",
+        "sha256": "sha256:8b4cbb52671b5b983230199c18acaa9a035e32d3256624fcf19146a27543cf63"
+      }
+    },
+    {
+      "id": "grimodex-regression",
+      "status": "approved",
+      "tsv_sha256": "sha256:329851097be5e2de23d0f8fe5e95be09188ee5f067a98f1b5222f714364dd2f5",
+      "source_id": "grimodex-project-holdout-v2-grimodex-regression",
+      "author_id": "codex-author-technical-grimodex-v2",
+      "reviewer_id": "codex-review-technical-grimodex-v2",
+      "redistribution_approved": true,
+      "privacy_reviewed": true,
+      "family_assignment": {
+        "contract": "reviewed-case-to-family-map.v1",
+        "sha256": "sha256:bed6bc642bfcd82a6eeb6da819647d14f0da0c3e91ad93760cd6d02845bcdeac"
+      }
+    },
+    {
+      "id": "protected",
+      "status": "approved",
+      "tsv_sha256": "sha256:7bf83eff346a0593ca40d93c91acdc1cbabe68f386b7856b6d564f84e04bb96a",
+      "source_id": "grimodex-project-holdout-v2-protected",
+      "author_id": "codex-author-homophone-protected-v2",
+      "reviewer_id": "codex-review-homophone-protected-v2",
+      "redistribution_approved": true,
+      "privacy_reviewed": true,
+      "family_assignment": {
+        "contract": "reviewed-case-to-family-map.v1",
+        "sha256": "sha256:6e58c612b2864b7aff15b9069f99e0a5921bb9b162e6548940946b73dfc3cc60"
+      }
+    }
+  ],
+  "near_duplicate_review": {
+    "status": "closed",
+    "computed_pairs": 0,
+    "reviewer_id": "codex-review-colloquial-noop-v2",
+    "algorithm": {
+      "normalization": "NFKC-casefold-strip-punctuation-and-separators-katakana-to-hiragana.v1",
+      "match": "either",
+      "algorithms": [
+        {
+          "id": "normalized-reading-character-3gram-jaccard.v1",
+          "threshold_basis_points": 8000
+        },
+        {
+          "id": "normalized-reading-levenshtein-similarity.v1",
+          "threshold_basis_points": 9000
+        }
+      ]
+    }
+  }
+}

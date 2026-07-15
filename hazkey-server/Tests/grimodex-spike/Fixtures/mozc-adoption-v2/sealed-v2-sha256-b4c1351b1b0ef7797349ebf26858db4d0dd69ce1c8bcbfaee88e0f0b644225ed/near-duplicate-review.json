@@ -1,0 +1,20 @@
+{
+  "schema": "hazkey.frozen-conversion-near-duplicate-review.v2",
+  "status": "closed",
+  "reviewer_id": "codex-review-colloquial-noop-v2",
+  "algorithm": {
+    "normalization": "NFKC-casefold-strip-punctuation-and-separators-katakana-to-hiragana.v1",
+    "match": "either",
+    "algorithms": [
+      {
+        "id": "normalized-reading-character-3gram-jaccard.v1",
+        "threshold_basis_points": 8000
+      },
+      {
+        "id": "normalized-reading-levenshtein-similarity.v1",
+        "threshold_basis_points": 9000
+      }
+    ]
+  },
+  "pairs": []
+}

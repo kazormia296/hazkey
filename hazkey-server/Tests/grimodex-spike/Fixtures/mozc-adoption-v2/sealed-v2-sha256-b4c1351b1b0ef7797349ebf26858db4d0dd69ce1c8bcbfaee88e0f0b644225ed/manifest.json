@@ -1,0 +1,132 @@
+{
+  "schema": "hazkey.frozen-conversion-corpus-manifest.v2",
+  "policy": {
+    "path": "corpus-policy.json",
+    "sha256": "sha256:7b0a8e8ddcc9f8d2bfffd7dac6f365d7d5b1cf4ff42b92ba9fc4c99fce7f9220"
+  },
+  "review_approvals": {
+    "path": "review-approvals.json",
+    "sha256": "sha256:9376ab6e3b648ecc39a2279f3a42934638a604e12717f4a7649a9559cd76fc62",
+    "schema": "hazkey.frozen-conversion-review-approvals.v2",
+    "status": "approved"
+  },
+  "components": [
+    {
+      "id": "technical-mixed",
+      "tsv": {
+        "path": "technical-mixed.tsv",
+        "sha256": "sha256:e12a6e5a06a2270ef7e440aa8bb1ce98ca07a9853065b23e71359d3f352975d0",
+        "cases": 240
+      },
+      "provenance": {
+        "path": "technical-mixed.provenance.jsonl",
+        "sha256": "sha256:3f4562d35a43a4f9ccc522183cd0c24c55a188460603e7eee43fb555a67cbfa3",
+        "records": 240
+      }
+    },
+    {
+      "id": "proper-noun",
+      "tsv": {
+        "path": "proper-noun.tsv",
+        "sha256": "sha256:e14d9bac90482e912fce437294dcf4d398e1459b01a24c5ac726d7effc75fd29",
+        "cases": 200
+      },
+      "provenance": {
+        "path": "proper-noun.provenance.jsonl",
+        "sha256": "sha256:b913bd5c46aba19d37ecd4e120a4f8e0fa53b5100232f60346c175dfb756eb2b",
+        "records": 200
+      }
+    },
+    {
+      "id": "colloquial",
+      "tsv": {
+        "path": "colloquial.tsv",
+        "sha256": "sha256:5b3a606a227b9aa388d643eb059d9ea2e20ffb1aae923cbb5f4c5f99b8244bcb",
+        "cases": 200
+      },
+      "provenance": {
+        "path": "colloquial.provenance.jsonl",
+        "sha256": "sha256:da0b41a4cfc5b6a079cca9f26453ed6047000e5cc2c3ac9231e85c81c66f6014",
+        "records": 200
+      }
+    },
+    {
+      "id": "homophone-context",
+      "tsv": {
+        "path": "homophone-context.tsv",
+        "sha256": "sha256:cb4f4894dcac3eeb7262114ff3806b5d64dbfcfc100cf5c2e13d6db4aa306981",
+        "cases": 200
+      },
+      "provenance": {
+        "path": "homophone-context.provenance.jsonl",
+        "sha256": "sha256:f746aa0e13ca15746c2b9fcbad4b20a5e6fdd7eb56fa5ff03945ce5c2afa2c02",
+        "records": 200
+      }
+    },
+    {
+      "id": "long-structural",
+      "tsv": {
+        "path": "long-structural.tsv",
+        "sha256": "sha256:ea36e93f3d45292221c559aa3b5748eff559fbb6485f59d34c21dbbaf1f0f3eb",
+        "cases": 200
+      },
+      "provenance": {
+        "path": "long-structural.provenance.jsonl",
+        "sha256": "sha256:53df5b94e2265ed9773ee3d3c9fa2422528c32bf310c98fd9973e30bdf605ea5",
+        "records": 200
+      }
+    },
+    {
+      "id": "grimodex-regression",
+      "tsv": {
+        "path": "grimodex-regression.tsv",
+        "sha256": "sha256:329851097be5e2de23d0f8fe5e95be09188ee5f067a98f1b5222f714364dd2f5",
+        "cases": 220
+      },
+      "provenance": {
+        "path": "grimodex-regression.provenance.jsonl",
+        "sha256": "sha256:3b81c36503ccf1e719646864bcc21720cb99a24c844f38dca0fcd3b35c114e14",
+        "records": 220
+      }
+    },
+    {
+      "id": "protected",
+      "tsv": {
+        "path": "protected.tsv",
+        "sha256": "sha256:7bf83eff346a0593ca40d93c91acdc1cbabe68f386b7856b6d564f84e04bb96a",
+        "cases": 100
+      },
+      "provenance": {
+        "path": "protected.provenance.jsonl",
+        "sha256": "sha256:4091332ffa5f910146df22eab1fd7b0bd9a341235f2be60bdf3939ada97ef444",
+        "records": 100
+      }
+    }
+  ],
+  "near_duplicate_review": {
+    "path": "near-duplicate-review.json",
+    "sha256": "sha256:3b09a644c53d2571a0de11a34d822d27a04eb5a6fd3d3e4e8f04b1b3342ad6f0",
+    "status": "closed"
+  },
+  "pilot_v1": {
+    "manifest_sha256": "sha256:b1319e356ba025e1e06221330479d48b12cc44ebb502ddda970ea5fa583336e3",
+    "aggregate_sha256": "sha256:123f47cb6f747135451e5969b32d9868ec61d9574fa6eb4b0001e5409287c807",
+    "maximum_exact_overlap_cases": 0
+  },
+  "aggregate": {
+    "cases": 1360,
+    "quality_cases": 1260,
+    "sha256": "sha256:cdb2a017b4548f6f77ec3d466f84ec09268a74adb5e876e224e01069f128c8ae",
+    "categories": {
+      "technical-mixed": 240,
+      "proper-noun": 200,
+      "colloquial": 200,
+      "homophone-context": 200,
+      "long-structural": 200,
+      "grimodex-regression": 220,
+      "protected": 100
+    },
+    "protected_included_in_overall_quality_rates": false,
+    "exact_pilot_overlap_cases": 0
+  }
+}

@@ -1,0 +1,221 @@
+id	reading	expected	category
+v2-grimodex-0001	GrimodexのconverterをMozcにきりかえる	GrimodexのconverterをMozcに切り替える	grimodex-regression
+v2-grimodex-0002	じどうへんかんdelayを120msにせっていする	自動変換delayを120msに設定する	grimodex-regression
+v2-grimodex-0003	preedit cursorをせんとうにひょうじする	preedit cursorを先頭に表示する	grimodex-regression
+v2-grimodex-0004	こうほを1pageあたり9けんひょうじする	候補を1pageあたり9件表示する	grimodex-regression
+v2-grimodex-0005	Ctrl+Spaceのshortcutしょうとつをさける	Ctrl+Spaceのshortcut衝突を避ける	grimodex-regression
+v2-grimodex-0006	くとうてんstyleを、。にそろえる	句読点styleを、。に揃える	grimodex-regression
+v2-grimodex-0007	きごうinputをぜんかくゆうせんにする	記号inputを全角優先にする	grimodex-regression
+v2-grimodex-0008	Grimodexようのromaji tableをよみこむ	Grimodex用のromaji tableを読み込む	grimodex-regression
+v2-grimodex-0009	kana direct inputをゆうこうにする	kana direct inputを有効にする	grimodex-regression
+v2-grimodex-0010	live conversionをこのappだけとめる	live conversionをこのappだけ止める	grimodex-regression
+v2-grimodex-0011	かくていずみtextをさいへんかんする	確定済みtextを再変換する	grimodex-regression
+v2-grimodex-0012	segment resizeをShift+Arrowでおこなう	segment resizeをShift+Arrowで行う	grimodex-regression
+v2-grimodex-0013	へんかんちゅうのSpaceをこうほせんたくにする	変換中のSpaceを候補選択にする	grimodex-regression
+v2-grimodex-0014	Enter 1かいでpreeditをかくていする	Enter 1回でpreeditを確定する	grimodex-regression
+v2-grimodex-0015	Escでみかくていのへんしゅうをとりけす	Escで未確定の編集を取り消す	grimodex-regression
+v2-grimodex-0016	Shift+Spaceではんかくspaceをいれる	Shift+Spaceで半角spaceを入れる	grimodex-regression
+v2-grimodex-0017	さいきどうごにひらがなmodeをふくげんする	再起動後にひらがなmodeを復元する	grimodex-regression
+v2-grimodex-0018	appごとのにゅうりょくじょうたいをわける	appごとの入力状態を分ける	grimodex-regression
+v2-grimodex-0019	Mozc modeではlearningをむこうにする	Mozc modeではlearningを無効にする	grimodex-regression
+v2-grimodex-0020	privacy modeでりれきをほぞんしない	privacy modeで履歴を保存しない	grimodex-regression
+v2-grimodex-0021	scope modeにおうじたGrimodex contextをわたす	scope modeに応じたGrimodex contextを渡す	grimodex-regression
+v2-grimodex-0022	こうほのならびじゅんをdefaultへもどす	候補の並び順をdefaultへ戻す	grimodex-regression
+v2-grimodex-0023	key repeatちゅうのにじゅうかくていをふせぐ	key repeat中の二重確定を防ぐ	grimodex-regression
+v2-grimodex-0024	preeditのたいしょうsegmentをきょうちょうする	preeditの対象segmentを強調する	grimodex-regression
+v2-grimodex-0025	live conversion delayを1000msいかにする	live conversion delayを1000ms以下にする	grimodex-regression
+v2-grimodex-0026	こうほwindowをcaretのしたにだす	候補windowをcaretの下に出す	grimodex-regression
+v2-grimodex-0027	surrounding textのていきょうをきょかする	surrounding textの提供を許可する	grimodex-regression
+v2-grimodex-0028	IME configをsessionちゅうにreloadする	IME configをsession中にreloadする	grimodex-regression
+v2-grimodex-0029	B0 artifactのmanifestをこていする	B0 artifactのmanifestを固定する	grimodex-regression
+v2-grimodex-0030	B1 generationのhelper hashをしょうごうする	B1 generationのhelper hashを照合する	grimodex-regression
+v2-grimodex-0031	Mozc dataのsizeをinstallまえにはかる	Mozc dataのsizeをinstall前に測る	grimodex-regression
+v2-grimodex-0032	artifact bundleからhelperをてんかいする	artifact bundleからhelperを展開する	grimodex-regression
+v2-grimodex-0033	content-addressed runtimeをしんきさくせいする	content-addressed runtimeを新規作成する	grimodex-regression
+v2-grimodex-0034	おなじgenerationのruntimeをさいりようする	同じgenerationのruntimeを再利用する	grimodex-regression
+v2-grimodex-0035	readonly directoryのかきかえをきょひする	readonly directoryの書き換えを拒否する	grimodex-regression
+v2-grimodex-0036	TOCTOUけんしゅつじにfail-closedでとめる	TOCTOU検出時にfail-closedで止める	grimodex-regression
+v2-grimodex-0037	helperのPINGおうとうをinstallまえにためす	helperのPING応答をinstall前に試す	grimodex-regression
+v2-grimodex-0038	Mozc identityとABIをどうじにけんしょうする	Mozc identityとABIを同時に検証する	grimodex-regression
+v2-grimodex-0039	generation pathのsymlinkをきょひする	generation pathのsymlinkを拒否する	grimodex-regression
+v2-grimodex-0040	artifact cacheのふるいentryをそうじする	artifact cacheの古いentryを掃除する	grimodex-regression
+v2-grimodex-0041	FCITX5_GRIMODEX_MOZC_HELPERへぜったいpathをわたす	FCITX5_GRIMODEX_MOZC_HELPERへ絶対pathを渡す	grimodex-regression
+v2-grimodex-0042	FCITX5_GRIMODEX_MOZC_DATAへreadonly fileをわたす	FCITX5_GRIMODEX_MOZC_DATAへreadonly fileを渡す	grimodex-regression
+v2-grimodex-0043	FCITX5_GRIMODEX_CONVERTER=mozcをさいきどうごもたもつ	FCITX5_GRIMODEX_CONVERTER=mozcを再起動後も保つ	grimodex-regression
+v2-grimodex-0044	manifestのないbundleはinstallをきょひする	manifestのないbundleはinstallを拒否する	grimodex-regression
+v2-grimodex-0045	SHA-256ふいっちのartifactをfail-closedできょひする	SHA-256不一致のartifactをfail-closedで拒否する	grimodex-regression
+v2-grimodex-0046	みかんりょうdownloadをartifactにしない	未完了downloadをartifactにしない	grimodex-regression
+v2-grimodex-0047	B0とB1のdata identityをくらべる	B0とB1のdata identityを比べる	grimodex-regression
+v2-grimodex-0048	runtime ownerをげんざいuserにしぼる	runtime ownerを現在userに絞る	grimodex-regression
+v2-grimodex-0049	mode 0555のgenerationをよみとる	mode 0555のgenerationを読み取る	grimodex-regression
+v2-grimodex-0050	helper executableのbitをかくにんする	helper executableのbitを確認する	grimodex-regression
+v2-grimodex-0051	data fileのinodeこうかんをけんしゅつする	data fileのinode交換を検出する	grimodex-regression
+v2-grimodex-0052	artifact verifierのけっかをlogにのこす	artifact verifierの結果をlogに残す	grimodex-regression
+v2-grimodex-0053	custom prefixしたのruntimeをさがす	custom prefix下のruntimeを探す	grimodex-regression
+v2-grimodex-0054	multiarch libdirからaddonをよみこむ	multiarch libdirからaddonを読み込む	grimodex-regression
+v2-grimodex-0055	build-grimodex-mozcをせんようにたもつ	build-grimodex-mozcを専用に保つ	grimodex-regression
+v2-grimodex-0056	こわれたgenerationをactiveにしない	壊れたgenerationをactiveにしない	grimodex-regression
+v2-grimodex-0057	OpenSessionをさいしょのactionとしておくる	OpenSessionを最初のactionとして送る	grimodex-regression
+v2-grimodex-0058	OpenSessionResultのprotocol_versionが2であることをかくにんする	OpenSessionResultのprotocol_versionが2であることを確認する	grimodex-regression
+v2-grimodex-0059	request_idを1から128 UTF-8 bytesにせいげんする	request_idを1から128 UTF-8 bytesに制限する	grimodex-regression
+v2-grimodex-0060	expected_revisionをげんざいrevisionとしょうごうする	expected_revisionを現在revisionと照合する	grimodex-regression
+v2-grimodex-0061	optional stringのみしていちをnullでなくからもじれつにする	optional stringの未指定値をnullでなく空文字列にする	grimodex-regression
+v2-grimodex-0062	Protocol v2 frameを4-byte length-prefixでよむ	Protocol v2 frameを4-byte length-prefixで読む	grimodex-regression
+v2-grimodex-0063	socket payloadを1MiBいかにせいげんする	socket payloadを1MiB以下に制限する	grimodex-regression
+v2-grimodex-0064	RequestEnvelopeをprotobufでかいせきする	RequestEnvelopeをprotobufで解析する	grimodex-regression
+v2-grimodex-0065	unsupported actionにMALFORMED_REQUESTをかえす	unsupported actionにMALFORMED_REQUESTを返す	grimodex-regression
+v2-grimodex-0066	PING responseをrequest_idでしょうごうする	PING responseをrequest_idで照合する	grimodex-regression
+v2-grimodex-0067	きょうゆうsocket I/O deadlineをsteady clockではかる	共有socket I/O deadlineをsteady clockで測る	grimodex-regression
+v2-grimodex-0068	Cancelをsemantic actionとしてしょりする	Cancelをsemantic actionとして処理する	grimodex-regression
+v2-grimodex-0069	partial writeののこりをoutput bufferにたもつ	partial writeの残りをoutput bufferに保つ	grimodex-regression
+v2-grimodex-0070	EOFでclient connectionをとじる	EOFでclient connectionを閉じる	grimodex-regression
+v2-grimodex-0071	client_feature_bitsでlive conversionをゆうこうにする	client_feature_bitsでlive conversionを有効にする	grimodex-regression
+v2-grimodex-0072	artifact verifierでABIをけんしょうする	artifact verifierでABIを検証する	grimodex-regression
+v2-grimodex-0073	candidateせんたくじにgenerationとIDをしょうごうする	candidate選択時にgenerationとIDを照合する	grimodex-regression
+v2-grimodex-0074	おなじrequest_idのretryへcached resultをかえす	同じrequest_idのretryへcached resultを返す	grimodex-regression
+v2-grimodex-0075	surrounding contextのanchorをUnicode scalarでかぞえる	surrounding contextのanchorをUnicode scalarで数える	grimodex-regression
+v2-grimodex-0076	control characterをふくむuser dictionary entryをきょひする	control characterを含むuser dictionary entryを拒否する	grimodex-regression
+v2-grimodex-0077	candidate itemsのじゅんじょをsnapshotへはんえいする	candidate itemsの順序をsnapshotへ反映する	grimodex-regression
+v2-grimodex-0078	statusとerror_messageをべつfieldにする	statusとerror_messageを別fieldにする	grimodex-regression
+v2-grimodex-0079	sessionじょうげんとうたつをFAILEDとしてかえす	session上限到達をFAILEDとして返す	grimodex-regression
+v2-grimodex-0080	client capabilityをuint64 bitmaskでひょうげんする	client capabilityをuint64 bitmaskで表現する	grimodex-regression
+v2-grimodex-0081	contextなしではleft contextとright contextをからにする	contextなしではleft contextとright contextを空にする	grimodex-regression
+v2-grimodex-0082	secure inputでcheckpoint restoreをきょひする	secure inputでcheckpoint restoreを拒否する	grimodex-regression
+v2-grimodex-0083	CloseSessionでsession ownerをしょうごうする	CloseSessionでsession ownerを照合する	grimodex-regression
+v2-grimodex-0084	OpenSessionResultからsession_idをうけとる	OpenSessionResultからsession_idを受け取る	grimodex-regression
+v2-grimodex-0085	user dictionaryのこうほをMozcこうほよりまえにoverlayする	user dictionaryの候補をMozc候補より前にoverlayする	grimodex-regression
+v2-grimodex-0086	ひだりぶんみゃくをprivate helperへわたさない	左文脈をprivate helperへ渡さない	grimodex-regression
+v2-grimodex-0087	Mozc requestにはみぎぶんみゃくfieldをもたせない	Mozc requestには右文脈fieldを持たせない	grimodex-regression
+v2-grimodex-0088	user dictionaryのよみをNFKCごにかたかなへそろえる	user dictionaryの読みをNFKC後にカタカナへ揃える	grimodex-regression
+v2-grimodex-0089	みちのpartOfSpeechをこゆうめいしにmapする	未知のpartOfSpeechを固有名詞にmapする	grimodex-regression
+v2-grimodex-0090	priorityが1から3いがいのproject snapshotをきょひする	priorityが1から3以外のproject snapshotを拒否する	grimodex-regression
+v2-grimodex-0091	normalized readingとsurfaceとCIDがひとしいentryをdeduplicateする	normalized readingとsurfaceとCIDが等しいentryをdeduplicateする	grimodex-regression
+v2-grimodex-0092	こわれたJSONのuser dictionary importをきょひする	壊れたJSONのuser dictionary importを拒否する	grimodex-regression
+v2-grimodex-0093	もっともながいdictionary prefixをへんかんたいしょうにする	最も長いdictionary prefixを変換対象にする	grimodex-regression
+v2-grimodex-0094	secure inputではMozcこうほをからにする	secure inputではMozc候補を空にする	grimodex-regression
+v2-grimodex-0095	Mozc modeのかくていをがくしゅうりれきにほぞんしない	Mozc modeの確定を学習履歴に保存しない	grimodex-regression
+v2-grimodex-0096	Mozc backendのlearning capabilityをconversionOnlyにこていする	Mozc backendのlearning capabilityをconversionOnlyに固定する	grimodex-regression
+v2-grimodex-0097	compositionちゅうはproject generationをpinする	composition中はproject generationをpinする	grimodex-regression
+v2-grimodex-0098	pending snapshotをcompositionしゅうりょうごにてきようする	pending snapshotをcomposition終了後に適用する	grimodex-regression
+v2-grimodex-0099	よみがちがうuser entryをべつのこうほとしてたもつ	読みが違うuser entryを別の候補として保つ	grimodex-regression
+v2-grimodex-0100	built-in guardのこうほをMozcこうほよりまえにおく	built-in guardの候補をMozc候補より前に置く	grimodex-regression
+v2-grimodex-0101	standardこうほではASCII tokenのcaseをたもつ	standard候補ではASCII tokenのcaseを保つ	grimodex-regression
+v2-grimodex-0102	project dictionaryのentryをpriorityこうじゅんにならべる	project dictionaryのentryをpriority降順に並べる	grimodex-regression
+v2-grimodex-0103	Mozc modeのpredictionはからのこうほlistをかえす	Mozc modeのpredictionは空の候補listを返す	grimodex-regression
+v2-grimodex-0104	standardこうほではASCIIきごうのはばをたもつ	standard候補ではASCII記号の幅を保つ	grimodex-regression
+v2-grimodex-0105	protected surfaceをこわすstandardこうほをじょがいする	protected surfaceを壊すstandard候補を除外する	grimodex-regression
+v2-grimodex-0106	readingが255 scalarsまたは1023 bytesをこえたrequestをきょひする	readingが255 scalarsまたは1023 bytesを超えたrequestを拒否する	grimodex-regression
+v2-grimodex-0107	からのsurfaceをかえすMozcこうほをきょひする	空のsurfaceを返すMozc候補を拒否する	grimodex-regression
+v2-grimodex-0108	long vowelのちがうよみを1つにまとめない	long vowelの違う読みを1つにまとめない|long vowelの違う読みを一つにまとめない	grimodex-regression
+v2-grimodex-0109	projectめいをsnapshotのproject_nameからよみこむ	project名をsnapshotのproject_nameから読み込む	grimodex-regression
+v2-grimodex-0110	scope policyがきょひしたproject contextをつかわない	scope policyが拒否したproject contextを使わない	grimodex-regression
+v2-grimodex-0111	user dictionaryをkeyじゅんのJSONとしてexportする	user dictionaryをkey順のJSONとしてexportする	grimodex-regression
+v2-grimodex-0112	dictionary reloadをへんかんのあいだにおこなう	dictionary reloadを変換の間に行う	grimodex-regression
+v2-grimodex-0113	Grimodex setting paneにMozcをひょうじする	Grimodex setting paneにMozcを表示する	grimodex-regression
+v2-grimodex-0114	B0せんたくちゅうのbadgeをあおにする	B0選択中のbadgeを青にする	grimodex-regression
+v2-grimodex-0115	converter cardにwarm p95をだす	converter cardにwarm p95を出す	grimodex-regression
+v2-grimodex-0116	PSSとRSSをべつのrowにひょうじする	PSSとRSSを別のrowに表示する	grimodex-regression
+v2-grimodex-0117	protected 100/100をみどりでしめす	protected 100/100を緑で示す	grimodex-regression
+v2-grimodex-0118	both_badのけんすうにtooltipをつける	both_badの件数にtooltipを付ける	grimodex-regression
+v2-grimodex-0119	candidate diffを左右にならべる	candidate diffを左右に並べる	grimodex-regression
+v2-grimodex-0120	readingをcopyするbuttonをおく	readingをcopyするbuttonを置く	grimodex-regression
+v2-grimodex-0121	long textのcandidateを2ぎょうにおさめる	long textのcandidateを2行に収める	grimodex-regression
+v2-grimodex-0122	しっぱいしたcaseだけをfilterする	失敗したcaseだけをfilterする	grimodex-regression
+v2-grimodex-0123	category tabにごうけいすうをだす	category tabに合計数を出す	grimodex-regression
+v2-grimodex-0124	keyboardだけでB0とB1をくらべる	keyboardだけでB0とB1を比べる	grimodex-regression
+v2-grimodex-0125	human preferenceをblind labelでひかくする	human preferenceをblind labelで比較する	grimodex-regression
+v2-grimodex-0126	ひょうかずみcaseをundoできるようにする	評価済みcaseをundoできるようにする	grimodex-regression
+v2-grimodex-0127	progress barを1260けんでけいさんする	progress barを1260件で計算する	grimodex-regression
+v2-grimodex-0128	protected suiteをべつsectionにわける	protected suiteを別sectionに分ける	grimodex-regression
+v2-grimodex-0129	context inputをおりたたんでひょうじする	context inputを折り畳んで表示する	grimodex-regression
+v2-grimodex-0130	protocol versionをfooterにひょうじする	protocol versionをfooterに表示する	grimodex-regression
+v2-grimodex-0131	artifact hashをmonospaceでみせる	artifact hashをmonospaceで見せる	grimodex-regression
+v2-grimodex-0132	copyずみiconを1びょうだけだす	copy済みiconを1秒だけ出す	grimodex-regression
+v2-grimodex-0133	soak testのけいかじかんをliveひょうじする	soak testの経過時間をlive表示する	grimodex-regression
+v2-grimodex-0134	crashじのlast logをdialogにだす	crash時のlast logをdialogに出す	grimodex-regression
+v2-grimodex-0135	install statusを3だんかいでしめす	install statusを3段階で示す	grimodex-regression
+v2-grimodex-0136	missing dataにrepair buttonをだす	missing dataにrepair buttonを出す	grimodex-regression
+v2-grimodex-0137	setting resetまえにかくにんする	setting reset前に確認する	grimodex-regression
+v2-grimodex-0138	IME previewでcompositionをさいげんする	IME previewでcompositionを再現する	grimodex-regression
+v2-grimodex-0139	light modeでもdiffのいろをみわける	light modeでもdiffの色を見分ける	grimodex-regression
+v2-grimodex-0140	screen readerへへんかんじょうたいをつたえる	screen readerへ変換状態を伝える	grimodex-regression
+v2-grimodex-0141	Mozcせんようrunnerのinstall commandをじっこうする	Mozc専用runnerのinstall commandを実行する	grimodex-regression
+v2-grimodex-0142	つうじょうrunnerへMozcせんようflagをたさない	通常runnerへMozc専用flagを足さない	grimodex-regression
+v2-grimodex-0143	CMAKE_INSTALL_FULL_LIBDIR/fcitx5-grimodexからhelper pathをきめる	CMAKE_INSTALL_FULL_LIBDIR/fcitx5-grimodexからhelper pathを決める	grimodex-regression
+v2-grimodex-0144	custom prefixのshare dirへdataをおく	custom prefixのshare dirへdataを置く	grimodex-regression
+v2-grimodex-0145	Debian multiarchでhelperをみつける	Debian multiarchでhelperを見つける	grimodex-regression
+v2-grimodex-0146	package contractでartifactをけんしょうする	package contractでartifactを検証する	grimodex-regression
+v2-grimodex-0147	helperとdataとlicenseをGNUInstallDirsのdestinationへはいちする	helperとdataとlicenseをGNUInstallDirsのdestinationへ配置する	grimodex-regression
+v2-grimodex-0148	GRIMODEX_STAGED_ROOTのhelperとdataをけんしょうする	GRIMODEX_STAGED_ROOTのhelperとdataを検証する	grimodex-regression
+v2-grimodex-0149	install prefixをこていちにしない	install prefixを固定値にしない	grimodex-regression
+v2-grimodex-0150	artifact bundleをpackageに1つだけいれる	artifact bundleをpackageに1つだけ入れる|artifact bundleをpackageに一つだけ入れる	grimodex-regression
+v2-grimodex-0151	license noticeをMozc dataにそえる	license noticeをMozc dataに添える	grimodex-regression
+v2-grimodex-0152	stripまえのhelper hashをつかわない	strip前のhelper hashを使わない	grimodex-regression
+v2-grimodex-0153	postinstでruntime generationをつくらない	postinstでruntime generationを作らない	grimodex-regression
+v2-grimodex-0154	uninstallじにuser cacheをのこす	uninstall時にuser cacheを残す	grimodex-regression
+v2-grimodex-0155	upgradeまえにactive generationをたもつ	upgrade前にactive generationを保つ	grimodex-regression
+v2-grimodex-0156	package versionへartifact IDをふくめる	package versionへartifact IDを含める	grimodex-regression
+v2-grimodex-0157	CMake --installでhelperのexecutable bitをたもつ	CMake --installでhelperのexecutable bitを保つ	grimodex-regression
+v2-grimodex-0158	relative symlinkをstagingでけんしょうする	relative symlinkをstagingで検証する	grimodex-regression
+v2-grimodex-0159	RPM upgradeのscriptletをべきとうにする	RPM upgradeのscriptletを冪等にする	grimodex-regression
+v2-grimodex-0160	Arch packageのbackup arrayをみなおす	Arch packageのbackup arrayを見直す	grimodex-regression
+v2-grimodex-0161	debug packageへsymbolをぶんりする	debug packageへsymbolを分離する	grimodex-regression
+v2-grimodex-0162	offline installではnetworkせつぞくをおこなわない	offline installではnetwork接続を行わない	grimodex-regression
+v2-grimodex-0163	artifact pathにspaceがあってもあつかう	artifact pathにspaceがあっても扱う	grimodex-regression
+v2-grimodex-0164	readonly rootでもuser runtimeをつくる	readonly rootでもuser runtimeを作る	grimodex-regression
+v2-grimodex-0165	package checksumをrelease noteにかく	package checksumをrelease noteに書く	grimodex-regression
+v2-grimodex-0166	old ABIのaddonとどうきょさせない	old ABIのaddonと同居させない	grimodex-regression
+v2-grimodex-0167	relocationごにPING testをおこなう	relocation後にPING testを行う	grimodex-regression
+v2-grimodex-0168	staged installのfile listをこていする	staged installのfile listを固定する	grimodex-regression
+v2-grimodex-0169	warm latency p95をくりかえしけいそくする	warm latency p95を繰り返し計測する	grimodex-regression
+v2-grimodex-0170	PSSをsmaps_rollupからしゅとくする	PSSをsmaps_rollupから取得する	grimodex-regression
+v2-grimodex-0171	RSS peakをsoakちゅうにきろくする	RSS peakをsoak中に記録する	grimodex-regression
+v2-grimodex-0172	helper crashのexit codeをのこす	helper crashのexit codeを残す	grimodex-regression
+v2-grimodex-0173	Fcitx restartごのenvをdumpする	Fcitx restart後のenvをdumpする	grimodex-regression
+v2-grimodex-0174	active generationのhashを1ぷんごとにみる	active generationのhashを1分ごとに見る	grimodex-regression
+v2-grimodex-0175	conversion timeoutをcategoryべつにかぞえる	conversion timeoutをcategory別に数える	grimodex-regression
+v2-grimodex-0176	soakちゅうのfile descriptorをかんしする	soak中のfile descriptorを監視する	grimodex-regression
+v2-grimodex-0177	zombie helperがいないことをかくにんする	zombie helperがいないことを確認する	grimodex-regression
+v2-grimodex-0178	SIGSEGVじにcore dumpをかいしゅうする	SIGSEGV時にcore dumpを回収する	grimodex-regression
+v2-grimodex-0179	runtime generationのかいざんをけんしゅつしてきょひする	runtime generationの改ざんを検出して拒否する	grimodex-regression
+v2-grimodex-0180	PINGがしっぱいしたconverterをactivateしない	PINGが失敗したconverterをactivateしない	grimodex-regression
+v2-grimodex-0181	helper timeoutごにprocessをさいきどうする	helper timeout後にprocessを再起動する	grimodex-regression
+v2-grimodex-0182	log rotationごもsession IDをたもつ	log rotation後もsession IDを保つ	grimodex-regression
+v2-grimodex-0183	OOM killのかいすうをcgroupからよむ	OOM killの回数をcgroupから読む	grimodex-regression
+v2-grimodex-0184	memory leakを30ぷんまどでけんちする	memory leakを30分窓で検知する	grimodex-regression
+v2-grimodex-0185	conversion resultのふいっちをartifactべつにだす	conversion resultの不一致をartifact別に出す	grimodex-regression
+v2-grimodex-0186	retry stormをcircuit breakerでとめる	retry stormをcircuit breakerで止める	grimodex-regression
+v2-grimodex-0187	runtime permission errorをrepairへみちびく	runtime permission errorをrepairへ導く	grimodex-regression
+v2-grimodex-0188	serverきどうじにstale socket pathをunlinkする	server起動時にstale socket pathをunlinkする	grimodex-regression
+v2-grimodex-0189	server --replaceをきどうして2びょうごにせいぞんかくにんする	server --replaceを起動して2秒後に生存確認する	grimodex-regression
+v2-grimodex-0190	crash loopじにbackoffをじょうげんまでふやす	crash loop時にbackoffを上限まで増やす	grimodex-regression
+v2-grimodex-0191	orphan runtimeをdry-runでれっきょする	orphan runtimeをdry-runで列挙する	grimodex-regression
+v2-grimodex-0192	install logにsecretをださない	install logにsecretを出さない	grimodex-regression
+v2-grimodex-0193	health checkのれんぞく3かいしっぱいをあつかう	health checkの連続3回失敗を扱う	grimodex-regression
+v2-grimodex-0194	soakけっかをJSON reportにほぞんする	soak結果をJSON reportに保存する	grimodex-regression
+v2-grimodex-0195	CPU spikeじのstack sampleをとる	CPU spike時のstack sampleを取る	grimodex-regression
+v2-grimodex-0196	recoveryごにおなじartifactをさいけんしょうする	recovery後に同じartifactを再検証する	grimodex-regression
+v2-grimodex-0197	mainとorigin/mainのaheadをかくにんする	mainとorigin/mainのaheadを確認する	grimodex-regression
+v2-grimodex-0198	Mozc runnerのへんこうだけをgit addする	Mozc runnerの変更だけをgit addする	grimodex-regression
+v2-grimodex-0199	package contractのさぶんをreviewする	package contractの差分をreviewする	grimodex-regression
+v2-grimodex-0200	artifact hashのへんこうをcommitからわける	artifact hashの変更をcommitから分ける	grimodex-regression
+v2-grimodex-0201	READMEのじっこうれいをworktreeでためす	READMEの実行例をworktreeで試す	grimodex-regression
+v2-grimodex-0202	grimodex-ime.shとのぶんりをdiffでまもる	grimodex-ime.shとの分離をdiffで守る	grimodex-regression
+v2-grimodex-0203	untracked artifactをcommitにふくめない	untracked artifactをcommitに含めない	grimodex-regression
+v2-grimodex-0204	git diff --checkをpushまえにとおす	git diff --checkをpush前に通す	grimodex-regression
+v2-grimodex-0205	ctestのけっかをぜんけんきろくする	ctestの結果を全件記録する	grimodex-regression
+v2-grimodex-0206	package testのcaseすうをREADMEとそろえる	package testのcase数をREADMEと揃える	grimodex-regression
+v2-grimodex-0207	げんざいのHEAD patchをかくにんする	現在のHEAD patchを確認する	grimodex-regression
+v2-grimodex-0208	originへpushするまえにstatusをみる	originへpushする前にstatusを見る	grimodex-regression
+v2-grimodex-0209	worktree cleanをhashこうしんごにたしかめる	worktree cleanをhash更新後に確かめる	grimodex-regression
+v2-grimodex-0210	generated manifestをsourceとくべつする	generated manifestをsourceと区別する	grimodex-regression
+v2-grimodex-0211	fixture IDのけつばんをCIでけんしゅつする	fixture IDの欠番をCIで検出する	grimodex-regression
+v2-grimodex-0212	TSVの4 columnをpre-commitでまもる	TSVの4 columnをpre-commitで守る	grimodex-regression
+v2-grimodex-0213	v1 readingとのoverlapをぜろにする	v1 readingとのoverlapをゼロにする	grimodex-regression
+v2-grimodex-0214	v2 builderでTSVかくfieldのNFCをけんしょうする	v2 builderでTSV各fieldのNFCを検証する	grimodex-regression
+v2-grimodex-0215	near-duplicate reviewをべつcommitにする	near-duplicate reviewを別commitにする	grimodex-regression
+v2-grimodex-0216	provenanceなしではmanifestをつくらない	provenanceなしではmanifestを作らない	grimodex-regression
+v2-grimodex-0217	B0とB1のfreezeごにholdoutをひらく	B0とB1のfreeze後にholdoutを開く	grimodex-regression
+v2-grimodex-0218	B2をv2 corpusのたいしょうからはずす	B2をv2 corpusの対象から外す	grimodex-regression
+v2-grimodex-0219	reviewずみfixtureだけをmergeする	review済みfixtureだけをmergeする	grimodex-regression
+v2-grimodex-0220	commit messageにcategoryをめいきする	commit messageにcategoryを明記する	grimodex-regression

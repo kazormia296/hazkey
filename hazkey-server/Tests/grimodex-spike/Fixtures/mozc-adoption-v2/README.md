@@ -1,11 +1,19 @@
 # Mozc adoption formal corpus v2
 
-This directory defines the collection contract for a new 1,360-case holdout.
-Collection is currently partial: some category TSVs may be present, but the
-complete seven-category set, matching provenance JSONL, near-duplicate review,
-and manifest are not frozen. `corpus-policy.json` remains
-`pending_collection`, and the v2 builder refuses to publish an aggregate until
-a future reviewed policy is set to `ready` and every exact input is present.
+This directory contains the reviewed source inputs and immutable generation for
+a new 1,360-case holdout. The seven category TSVs are complete, their exact
+bytes and reviewed family assignments are approved in `review-approvals.json`,
+and `corpus-policy.json` is `ready`. The sealer validates all source inputs,
+generates provenance and the combined corpus, then publishes the whole result
+as one content-addressed `sealed-v2-sha256-*` directory without replacing an
+existing generation.
+
+Sealed identity:
+
+- generation: `sealed-v2-sha256-b4c1351b1b0ef7797349ebf26858db4d0dd69ce1c8bcbfaee88e0f0b644225ed`
+- aggregate SHA-256: `sha256:cdb2a017b4548f6f77ec3d466f84ec09268a74adb5e876e224e01069f128c8ae`
+- manifest SHA-256: `sha256:3ccefa5552d1c0d851b07cc1ed8f65983dd7db019d9250509f2467af7bfd1c02`
+- sealed files: 19
 
 The existing 256-case v1 corpus is a pilot and development replay. None of its
 cases count toward v2. AJIMEE unconditional, the 15-case sentinel, Mozc stress
@@ -14,9 +22,11 @@ formal 1,360-case aggregate.
 
 ## Counted components
 
-Each category has its own TSV and provenance JSONL. These files, rather than a
-single combined product corpus, are the source of truth so ownership, review,
-parallel collection, and diffs remain category-local.
+Each category has its own source TSV. The source TSVs plus
+`review-approvals.json` are the reviewed inputs; the matching provenance JSONL,
+manifest, near-duplicate review, and combined TSV are deterministic sealed
+outputs. This keeps ownership, review, and diffs category-local while making
+the evaluation generation self-contained.
 
 | Category | Cases | Quality score |
 |---|---:|:---:|
@@ -39,17 +49,33 @@ contextual suite.
 
 ## One-shot holdout and artifact freeze
 
-The holdout is eligible only for the exact B0 and B1 generations, helper/data
-bytes, and artifact manifests pinned in the policy. Every case provenance
-record must say that it remained sealed until both eligible artifact identities
-were frozen. After the v2 corpus is published or disclosed, a newly developed
-B2 is ineligible for this holdout and requires a new holdout revision. Changing
-an artifact hash or relabelling a B2 artifact as B0/B1 does not restore
-eligibility.
+The holdout is eligible only for the exact pre-disclosure evaluation runner,
+B0 and B1 generations, helper/data bytes, and artifact manifests pinned in the
+policy. Every case provenance record must say that it remained sealed until
+both eligible artifact identities were frozen. After the v2 corpus is published
+or disclosed, a newly developed B2 is ineligible for this holdout and requires
+a new holdout revision. Changing an artifact hash or relabelling a B2 artifact
+as B0/B1 does not restore eligibility.
 
-The future manifest must bind the exact ready policy bytes. Collection may be
-parallel, but the final aggregate cannot be built until every component has its
-exact count and matching one-record-per-case provenance file.
+The sealed manifest binds the exact ready policy and review-approval bytes.
+Publication is transactional: all files first enter a private staging
+directory, are fsynced and made read-only, and are then renamed as one
+content-addressed generation with no-replace semantics. A failed write or
+destination conflict leaves no partial generation, and rerunning the same seal
+is rejected.
+
+To reproduce the seal from the reviewed source inputs:
+
+```bash
+python3 tools/dictionary/seal_frozen_corpus_v2.py \
+  --policy hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v2/corpus-policy.json \
+  --approvals hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v2/review-approvals.json \
+  --pilot-v1-manifest hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v1/manifest.json
+```
+
+The command refuses to replace the already sealed generation. Reproduction
+therefore uses an empty copy of the source-input directory and must produce the
+same generation name and bytes.
 
 ## Provenance and contamination contract
 
@@ -63,6 +89,7 @@ Each provenance JSONL record has this exact shape:
   "source": {
     "kind": "project-authored",
     "source_id": "rights-reviewed-source-id",
+    "author_id": "canonical-author-id",
     "locator_sha256": "sha256:...",
     "license": "MIT",
     "new_holdout": true
@@ -110,6 +137,8 @@ unknown origin, known training overlap, or pre-freeze disclosure fails closed.
 
 - Case IDs follow the exact per-component sequence; normalized readings and
   `family_id` values are globally unique.
+- A quality-scored case may not list its unchanged reading as an accepted
+  surface. This prevents conversion-free rows from inflating Top-1 or Top-10.
 - Multiple accepted surfaces are alternatives in one TSV row, never extra
   cases.
 - Kana, punctuation, whitespace, numeric, inflection, paraphrase, or template
@@ -123,10 +152,9 @@ unknown origin, known training overlap, or pre-freeze disclosure fails closed.
   closed review record with a reviewer and rationale. Missing,
   stale, duplicated, or invented review pairs are rejected.
 
-The future manifest schema is
-`hazkey.frozen-conversion-corpus-manifest.v2`. A generated combined TSV is an
-output only; the seven category TSVs and their provenance records remain the
-authoritative inputs.
+The manifest schema is `hazkey.frozen-conversion-corpus-manifest.v2`. A
+generated combined TSV is an output only; the seven category TSVs and their
+exact review approvals remain the authoritative reviewed inputs.
 
 The normal runner `scripts/grimodex-ime.sh` and the Mozc-only runner
 `scripts/grimodex-ime_mozc.sh` remain separate.

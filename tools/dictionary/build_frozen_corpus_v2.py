@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Validate and assemble the sealed 1,360-case Mozc adoption holdout.
 
-The seven category TSVs and their one-record-per-case provenance JSONL files
-are authoritative.  A build is allowed only with a ready v2 policy, the pinned
-v1 pilot manifest, a closed deterministic near-duplicate review, and an exact
-v2 manifest.  The checked-in policy is intentionally pending until real
-holdout collection and independent review are complete.
+The seven category TSVs and their exact review approvals are the authoritative
+reviewed inputs. A build is allowed only with a ready v2 policy, the pinned v1
+pilot manifest, deterministic one-record-per-case provenance, a closed
+near-duplicate review, and an exact v2 manifest. The checked-in policy is ready
+only because all source rows and approvals are complete and independently
+frozen.
 """
 
 from __future__ import annotations
@@ -33,6 +34,9 @@ POLICY_SCHEMA = "hazkey.mozc-adoption-corpus-policy.v2"
 MANIFEST_SCHEMA = "hazkey.frozen-conversion-corpus-manifest.v2"
 PROVENANCE_SCHEMA = "hazkey.frozen-conversion-case-provenance.v2"
 NEAR_REVIEW_SCHEMA = "hazkey.frozen-conversion-near-duplicate-review.v2"
+REVIEW_APPROVALS_SCHEMA = "hazkey.frozen-conversion-review-approvals.v2"
+REVIEW_APPROVALS_NAME = "review-approvals.json"
+FAMILY_ASSIGNMENT_CONTRACT = "reviewed-case-to-family-map.v1"
 POLICY_ID = "mozc-adoption-v2"
 TOTAL_CASES = 1_360
 QUALITY_CASES = 1_260
@@ -135,6 +139,12 @@ NEAR_ALGORITHMS = [
 
 EXPECTED_ARTIFACT_FREEZES = {
     "eligible_candidate_ids": ELIGIBLE_CANDIDATE_IDS,
+    "evaluation_runner": {
+        "product_source_revision": "7373b1a59b2c94a9fada5650984c28ed352c3be1",
+        "size_bytes": 106_269_232,
+        "sha256": "sha256:249c43c8eb02651b685291ad47fd6bd85efac3438abd0a4d284dd1caec11f30a",
+        "runtime_dependencies_integrity": "sha256:5d847919dbfb4b866546104cfbc73f5ffa9ff45ee9d8bc85889bf1de6c299f2d",
+    },
     "candidates": {
         "B0": {
             "generation": "sha256-ad277af2ad5a634f23c7b84b7f346b02f341905f10fcfa6eb9912db78a0866cb",
@@ -182,6 +192,7 @@ EXPECTED_CASE_CONTRACT = {
     "unique_case_ids": True,
     "unique_normalized_readings": True,
     "unique_family_ids": True,
+    "quality_cases_require_conversion": True,
     "component_id_sequence": "id_prefix-plus-four-digit-decimal-0001-through-cases.v1",
     "locator_contract": "canonical-case-and-family-json.v1",
     "allowed_source_kinds": ["project-authored"],
@@ -196,6 +207,8 @@ EXPECTED_NEAR_REVIEW_CONTRACT = {
     "algorithms": NEAR_ALGORITHMS,
     "required_status": "closed",
 }
+
+REVIEW_IDENTIFIER_PATTERN = re.compile(r"[a-z0-9][a-z0-9._:-]{2,127}")
 
 
 def _object_without_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -238,6 +251,15 @@ def _string(value: Any, context: str) -> str:
     if any(unicodedata.category(character) == "Cc" for character in value):
         raise ValueError(f"{context} must not contain control characters")
     return value
+
+
+def _review_identifier(value: Any, context: str) -> str:
+    result = _string(value, context)
+    if REVIEW_IDENTIFIER_PATTERN.fullmatch(result) is None:
+        raise ValueError(
+            f"{context} must be a canonical lowercase review identifier"
+        )
+    return result
 
 
 def _boolean(value: Any, context: str) -> bool:
@@ -448,10 +470,107 @@ def validate_policy(
     return policy, data
 
 
+def load_review_approvals(
+    path: Path,
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any], bytes]:
+    approvals, data = _load_json_file(path, "v2 review approvals")
+    _require_exact_keys(
+        approvals,
+        {"schema", "status", "components", "near_duplicate_review"},
+        "v2 review approvals",
+    )
+    if approvals["schema"] != REVIEW_APPROVALS_SCHEMA:
+        raise ValueError("v2 review approvals schema mismatch")
+    if approvals["status"] != "approved":
+        raise ValueError("v2 review approvals are not approved")
+
+    raw_components = _array(approvals["components"], "review approvals.components")
+    if len(raw_components) != len(COMPONENT_CONTRACTS):
+        raise ValueError("review approvals must cover all seven components")
+    result: dict[str, dict[str, Any]] = {}
+    for raw, contract in zip(raw_components, COMPONENT_CONTRACTS, strict=True):
+        context = f"review approval {contract['id']}"
+        approval = _object(raw, context)
+        _require_exact_keys(
+            approval,
+            {
+                "id",
+                "status",
+                "tsv_sha256",
+                "source_id",
+                "author_id",
+                "reviewer_id",
+                "redistribution_approved",
+                "privacy_reviewed",
+                "family_assignment",
+            },
+            context,
+        )
+        if approval["id"] != contract["id"] or approval["status"] != "approved":
+            raise ValueError(f"{context} is missing or not approved")
+        _sha256(approval["tsv_sha256"], f"{context}.tsv_sha256")
+        _review_identifier(approval["source_id"], f"{context}.source_id")
+        author_id = _review_identifier(approval["author_id"], f"{context}.author_id")
+        reviewer_id = _review_identifier(
+            approval["reviewer_id"], f"{context}.reviewer_id"
+        )
+        if author_id.casefold() == reviewer_id.casefold():
+            raise ValueError(f"{context} author and reviewer must be independent")
+        if _boolean(
+            approval["redistribution_approved"],
+            f"{context}.redistribution_approved",
+        ) is not True:
+            raise ValueError(f"{context} lacks redistribution approval")
+        if _boolean(
+            approval["privacy_reviewed"], f"{context}.privacy_reviewed"
+        ) is not True:
+            raise ValueError(f"{context} lacks privacy approval")
+        family = _object(approval["family_assignment"], f"{context}.family_assignment")
+        _require_exact_keys(
+            family,
+            {"contract", "sha256"},
+            f"{context}.family_assignment",
+        )
+        if family["contract"] != FAMILY_ASSIGNMENT_CONTRACT:
+            raise ValueError(f"{context} family assignment contract mismatch")
+        _sha256(family["sha256"], f"{context}.family_assignment.sha256")
+        result[str(contract["id"])] = approval
+
+    near = _object(
+        approvals["near_duplicate_review"],
+        "review approvals.near_duplicate_review",
+    )
+    _require_exact_keys(
+        near,
+        {"status", "computed_pairs", "reviewer_id", "algorithm"},
+        "review approvals.near_duplicate_review",
+    )
+    computed_pairs = near["computed_pairs"]
+    if (
+        near["status"] != "closed"
+        or isinstance(computed_pairs, bool)
+        or not isinstance(computed_pairs, int)
+        or computed_pairs < 0
+    ):
+        raise ValueError("review approvals do not close the near review")
+    _review_identifier(
+        near["reviewer_id"], "review approvals.near_duplicate_review.reviewer_id"
+    )
+    expected_algorithm = {
+        "normalization": NEAR_NORMALIZATION,
+        "match": "either",
+        "algorithms": NEAR_ALGORITHMS,
+    }
+    if near["algorithm"] != expected_algorithm:
+        raise ValueError("review approvals near-duplicate algorithm mismatch")
+    return result, near, data
+
+
 def _validate_provenance_record(
     record: dict[str, Any],
     row: dict[str, str],
     context: str,
+    approval: dict[str, Any] | None = None,
 ) -> str:
     _require_exact_keys(
         record,
@@ -475,12 +594,24 @@ def _validate_provenance_record(
     source = _object(record["source"], f"{context}.source")
     _require_exact_keys(
         source,
-        {"kind", "source_id", "locator_sha256", "license", "new_holdout"},
+        {
+            "kind",
+            "source_id",
+            "author_id",
+            "locator_sha256",
+            "license",
+            "new_holdout",
+        },
         f"{context}.source",
     )
     if source["kind"] not in EXPECTED_CASE_CONTRACT["allowed_source_kinds"]:
         raise ValueError(f"{context}.source.kind is not allowed")
-    source_id = _string(source["source_id"], f"{context}.source.source_id")
+    source_id = _review_identifier(
+        source["source_id"], f"{context}.source.source_id"
+    )
+    author_id = _review_identifier(
+        source["author_id"], f"{context}.source.author_id"
+    )
     lowered_source_id = source_id.casefold()
     if any(token in lowered_source_id for token in FORBIDDEN_SOURCE_TOKENS):
         raise ValueError(f"{context}.source.source_id names an excluded auxiliary source")
@@ -505,7 +636,17 @@ def _validate_provenance_record(
         raise ValueError(f"{context} lacks redistribution approval")
     if _boolean(rights["privacy_reviewed"], f"{context}.rights.privacy_reviewed") is not True:
         raise ValueError(f"{context} lacks privacy review")
-    _string(rights["reviewer_id"], f"{context}.rights.reviewer_id")
+    reviewer_id = _review_identifier(
+        rights["reviewer_id"], f"{context}.rights.reviewer_id"
+    )
+    if author_id.casefold() == reviewer_id.casefold():
+        raise ValueError(f"{context} author and reviewer are not independent")
+    if approval is not None and (
+        source_id != approval["source_id"]
+        or author_id != approval["author_id"]
+        or reviewer_id != approval["reviewer_id"]
+    ):
+        raise ValueError(f"{context} identities do not match review approval")
 
     exposure = _object(record["exposure"], f"{context}.exposure")
     _require_exact_keys(
@@ -559,6 +700,21 @@ def case_locator_sha256(row: dict[str, str], family_id: str) -> str:
                 "id": row["id"],
                 "reading": row["reading"],
             }
+        )
+    )
+
+
+def family_assignment_sha256(
+    rows: list[dict[str, str]], family_ids: list[str]
+) -> str:
+    if len(rows) != len(family_ids):
+        raise ValueError("family assignment count does not match TSV rows")
+    return sha256_bytes(
+        _canonical_json(
+            [
+                {"case_id": row["id"], "family_id": family_id}
+                for row, family_id in zip(rows, family_ids, strict=True)
+            ]
         )
     )
 
@@ -694,10 +850,18 @@ def find_near_duplicate_pairs(
 def _validate_near_review(
     review: dict[str, Any],
     expected_pairs: list[dict[str, Any]],
+    expected_reviewer_id: str | None = None,
 ) -> None:
-    _require_exact_keys(review, {"schema", "status", "algorithm", "pairs"}, "near review")
+    _require_exact_keys(
+        review,
+        {"schema", "status", "reviewer_id", "algorithm", "pairs"},
+        "near review",
+    )
     if review["schema"] != NEAR_REVIEW_SCHEMA or review["status"] != "closed":
         raise ValueError("near review schema or status is not closed")
+    reviewer_id = _review_identifier(review["reviewer_id"], "near review.reviewer_id")
+    if expected_reviewer_id is not None and reviewer_id != expected_reviewer_id:
+        raise ValueError("near review reviewer does not match approval")
     expected_algorithm = {
         "normalization": NEAR_NORMALIZATION,
         "match": "either",
@@ -778,7 +942,15 @@ def build_aggregate(
     manifest, _ = _load_json_file(manifest_path, "v2 corpus manifest")
     _require_exact_keys(
         manifest,
-        {"schema", "policy", "components", "near_duplicate_review", "pilot_v1", "aggregate"},
+        {
+            "schema",
+            "policy",
+            "review_approvals",
+            "components",
+            "near_duplicate_review",
+            "pilot_v1",
+            "aggregate",
+        },
         "v2 corpus manifest",
     )
     if manifest["schema"] != MANIFEST_SCHEMA:
@@ -789,6 +961,32 @@ def build_aggregate(
         raise ValueError("manifest.policy.path does not name the supplied policy")
     if _sha256(manifest_policy["sha256"], "manifest.policy.sha256") != sha256_bytes(policy_bytes):
         raise ValueError("manifest policy exact-byte SHA-256 mismatch")
+
+    root = manifest_path.parent
+    approval_binding = _object(
+        manifest["review_approvals"], "v2 corpus manifest.review_approvals"
+    )
+    _require_exact_keys(
+        approval_binding,
+        {"path", "sha256", "schema", "status"},
+        "manifest.review_approvals",
+    )
+    approvals_path = _resolve_component_path(
+        root,
+        approval_binding["path"],
+        REVIEW_APPROVALS_NAME,
+        "manifest.review_approvals.path",
+    )
+    approvals_by_id, near_approval, approval_bytes = load_review_approvals(
+        approvals_path
+    )
+    if approval_binding != {
+        "path": REVIEW_APPROVALS_NAME,
+        "sha256": sha256_bytes(approval_bytes),
+        "schema": REVIEW_APPROVALS_SCHEMA,
+        "status": "approved",
+    }:
+        raise ValueError("manifest review approval binding mismatch")
 
     pilot_contract = _object(manifest["pilot_v1"], "manifest.pilot_v1")
     _require_exact_keys(
@@ -806,7 +1004,6 @@ def build_aggregate(
     raw_components = _array(manifest["components"], "manifest.components")
     if len(raw_components) != len(COMPONENT_CONTRACTS):
         raise ValueError("manifest must contain exactly seven category components")
-    root = manifest_path.parent
     all_rows: list[dict[str, str]] = []
     seen_case_ids: set[str] = set()
     seen_readings: set[str] = set()
@@ -814,6 +1011,7 @@ def build_aggregate(
 
     for raw_component, contract in zip(raw_components, COMPONENT_CONTRACTS, strict=True):
         context = f"component {contract['id']}"
+        approval = approvals_by_id[str(contract["id"])]
         component = _object(raw_component, context)
         _require_exact_keys(component, {"id", "tsv", "provenance"}, context)
         if component["id"] != contract["id"]:
@@ -830,6 +1028,8 @@ def build_aggregate(
         tsv_data = _read_regular(tsv_path, f"{context} TSV")
         if _sha256(tsv["sha256"], f"{context}.tsv.sha256") != sha256_bytes(tsv_data):
             raise ValueError(f"{context} TSV exact-byte SHA-256 mismatch")
+        if approval["tsv_sha256"] != sha256_bytes(tsv_data):
+            raise ValueError(f"{context} TSV does not match its review approval")
         if _positive_int(tsv["cases"], f"{context}.tsv.cases") != contract["cases"]:
             raise ValueError(f"{context} TSV case contract mismatch")
         rows = _parse_tsv(tsv_data, f"{context} TSV")
@@ -865,6 +1065,7 @@ def build_aggregate(
         if len(records) != len(rows):
             raise ValueError(f"{context} TSV/provenance count mismatch")
 
+        component_family_ids: list[str] = []
         for position, (row, record) in enumerate(
             zip(rows, records, strict=True), 1
         ):
@@ -876,15 +1077,32 @@ def build_aggregate(
                 )
             if row["id"] in seen_case_ids:
                 raise ValueError(f"duplicate formal case ID {row['id']!r}")
+            if (
+                row["category"] != "protected"
+                and row["reading"] in row["expected"].split("|")
+            ):
+                raise ValueError(
+                    f"quality case permits unchanged reading for {row['id']!r}"
+                )
             seen_case_ids.add(row["id"])
             reading_key = _canonical_reading(row["reading"])
             if reading_key in seen_readings:
                 raise ValueError(f"duplicate normalized formal reading for {row['id']!r}")
             seen_readings.add(reading_key)
-            family_id = _validate_provenance_record(record, row, f"provenance {row['id']}")
+            family_id = _validate_provenance_record(
+                record,
+                row,
+                f"provenance {row['id']}",
+                approval,
+            )
             if family_id in seen_families:
                 raise ValueError(f"duplicate formal family_id {family_id!r}")
             seen_families.add(family_id)
+            component_family_ids.append(family_id)
+        if family_assignment_sha256(rows, component_family_ids) != approval[
+            "family_assignment"
+        ]["sha256"]:
+            raise ValueError(f"{context} family assignment review hash mismatch")
         all_rows.extend(rows)
 
     if len(all_rows) != TOTAL_CASES or Counter(
@@ -924,7 +1142,13 @@ def build_aggregate(
     ) != sha256_bytes(near_bytes):
         raise ValueError("near-duplicate review exact-byte SHA-256 mismatch")
     expected_pairs = find_near_duplicate_pairs(all_rows, pilot_rows)
-    _validate_near_review(near_review, expected_pairs)
+    if len(expected_pairs) != near_approval["computed_pairs"]:
+        raise ValueError("near review pair count does not match approval")
+    _validate_near_review(
+        near_review,
+        expected_pairs,
+        near_approval["reviewer_id"],
+    )
 
     aggregate_bytes = _encode_rows(all_rows)
     aggregate = _object(manifest["aggregate"], "manifest.aggregate")

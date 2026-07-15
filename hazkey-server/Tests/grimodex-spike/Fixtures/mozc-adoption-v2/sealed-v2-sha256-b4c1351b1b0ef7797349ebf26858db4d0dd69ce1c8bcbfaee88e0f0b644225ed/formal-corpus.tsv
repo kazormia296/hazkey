@@ -1,0 +1,1361 @@
+id	reading	expected	category
+v2-technical-0001	CMake Presetsでこうせいをきりかえる	CMake Presetsで構成を切り替える	technical-mixed
+v2-technical-0002	Ninjaでへいれつびるどをはしらせる	Ninjaで並列ビルドを走らせる	technical-mixed
+v2-technical-0003	debug symbolsをべつふぁいるにぶんりする	debug symbolsを別ファイルに分離する	technical-mixed
+v2-technical-0004	LTOをゆうこうにしてさいてきかする	LTOを有効にして最適化する	technical-mixed
+v2-technical-0005	ccacheのひっとりつをかくにんする	ccacheのヒット率を確認する	technical-mixed
+v2-technical-0006	ARM64むけにくろすこんぱいるする	ARM64向けにクロスコンパイルする	technical-mixed
+v2-technical-0007	ABIのふいっちをけんしゅつする	ABIの不一致を検出する	technical-mixed
+v2-technical-0008	linker mapからしんぼるをさがす	linker mapからシンボルを探す	technical-mixed
+v2-technical-0009	ASanつきのてすとばんをつくる	ASan付きのテスト版を作る	technical-mixed
+v2-technical-0010	ぞうぶんびるどのたいしょうをしぼる	増分ビルドの対象を絞る	technical-mixed
+v2-technical-0011	ふくすうのstatic libraryをひとつにまとめる	複数のstatic libraryを一つにまとめる|複数のstatic libraryをひとつにまとめる	technical-mixed
+v2-technical-0012	じどうせいせいheaderをさきにつくる	自動生成headerを先に作る	technical-mixed
+v2-technical-0013	compile_commands.jsonをしゅつりょくする	compile_commands.jsonを出力する	technical-mixed
+v2-technical-0014	FEATURE_X=ONでじっけんきのうをいれる	FEATURE_X=ONで実験機能を入れる	technical-mixed
+v2-technical-0015	いぞんgraphのじゅんかんをほどく	依存graphの循環を解く	technical-mixed
+v2-technical-0016	SOURCE_DATE_EPOCHをこていする	SOURCE_DATE_EPOCHを固定する	technical-mixed
+v2-technical-0017	PGOようのprofileをしゅうしゅうする	PGO用のprofileを収集する	technical-mixed
+v2-technical-0018	unit-test binaryだけをさいびるどする	unit-test binaryだけを再ビルドする	technical-mixed
+v2-technical-0019	RPATHにそうたいぱすをせっていする	RPATHに相対パスを設定する	technical-mixed
+v2-technical-0020	-j8でjobすうをせいげんする	-j8でjob数を制限する	technical-mixed
+v2-technical-0021	Linuxのcgroup v2でしげんをわける	Linuxのcgroup v2で資源を分ける	technical-mixed
+v2-technical-0022	systemd unitのきどうじゅんをなおす	systemd unitの起動順を直す	technical-mixed
+v2-technical-0023	Waylandのclipboardけいろをしらべる	Waylandのclipboard経路を調べる	technical-mixed
+v2-technical-0024	XDG_RUNTIME_DIRのけんげんをみなおす	XDG_RUNTIME_DIRの権限を見直す	technical-mixed
+v2-technical-0025	macOSのsandboxせいやくをかくにんする	macOSのsandbox制約を確認する	technical-mixed
+v2-technical-0026	Windows 11でIMEをさいとうろくする	Windows 11でIMEを再登録する	technical-mixed
+v2-technical-0027	FreeBSD jailないでdaemonをうごかす	FreeBSD jail内でdaemonを動かす	technical-mixed
+v2-technical-0028	kernel 6.xのmoduleをよみなおす	kernel 6.xのmoduleを読み直す	technical-mixed
+v2-technical-0029	/tmpをtmpfsにまうんとする	/tmpをtmpfsにマウントする	technical-mixed
+v2-technical-0030	localeをja_JP.UTF-8にそろえる	localeをja_JP.UTF-8に揃える	technical-mixed
+v2-technical-0031	SIGTERMをうけてあんぜんにしゅうりょうする	SIGTERMを受けて安全に終了する	technical-mixed
+v2-technical-0032	inotifyのwatchじょうげんをあげる	inotifyのwatch上限を上げる	technical-mixed
+v2-technical-0033	ulimit -nのせっていをひきあげる	ulimit -nの設定を引き上げる	technical-mixed
+v2-technical-0034	POSIX shared memoryをそうじする	POSIX shared memoryを掃除する	technical-mixed
+v2-technical-0035	D-Bus sessionのownerをかくにんする	D-Bus sessionのownerを確認する	technical-mixed
+v2-technical-0036	udev ruleでdeviceめいをこていする	udev ruleでdevice名を固定する	technical-mixed
+v2-technical-0037	AppArmor profileにきょかをたす	AppArmor profileに許可を足す	technical-mixed
+v2-technical-0038	SELinuxのaudit logをよみとく	SELinuxのaudit logを読み解く	technical-mixed
+v2-technical-0039	WSL2からhostのportへせつぞくする	WSL2からhostのportへ接続する	technical-mixed
+v2-technical-0040	zombie processのおやをとくていする	zombie processの親を特定する	technical-mixed
+v2-technical-0041	git rebase --ontoでれきしをつけかえる	git rebase --ontoで履歴を付け替える	technical-mixed
+v2-technical-0042	cherry-pickしたcommitをとりけす	cherry-pickしたcommitを取り消す	technical-mixed
+v2-technical-0043	.gitignoreのれいがいruleをたす	.gitignoreの例外ruleを足す	technical-mixed
+v2-technical-0044	git bisectでたいこうをしぼりこむ	git bisectで退行を絞り込む	technical-mixed
+v2-technical-0045	submoduleのSHAをこうしんする	submoduleのSHAを更新する	technical-mixed
+v2-technical-0046	worktreeごとのbranchをせいりする	worktreeごとのbranchを整理する	technical-mixed
+v2-technical-0047	merge-baseからさぶんをとる	merge-baseから差分を取る	technical-mixed
+v2-technical-0048	git reflogでけしたHEADをもどす	git reflogで消したHEADを戻す	technical-mixed
+v2-technical-0049	GPGしょめいずみtagをけんしょうする	GPG署名済みtagを検証する	technical-mixed
+v2-technical-0050	shallow cloneのふかさをふやす	shallow cloneの深さを増やす	technical-mixed
+v2-technical-0051	LFS pointerのじったいをしゅとくする	LFS pointerの実体を取得する	technical-mixed
+v2-technical-0052	pre-commit hookのしっぱいをなおす	pre-commit hookの失敗を直す	technical-mixed
+v2-technical-0053	fixup! commitをautosquashでとうごうする	fixup! commitをautosquashで統合する	technical-mixed
+v2-technical-0054	remote tracking branchをはりなおす	remote tracking branchを張り直す	technical-mixed
+v2-technical-0055	pathspecでたいしょうdirectoryをしぼる	pathspecで対象directoryを絞る	technical-mixed
+v2-technical-0056	git notesにけんしょうけっかをのこす	git notesに検証結果を残す	technical-mixed
+v2-technical-0057	conflict markerをぜんけんけんさくする	conflict markerを全件検索する	technical-mixed
+v2-technical-0058	sparse-checkoutでひつようぶんだけひらく	sparse-checkoutで必要分だけ開く	technical-mixed
+v2-technical-0059	commit-msg hookでけいしきをしばる	commit-msg hookで形式を縛る	technical-mixed
+v2-technical-0060	origin/HEADのむきさきをなおす	origin/HEADの向き先を直す	technical-mixed
+v2-technical-0061	HTTP/3のhandshakeをけいそくする	HTTP/3のhandshakeを計測する	technical-mixed
+v2-technical-0062	IPv6のdefault routeをかくにんする	IPv6のdefault routeを確認する	technical-mixed
+v2-technical-0063	DNS over HTTPSをむこうかする	DNS over HTTPSを無効化する	technical-mixed
+v2-technical-0064	TLS 1.3のcipher suiteをせいげんする	TLS 1.3のcipher suiteを制限する	technical-mixed
+v2-technical-0065	WebSocketのpingかんかくをちょうせいする	WebSocketのping間隔を調整する	technical-mixed
+v2-technical-0066	gRPC streamのたいむあうとをのばす	gRPC streamのタイムアウトを延ばす	technical-mixed
+v2-technical-0067	QUIC packetのろすりつをはかる	QUIC packetのロス率を測る	technical-mixed
+v2-technical-0068	proxy.pacのruleをみなおす	proxy.pacのruleを見直す	technical-mixed
+v2-technical-0069	localhost:8080へSSH tunnelけいゆでせつぞくする	localhost:8080へSSH tunnel経由で接続する	technical-mixed
+v2-technical-0070	CIDR /24のはんいをけいさんする	CIDR /24の範囲を計算する	technical-mixed
+v2-technical-0071	Path MTUにあわせてpacket sizeをさげる	Path MTUに合わせてpacket sizeを下げる	technical-mixed
+v2-technical-0072	NAT gatewayのsessionをおう	NAT gatewayのsessionを追う	technical-mixed
+v2-technical-0073	CORSのpreflightをきゃっしゅする	CORSのpreflightをキャッシュする	technical-mixed
+v2-technical-0074	TCP keepaliveを30びょうにする	TCP keepaliveを30秒にする	technical-mixed
+v2-technical-0075	Unix domain socketをつかいまわす	Unix domain socketを使い回す	technical-mixed
+v2-technical-0076	load balancerのhealth checkをなおす	load balancerのhealth checkを直す	technical-mixed
+v2-technical-0077	mTLSでclientしょうめいしょをもとめる	mTLSでclient証明書を求める	technical-mixed
+v2-technical-0078	SNIごとにcertificateをきりかえる	SNIごとにcertificateを切り替える	technical-mixed
+v2-technical-0079	packet captureをpcapでほぞんする	packet captureをpcapで保存する	technical-mixed
+v2-technical-0080	429おうとうにexponential backoffをいれる	429応答にexponential backoffを入れる	technical-mixed
+v2-technical-0081	PostgreSQLでcovering indexをつくる	PostgreSQLでcovering indexを作る	technical-mixed
+v2-technical-0082	SQLiteのWAL checkpointをはしらせる	SQLiteのWAL checkpointを走らせる	technical-mixed
+v2-technical-0083	MySQL 8のslow queryをぶんせきする	MySQL 8のslow queryを分析する	technical-mixed
+v2-technical-0084	RedisのTTLをいっかつこうしんする	RedisのTTLを一括更新する	technical-mixed
+v2-technical-0085	MongoDBのcompound keyをみなおす	MongoDBのcompound keyを見直す	technical-mixed
+v2-technical-0086	foreign keyのCASCADEをはずす	foreign keyのCASCADEを外す	technical-mixed
+v2-technical-0087	SERIALIZABLEでさいしこうをいれる	SERIALIZABLEで再試行を入れる	technical-mixed
+v2-technical-0088	N+1 queryをbatchよみこみにかえる	N+1 queryをbatch読み込みに変える	technical-mixed
+v2-technical-0089	EXPLAIN ANALYZEのけっかをくらべる	EXPLAIN ANALYZEの結果を比べる	technical-mixed
+v2-technical-0090	partial indexのじょうけんをせまくする	partial indexの条件を狭くする	technical-mixed
+v2-technical-0091	migration 042をtransactionでかこむ	migration 042をtransactionで囲む	technical-mixed
+v2-technical-0092	read replicaのおくれをかんしする	read replicaの遅れを監視する	technical-mixed
+v2-technical-0093	JSONB columnからfieldをぬきだす	JSONB columnからfieldを抜き出す	technical-mixed
+v2-technical-0094	VACUUM FULLのじっこうじかんたいをきめる	VACUUM FULLの実行時間帯を決める	technical-mixed
+v2-technical-0095	connection poolを32せつぞくにしぼる	connection poolを32接続に絞る	technical-mixed
+v2-technical-0096	unique constraintのしょうとつをあつかう	unique constraintの衝突を扱う	technical-mixed
+v2-technical-0097	CDC eventのじゅんじょをほしょうする	CDC eventの順序を保証する	technical-mixed
+v2-technical-0098	partition keyをつきたんいにかえる	partition keyを月単位に変える	technical-mixed
+v2-technical-0099	backupからPITRでふっきゅうする	backupからPITRで復旧する	technical-mixed
+v2-technical-0100	NULLS LASTでならびじゅんをこていする	NULLS LASTで並び順を固定する	technical-mixed
+v2-technical-0101	OAuth 2.1のPKCEをひっすにする	OAuth 2.1のPKCEを必須にする	technical-mixed
+v2-technical-0102	JWTのaud claimをけんしょうする	JWTのaud claimを検証する	technical-mixed
+v2-technical-0103	Argon2idでpasswordをはっしゅする	Argon2idでpasswordをハッシュする	technical-mixed
+v2-technical-0104	CSP nonceをrequestごとにかえる	CSP nonceをrequestごとに変える	technical-mixed
+v2-technical-0105	CSRF tokenをcookieとしょうごうする	CSRF tokenをcookieと照合する	technical-mixed
+v2-technical-0106	X.509 chainのきげんをしらべる	X.509 chainの期限を調べる	technical-mixed
+v2-technical-0107	secretをKMSでふうごうかする	secretをKMSで復号化する	technical-mixed
+v2-technical-0108	SBOMのpackage hashをけんしょうする	SBOMのpackage hashを検証する	technical-mixed
+v2-technical-0109	SLSA level 3のprovenanceをのこす	SLSA level 3のprovenanceを残す	technical-mixed
+v2-technical-0110	SQL injectionをparameterでふせぐ	SQL injectionをparameterで防ぐ	technical-mixed
+v2-technical-0111	pathをせいきかしてbase directoryないかかくにんする	pathを正規化してbase directory内か確認する	technical-mixed
+v2-technical-0112	rate limitをIPたんいでかける	rate limitをIP単位でかける	technical-mixed
+v2-technical-0113	2FAのrecovery codeをさいはっこうする	2FAのrecovery codeを再発行する	technical-mixed
+v2-technical-0114	passkeyのRP IDをかくにんする	passkeyのRP IDを確認する	technical-mixed
+v2-technical-0115	AES-256-GCMでbackupをあんごうかする	AES-256-GCMでbackupを暗号化する	technical-mixed
+v2-technical-0116	EDRのalertをSIEMへおくる	EDRのalertをSIEMへ送る	technical-mixed
+v2-technical-0117	least privilegeでIAMをしぼる	least privilegeでIAMを絞る	technical-mixed
+v2-technical-0118	zero-dayたいおうのpatchをあてる	zero-day対応のpatchを当てる	technical-mixed
+v2-technical-0119	private packageのnamespaceをわけてregistryのゆうせんじゅんいをこていする	private packageのnamespaceを分けてregistryの優先順位を固定する	technical-mixed
+v2-technical-0120	certificate pinningのこうしんをためす	certificate pinningの更新を試す	technical-mixed
+v2-technical-0121	AWS Lambdaのcold startをへらす	AWS Lambdaのcold startを減らす	technical-mixed
+v2-technical-0122	S3 bucketのversioningをゆうこうにする	S3 bucketのversioningを有効にする	technical-mixed
+v2-technical-0123	Azure Functionsのslotをswapしてきりかえる	Azure Functionsのslotをswapして切り替える	technical-mixed
+v2-technical-0124	GCP projectのquotaをかくにんする	GCP projectのquotaを確認する	technical-mixed
+v2-technical-0125	Kubernetes HPAのCPUもくひょうを70%にせっていする	Kubernetes HPAのCPU目標を70%に設定する	technical-mixed
+v2-technical-0126	Helm chartのvaluesをぶんりする	Helm chartのvaluesを分離する	technical-mixed
+v2-technical-0127	Terraform stateをremoteにうつす	Terraform stateをremoteに移す	technical-mixed
+v2-technical-0128	CloudFrontのcache keyをへらす	CloudFrontのcache keyを減らす	technical-mixed
+v2-technical-0129	ECS taskのhealth graceをのばす	ECS taskのhealth graceを延ばす	technical-mixed
+v2-technical-0130	Cloud Runのさいしょうinstanceすうを1にせっていする	Cloud Runの最小instance数を1に設定する	technical-mixed
+v2-technical-0131	VPC peeringのrouteをついかする	VPC peeringのrouteを追加する	technical-mixed
+v2-technical-0132	object storageのlifecycleをせっていする	object storageのlifecycleを設定する	technical-mixed
+v2-technical-0133	serverless queueのDLQをかんしする	serverless queueのDLQを監視する	technical-mixed
+v2-technical-0134	3つのavailability zoneへぶんさんする	3つのavailability zoneへ分散する	technical-mixed
+v2-technical-0135	spot instanceのちゅうだんをひろう	spot instanceの中断を拾う	technical-mixed
+v2-technical-0136	container registryのimageをそうじする	container registryのimageを掃除する	technical-mixed
+v2-technical-0137	managed databaseのfailoverをためす	managed databaseのfailoverを試す	technical-mixed
+v2-technical-0138	WAF ruleをcount modeでためす	WAF ruleをcount modeで試す	technical-mixed
+v2-technical-0139	cost allocation tagをひっすにする	cost allocation tagを必須にする	technical-mixed
+v2-technical-0140	multi-regionのDNSきりかえをれんしゅうする	multi-regionのDNS切り替えを練習する	technical-mixed
+v2-technical-0141	LLMのcontext windowをけいそくする	LLMのcontext windowを計測する	technical-mixed
+v2-technical-0142	RAGのtop-kを8にしぼる	RAGのtop-kを8に絞る	technical-mixed
+v2-technical-0143	embeddingをcosineきょりでくらべる	embeddingをcosine距離で比べる	technical-mixed
+v2-technical-0144	LoRA adapterをbase modelへよみこむ	LoRA adapterをbase modelへ読み込む	technical-mixed
+v2-technical-0145	GPU batch sizeをVRAMにあわせる	GPU batch sizeをVRAMに合わせる	technical-mixed
+v2-technical-0146	FP16 modelをINT8けいしきへquantizeする	FP16 modelをINT8形式へquantizeする	technical-mixed
+v2-technical-0147	tokenizerのspecial tokenをそろえる	tokenizerのspecial tokenを揃える	technical-mixed
+v2-technical-0148	beam searchのlength penaltyをさげる	beam searchのlength penaltyを下げる	technical-mixed
+v2-technical-0149	prompt injectionのひょうかせっとをつくる	prompt injectionの評価セットを作る	technical-mixed
+v2-technical-0150	inference serverのKV cacheをさいりようする	inference serverのKV cacheを再利用する	technical-mixed
+v2-technical-0151	ONNX graphのていすうをconstant foldする	ONNX graphの定数をconstant foldする	technical-mixed
+v2-technical-0152	CUDA OOMじのretryをとめる	CUDA OOM時のretryを止める	technical-mixed
+v2-technical-0153	multimodal inputのがぞうをresizeする	multimodal inputの画像をresizeする	technical-mixed
+v2-technical-0154	fine-tuningのlearning rateをおさえる	fine-tuningのlearning rateを抑える	technical-mixed
+v2-technical-0155	validation lossでかじょうてきごうをみる	validation lossで過剰適合を見る	technical-mixed
+v2-technical-0156	LLM judgeのいちかんせいをにじゅうかくにんする	LLM judgeの一貫性を二重確認する	technical-mixed
+v2-technical-0157	vector DBのchunkを512もじにする	vector DBのchunkを512文字にする	technical-mixed
+v2-technical-0158	streaming responseのTTFTをはかる	streaming responseのTTFTを測る	technical-mixed
+v2-technical-0159	guardrailでPIIをけんしゅつしてmaskする	guardrailでPIIを検出してmaskする	technical-mixed
+v2-technical-0160	model cardにげんかいをめいきする	model cardに限界を明記する	technical-mixed
+v2-technical-0161	Rustのborrow checkerにあわせてなおす	Rustのborrow checkerに合わせて直す	technical-mixed
+v2-technical-0162	Swift 6のactor isolationをまもる	Swift 6のactor isolationを守る	technical-mixed
+v2-technical-0163	TypeScriptのstrictNullChecksをつける	TypeScriptのstrictNullChecksを付ける	technical-mixed
+v2-technical-0164	Python 3.13のvenvをつくる	Python 3.13のvenvを作る	technical-mixed
+v2-technical-0165	C++20のconceptでかたをしぼる	C++20のconceptで型を絞る	technical-mixed
+v2-technical-0166	Goのgoroutine leakをとめる	Goのgoroutine leakを止める	technical-mixed
+v2-technical-0167	Kotlin coroutineのcancelをかいそうぜんたいへでんぱさせる	Kotlin coroutineのcancelを階層全体へ伝播させる	technical-mixed
+v2-technical-0168	Java 21のvirtual threadをためす	Java 21のvirtual threadを試す	technical-mixed
+v2-technical-0169	C#のnullable warningをぜろにする	C#のnullable warningをゼロにする|C#のnullable warningを0にする	technical-mixed
+v2-technical-0170	Ruby gemのnative extensionをびるどする	Ruby gemのnative extensionをビルドする	technical-mixed
+v2-technical-0171	PHP 8のattributeをよみとる	PHP 8のattributeを読み取る	technical-mixed
+v2-technical-0172	Scalaのimplicit scopeをせまくする	Scalaのimplicit scopeを狭くする	technical-mixed
+v2-technical-0173	Elixir supervisorのrestartをためす	Elixir supervisorのrestartを試す	technical-mixed
+v2-technical-0174	Haskellのlazy evaluationをけいそくする	Haskellのlazy evaluationを計測する	technical-mixed
+v2-technical-0175	Lua scriptをsandboxでうごかす	Lua scriptをsandboxで動かす	technical-mixed
+v2-technical-0176	Dart isolateへmessageをわたす	Dart isolateへmessageを渡す	technical-mixed
+v2-technical-0177	Zigのcomptimeでtableをつくる	Zigのcomptimeでtableを作る	technical-mixed
+v2-technical-0178	Objective-C bridgeのownershipをなおす	Objective-C bridgeのownershipを直す	technical-mixed
+v2-technical-0179	Bashのset -euo pipefailをたもつ	Bashのset -euo pipefailを保つ	technical-mixed
+v2-technical-0180	SQLのwindow functionでじゅんいをだす	SQLのwindow functionで順位を出す	technical-mixed
+v2-technical-0181	OpenTelemetryのtrace IDをserviceかんででんぱさせる	OpenTelemetryのtrace IDをservice間で伝播させる	technical-mixed
+v2-technical-0182	Prometheusのhistogram bucketをなおす	Prometheusのhistogram bucketを直す	technical-mixed
+v2-technical-0183	Grafana dashboardにp95をだす	Grafana dashboardにp95を出す	technical-mixed
+v2-technical-0184	structured logへrequest_idをいれる	structured logへrequest_idを入れる	technical-mixed
+v2-technical-0185	Sentryのrelease tagをひもづける	Sentryのrelease tagをひも付ける|Sentryのrelease tagを紐付ける	technical-mixed
+v2-technical-0186	RED metricsをserviceごとにだす	RED metricsをserviceごとに出す	technical-mixed
+v2-technical-0187	USE methodでbottleneckをさがす	USE methodでbottleneckを探す	technical-mixed
+v2-technical-0188	span attributeからtenantをけす	span attributeからtenantを消す	technical-mixed
+v2-technical-0189	log levelをruntimeでかえる	log levelをruntimeで変える	technical-mixed
+v2-technical-0190	alert fatigueをseverityでへらす	alert fatigueをseverityで減らす	technical-mixed
+v2-technical-0191	SLO 99.9%のerror budgetをけいさんする	SLO 99.9%のerror budgetを計算する	technical-mixed
+v2-technical-0192	flame graphでhot pathをみつける	flame graphでhot pathを見つける	technical-mixed
+v2-technical-0193	core dumpからstack traceをひらく	core dumpからstack traceを開く	technical-mixed
+v2-technical-0194	continuous profilingのsample rateを5%にしぼりこむ	continuous profilingのsample rateを5%に絞り込む	technical-mixed
+v2-technical-0195	blackbox probeでTLSきげんをみる	blackbox probeでTLS期限を見る	technical-mixed
+v2-technical-0196	metric cardinalityのばくはつをおさえる	metric cardinalityの爆発を抑える	technical-mixed
+v2-technical-0197	baggage headerからPIIをのぞく	baggage headerからPIIを除く	technical-mixed
+v2-technical-0198	canaryのsuccess rateをくらべる	canaryのsuccess rateを比べる	technical-mixed
+v2-technical-0199	crash loopをevent timelineでおう	crash loopをevent timelineで追う	technical-mixed
+v2-technical-0200	profiling overheadを1%いかにする	profiling overheadを1%以下にする	technical-mixed
+v2-technical-0201	Reactのhydration mismatchをなおす	Reactのhydration mismatchを直す	technical-mixed
+v2-technical-0202	CSSを12-column gridにせっていする	CSSを12-column gridに設定する	technical-mixed
+v2-technical-0203	WCAG 2.2のfocus orderをまもる	WCAG 2.2のfocus orderを守る	technical-mixed
+v2-technical-0204	aria-labelをicon buttonにつける	aria-labelをicon buttonに付ける	technical-mixed
+v2-technical-0205	Retina 2xようのassetをよういする	Retina 2x用のassetを用意する	technical-mixed
+v2-technical-0206	dark modeのcontrastをはかる	dark modeのcontrastを測る	technical-mixed
+v2-technical-0207	virtualized listのscrollをたもつ	virtualized listのscrollを保つ	technical-mixed
+v2-technical-0208	touch targetを44pxいじょうにする	touch targetを44px以上にする	technical-mixed
+v2-technical-0209	IME compositionちゅうのrerenderをふせぐ	IME composition中のrerenderを防ぐ	technical-mixed
+v2-technical-0210	SVG iconのviewBoxをそろえる	SVG iconのviewBoxを揃える	technical-mixed
+v2-technical-0211	responsive breakpointを768pxにせっていする	responsive breakpointを768pxに設定する	technical-mixed
+v2-technical-0212	modalをとじたらfocus trapをかいじょしてよびだしもとへfocusをもどす	modalを閉じたらfocus trapを解除して呼び出し元へfocusを戻す	technical-mixed
+v2-technical-0213	localeごとにdate formatをかえる	localeごとにdate formatを変える	technical-mixed
+v2-technical-0214	font fallbackにNoto Sansをたす	font fallbackにNoto Sansを足す	technical-mixed
+v2-technical-0215	skeleton UIでlayout shiftをへらす	skeleton UIでlayout shiftを減らす	technical-mixed
+v2-technical-0216	keyboard shortcutのしょうとつをさける	keyboard shortcutの衝突を避ける	technical-mixed
+v2-technical-0217	canvasをdevicePixelRatioにあわせる	canvasをdevicePixelRatioに合わせる	technical-mixed
+v2-technical-0218	undo stackを100けんにせいげんする	undo stackを100件に制限する	technical-mixed
+v2-technical-0219	toastを5びょうごにじどうでとじる	toastを5秒後に自動で閉じる	technical-mixed
+v2-technical-0220	print CSSでnavigationをかくす	print CSSでnavigationを隠す	technical-mixed
+v2-technical-0221	Debian packageのcontrolをこうしんする	Debian packageのcontrolを更新する	technical-mixed
+v2-technical-0222	RPM specのRequiresをしぼる	RPM specのRequiresを絞る	technical-mixed
+v2-technical-0223	Arch PKGBUILDのsha256sumsをかえる	Arch PKGBUILDのsha256sumsを変える	technical-mixed
+v2-technical-0224	Flatpak manifestにpermissionをたす	Flatpak manifestにpermissionを足す	technical-mixed
+v2-technical-0225	Snap confinementをstrictにせっていしてけんげんをしぼる	Snap confinementをstrictに設定して権限を絞る	technical-mixed
+v2-technical-0226	Homebrew formulaのbottleをこうしんする	Homebrew formulaのbottleを更新する	technical-mixed
+v2-technical-0227	certificateをつかってMSIX packageをsignする	certificateを使ってMSIX packageをsignする	technical-mixed
+v2-technical-0228	AppImageのdesktop fileをなおす	AppImageのdesktop fileを直す	technical-mixed
+v2-technical-0229	tar.zstのownerをrootにそろえる	tar.zstのownerをrootに揃える	technical-mixed
+v2-technical-0230	semantic versionのpre-releaseをつける	semantic versionのpre-releaseを付ける	technical-mixed
+v2-technical-0231	package registryへSBOMをそえる	package registryへSBOMを添える	technical-mixed
+v2-technical-0232	multiarchのlibdirをじどうけんしゅつする	multiarchのlibdirを自動検出する	technical-mixed
+v2-technical-0233	post-install scriptをidempotentにしてさいじっこうをあんぜんにする	post-install scriptをidempotentにして再実行を安全にする	technical-mixed
+v2-technical-0234	ELF binaryからdebug sectionをけす	ELF binaryからdebug sectionを消す	technical-mixed
+v2-technical-0235	code signingのtimestampをけんしょうする	code signingのtimestampを検証する	technical-mixed
+v2-technical-0236	license fileをdistにふくめる	license fileをdistに含める	technical-mixed
+v2-technical-0237	delta updateのpatch sizeをはかる	delta updateのpatch sizeを測る	technical-mixed
+v2-technical-0238	rollbackように1つまえのartifactをのこす	rollback用に1つ前のartifactを残す|rollback用に一つ前のartifactを残す	technical-mixed
+v2-technical-0239	reproducible packageのhashをくらべる	reproducible packageのhashを比べる	technical-mixed
+v2-technical-0240	install prefixを/opt/appにかえる	install prefixを/opt/appに変える	technical-mixed
+v2-proper-0001	おたるうんが	小樽運河	proper-noun
+v2-proper-0002	しれとこごこ	知床五湖	proper-noun
+v2-proper-0003	ひろさきこうえん	弘前公園	proper-noun
+v2-proper-0004	ちゅうそんじこんじきどう	中尊寺金色堂	proper-noun
+v2-proper-0005	まつしまわん	松島湾	proper-noun
+v2-proper-0006	りっしゃくじ	立石寺	proper-noun
+v2-proper-0007	つるがじょう	鶴ヶ城	proper-noun
+v2-proper-0008	にっこうとうしょうぐう	日光東照宮	proper-noun
+v2-proper-0009	おぜがはら	尾瀬ヶ原	proper-noun
+v2-proper-0010	つくばさん	筑波山	proper-noun
+v2-proper-0011	なりたさんしんしょうじ	成田山新勝寺	proper-noun
+v2-proper-0012	えのしま	江の島|江ノ島	proper-noun
+v2-proper-0013	かまくらだいぶつ	鎌倉大仏	proper-noun
+v2-proper-0014	ときのかね	時の鐘	proper-noun
+v2-proper-0015	こくえいひたちかいひんこうえん	国営ひたち海浜公園	proper-noun
+v2-proper-0016	まつもとじょう	松本城	proper-noun
+v2-proper-0017	かみこうち	上高地	proper-noun
+v2-proper-0018	ぜんこうじ	善光寺	proper-noun
+v2-proper-0019	くろべだむ	黒部ダム	proper-noun
+v2-proper-0020	たてやまくろべあるぺんるーと	立山黒部アルペンルート	proper-noun
+v2-proper-0021	ひだたかやま	飛騨高山	proper-noun
+v2-proper-0022	しらかわごう	白川郷	proper-noun
+v2-proper-0023	はまなこ	浜名湖	proper-noun
+v2-proper-0024	いせじんぐう	伊勢神宮	proper-noun
+v2-proper-0025	びわこそすい	琵琶湖疏水	proper-noun
+v2-proper-0026	ならこうえん	奈良公園	proper-noun
+v2-proper-0027	ほうりゅうじ	法隆寺	proper-noun
+v2-proper-0028	こうやさんおくのいん	高野山奥之院	proper-noun
+v2-proper-0029	くまのなちたいしゃ	熊野那智大社	proper-noun
+v2-proper-0030	くらしきびかんちく	倉敷美観地区	proper-noun
+v2-proper-0031	いつくしまじんじゃ	厳島神社	proper-noun
+v2-proper-0032	しまなみかいどう	しまなみ海道	proper-noun
+v2-proper-0033	ことひらぐう	金刀比羅宮	proper-noun
+v2-proper-0034	どうごおんせん	道後温泉	proper-noun
+v2-proper-0035	べっぷじごくめぐり	別府地獄めぐり	proper-noun
+v2-proper-0036	あそさん	阿蘇山	proper-noun
+v2-proper-0037	ぐらばーえん	グラバー園	proper-noun
+v2-proper-0038	さくらじま	桜島	proper-noun
+v2-proper-0039	やくしまじょうもんすぎ	屋久島縄文杉	proper-noun
+v2-proper-0040	しゅりじょうこうえん	首里城公園	proper-noun
+v2-proper-0041	けんろくえん	兼六園	proper-noun
+v2-proper-0042	えいへいじ	永平寺	proper-noun
+v2-proper-0043	あまのはしだて	天橋立	proper-noun
+v2-proper-0044	なるとのうずしお	鳴門の渦潮	proper-noun
+v2-proper-0045	あきよしどう	秋芳洞	proper-noun
+v2-proper-0046	とうきょうすかいつりー	東京スカイツリー	proper-noun
+v2-proper-0047	とうきょうえきまるのうちえきしゃ	東京駅丸の内駅舎	proper-noun
+v2-proper-0048	しぶやすくらんぶるすくえあ	渋谷スクランブルスクエア	proper-noun
+v2-proper-0049	よこはまあかれんがそうこ	横浜赤レンガ倉庫	proper-noun
+v2-proper-0050	よこはまみなとみらい21	横浜みなとみらい21	proper-noun
+v2-proper-0051	さいたますーぱーありーな	さいたまスーパーアリーナ	proper-noun
+v2-proper-0052	まくはりめっせ	幕張メッセ	proper-noun
+v2-proper-0053	とうきょうでぃずにーしー	東京ディズニーシー	proper-noun
+v2-proper-0054	しんえのしますいぞくかん	新江ノ島水族館	proper-noun
+v2-proper-0055	ちゅうぶこくさいくうこうせんとれあ	中部国際空港セントレア	proper-noun
+v2-proper-0056	とうかいどうしんかんせん	東海道新幹線	proper-noun
+v2-proper-0057	りにあてつどうかん	リニア・鉄道館	proper-noun
+v2-proper-0058	うめだすかいびる	梅田スカイビル	proper-noun
+v2-proper-0059	かいゆうかん	海遊館	proper-noun
+v2-proper-0060	はんしんこうしえんきゅうじょう	阪神甲子園球場	proper-noun
+v2-proper-0061	こうべぽーとたわー	神戸ポートタワー	proper-noun
+v2-proper-0062	ひめじじょう	姫路城	proper-noun
+v2-proper-0063	おかやまこうらくえん	岡山後楽園	proper-noun
+v2-proper-0064	まつえじょう	松江城	proper-noun
+v2-proper-0065	とっとりさきゅう	鳥取砂丘	proper-noun
+v2-proper-0066	だざいふてんまんぐう	太宰府天満宮	proper-noun
+v2-proper-0067	きゅうしゅうこくりつはくぶつかん	九州国立博物館	proper-noun
+v2-proper-0068	はうすてんぼす	ハウステンボス	proper-noun
+v2-proper-0069	おきなわちゅらうみすいぞくかん	沖縄美ら海水族館	proper-noun
+v2-proper-0070	さっぽろしとけいだい	札幌市時計台	proper-noun
+v2-proper-0071	はこだてやまろーぷうぇい	函館山ロープウェイ	proper-noun
+v2-proper-0072	さんないまるやまいせき	三内丸山遺跡	proper-noun
+v2-proper-0073	おおつかこくさいびじゅつかん	大塚国際美術館	proper-noun
+v2-proper-0074	ふくいけんりつきょうりゅうはくぶつかん	福井県立恐竜博物館	proper-noun
+v2-proper-0075	にいがたしすいぞくかんまりんぴあにほんかい	新潟市水族館マリンピア日本海	proper-noun
+v2-proper-0076	ぐれーとばりありーふ	グレート・バリア・リーフ	proper-noun
+v2-proper-0077	しどにーおぺらはうす	シドニー・オペラハウス	proper-noun
+v2-proper-0078	うるる	ウルル	proper-noun
+v2-proper-0079	ばんふこくりつこうえん	バンフ国立公園	proper-noun
+v2-proper-0080	ないあがらのたき	ナイアガラの滝	proper-noun
+v2-proper-0081	ぐらんどきゃにおん	グランドキャニオン	proper-noun
+v2-proper-0082	いえろーすとーんこくりつこうえん	イエローストーン国立公園	proper-noun
+v2-proper-0083	よせみてこくりつこうえん	ヨセミテ国立公園	proper-noun
+v2-proper-0084	じゆうのめがみ	自由の女神	proper-noun
+v2-proper-0085	えんぱいあすてーとびる	エンパイア・ステート・ビル	proper-noun
+v2-proper-0086	ごーるでんげーとぶりっじ	ゴールデン・ゲート・ブリッジ	proper-noun
+v2-proper-0087	けねでぃうちゅうせんたー	ケネディ宇宙センター	proper-noun
+v2-proper-0088	まちゅぴちゅ	マチュ・ピチュ	proper-noun
+v2-proper-0089	うゆにえんこ	ウユニ塩湖	proper-noun
+v2-proper-0090	いぐあすのたき	イグアスの滝	proper-noun
+v2-proper-0091	がらぱごすしょとう	ガラパゴス諸島	proper-noun
+v2-proper-0092	いーすたーとう	イースター島	proper-noun
+v2-proper-0093	さぐらだふぁみりあ	サグラダ・ファミリア	proper-noun
+v2-proper-0094	あるはんぶらきゅうでん	アルハンブラ宮殿	proper-noun
+v2-proper-0095	もんさんみしぇる	モン・サン＝ミシェル|モン・サン・ミシェル	proper-noun
+v2-proper-0096	えっふぇるとう	エッフェル塔	proper-noun
+v2-proper-0097	るーぶるびじゅつかん	ルーヴル美術館|ルーブル美術館	proper-noun
+v2-proper-0098	ころっせお	コロッセオ	proper-noun
+v2-proper-0099	ぽんぺいいせき	ポンペイ遺跡	proper-noun
+v2-proper-0100	あてねのぱるてのんしんでん	アテネのパルテノン神殿	proper-noun
+v2-proper-0101	ぎざのだいぴらみっど	ギザの大ピラミッド	proper-noun
+v2-proper-0102	ぺとらいせき	ペトラ遺跡	proper-noun
+v2-proper-0103	たーじまはる	タージ・マハル	proper-noun
+v2-proper-0104	あんこーるわっと	アンコール・ワット	proper-noun
+v2-proper-0105	ばんりのちょうじょう	万里の長城	proper-noun
+v2-proper-0106	こくさいれんごう	国際連合	proper-noun
+v2-proper-0107	せかいほけんきかん	世界保健機関	proper-noun
+v2-proper-0108	こくれんじどうききん	国連児童基金	proper-noun
+v2-proper-0109	こくさいつうかききん	国際通貨基金	proper-noun
+v2-proper-0110	せかいぎんこう	世界銀行	proper-noun
+v2-proper-0111	こくさいおりんぴっくいいんかい	国際オリンピック委員会	proper-noun
+v2-proper-0112	せかいぼうえききかん	世界貿易機関	proper-noun
+v2-proper-0113	おうしゅううちゅうきかん	欧州宇宙機関	proper-noun
+v2-proper-0114	あめりかこうくううちゅうきょく	アメリカ航空宇宙局	proper-noun
+v2-proper-0115	うちゅうこうくうけんきゅうかいはつきこう	宇宙航空研究開発機構	proper-noun
+v2-proper-0116	かいようけんきゅうかいはつきこう	海洋研究開発機構	proper-noun
+v2-proper-0117	こくりつてんもんだい	国立天文台	proper-noun
+v2-proper-0118	こうえねるぎーかそくきけんきゅうきこう	高エネルギー加速器研究機構	proper-noun
+v2-proper-0119	さんぎょうぎじゅつそうごうけんきゅうじょ	産業技術総合研究所	proper-noun
+v2-proper-0120	ぶっしつざいりょうけんきゅうきこう	物質・材料研究機構	proper-noun
+v2-proper-0121	とうきょうだいがく	東京大学	proper-noun
+v2-proper-0122	とうほくだいがく	東北大学	proper-noun
+v2-proper-0123	なごやだいがく	名古屋大学	proper-noun
+v2-proper-0124	おおさかだいがく	大阪大学	proper-noun
+v2-proper-0125	きゅうしゅうだいがく	九州大学	proper-noun
+v2-proper-0126	わせだだいがく	早稲田大学	proper-noun
+v2-proper-0127	けいおうぎじゅくだいがく	慶應義塾大学	proper-noun
+v2-proper-0128	にほんせきじゅうじしゃ	日本赤十字社	proper-noun
+v2-proper-0129	にほんほうそうきょうかい	日本放送協会	proper-noun
+v2-proper-0130	にほんきしょうきょうかい	日本気象協会	proper-noun
+v2-proper-0131	こくりつこうぶんしょかん	国立公文書館	proper-noun
+v2-proper-0132	とうきょうこくりつはくぶつかん	東京国立博物館	proper-noun
+v2-proper-0133	こくりつせいようびじゅつかん	国立西洋美術館	proper-noun
+v2-proper-0134	とっきょちょう	特許庁	proper-noun
+v2-proper-0135	こくりつきょくちけんきゅうじょ	国立極地研究所	proper-noun
+v2-proper-0136	むらさきしきぶ	紫式部	proper-noun
+v2-proper-0137	せいしょうなごん	清少納言	proper-noun
+v2-proper-0138	みなもとのよしつね	源義経	proper-noun
+v2-proper-0139	ほうじょうまさこ	北条政子	proper-noun
+v2-proper-0140	あしかがたかうじ	足利尊氏	proper-noun
+v2-proper-0141	せんのりきゅう	千利休	proper-noun
+v2-proper-0142	うえすぎけんしん	上杉謙信	proper-noun
+v2-proper-0143	たけだしんげん	武田信玄	proper-noun
+v2-proper-0144	だてまさむね	伊達政宗	proper-noun
+v2-proper-0145	さなだのぶしげ	真田信繁	proper-noun
+v2-proper-0146	いしだみつなり	石田三成	proper-noun
+v2-proper-0147	さいごうたかもり	西郷隆盛	proper-noun
+v2-proper-0148	おおくぼとしみち	大久保利通	proper-noun
+v2-proper-0149	きどたかよし	木戸孝允	proper-noun
+v2-proper-0150	いとうひろぶみ	伊藤博文	proper-noun
+v2-proper-0151	ふくざわゆきち	福澤諭吉|福沢諭吉	proper-noun
+v2-proper-0152	なつめそうせき	夏目漱石	proper-noun
+v2-proper-0153	ひぐちいちよう	樋口一葉	proper-noun
+v2-proper-0154	よさのあきこ	与謝野晶子	proper-noun
+v2-proper-0155	みやざわけんじ	宮沢賢治	proper-noun
+v2-proper-0156	いしかわたくぼく	石川啄木	proper-noun
+v2-proper-0157	まつおばしょう	松尾芭蕉	proper-noun
+v2-proper-0158	かつしかほくさい	葛飾北斎	proper-noun
+v2-proper-0159	うたがわひろしげ	歌川広重	proper-noun
+v2-proper-0160	おかくらてんしん	岡倉天心	proper-noun
+v2-proper-0161	のぐちひでよ	野口英世	proper-noun
+v2-proper-0162	きたさとしばさぶろう	北里柴三郎	proper-noun
+v2-proper-0163	まきのとみたろう	牧野富太郎	proper-noun
+v2-proper-0164	てらだとらひこ	寺田寅彦	proper-noun
+v2-proper-0165	ひらつからいてう	平塚らいてう	proper-noun
+v2-proper-0166	いちかわふさえ	市川房枝	proper-noun
+v2-proper-0167	てづかおさむ	手塚治虫	proper-noun
+v2-proper-0168	みふねとしろう	三船敏郎	proper-noun
+v2-proper-0169	まりーきゅりー	マリー・キュリー	proper-noun
+v2-proper-0170	あるべるとあいんしゅたいん	アルベルト・アインシュタイン	proper-noun
+v2-proper-0171	ぎんがてつどうのよる	銀河鉄道の夜	proper-noun
+v2-proper-0172	げんじものがたり	源氏物語	proper-noun
+v2-proper-0173	ふがくさんじゅうろっけい	富嶽三十六景	proper-noun
+v2-proper-0174	せんとちひろのかみかくし	千と千尋の神隠し	proper-noun
+v2-proper-0175	てつわんあとむ	鉄腕アトム	proper-noun
+v2-proper-0176	しょうわくせいたんさきはやぶさ2	小惑星探査機はやぶさ2	proper-noun
+v2-proper-0177	すばるぼうえんきょう	すばる望遠鏡	proper-noun
+v2-proper-0178	こくさいうちゅうすてーしょん	国際宇宙ステーション	proper-noun
+v2-proper-0179	あぽろ11ごう	アポロ11号	proper-noun
+v2-proper-0180	じぇいむずうぇっぶうちゅうぼうえんきょう	ジェイムズ・ウェッブ宇宙望遠鏡	proper-noun
+v2-proper-0181	にんてんどうすいっち	Nintendo Switch	proper-noun
+v2-proper-0182	ぷれいすてーしょん5	PlayStation 5	proper-noun
+v2-proper-0183	えっくすぼっくすしりーずえっくす	Xbox Series X	proper-noun
+v2-proper-0184	あっぷるうぉっち	Apple Watch	proper-noun
+v2-proper-0185	ぐーぐるぴくせる	Google Pixel	proper-noun
+v2-proper-0186	きんどるぺーぱーほわいと	Kindle Paperwhite	proper-noun
+v2-proper-0187	らずべりーぱい	Raspberry Pi	proper-noun
+v2-proper-0188	あるでゅいーのうの	Arduino UNO|Arduino Uno	proper-noun
+v2-proper-0189	いんてりじぇいあいでぃーいー	IntelliJ IDEA	proper-noun
+v2-proper-0190	ぶれんだー	Blender	proper-noun
+v2-proper-0191	ゆにてぃ	Unity	proper-noun
+v2-proper-0192	あんりあるえんじん	Unreal Engine	proper-noun
+v2-proper-0193	どっかー	Docker	proper-noun
+v2-proper-0194	くーばねてす	Kubernetes	proper-noun
+v2-proper-0195	ぽすとぐれすきゅーえる	PostgreSQL	proper-noun
+v2-proper-0196	えすきゅーらいと	SQLite	proper-noun
+v2-proper-0197	りぶれおふぃす	LibreOffice	proper-noun
+v2-proper-0198	ぎんぷ	GIMP	proper-noun
+v2-proper-0199	いんくすけーぷ	Inkscape	proper-noun
+v2-proper-0200	わーどぷれす	WordPress	proper-noun
+v2-colloquial-0001	きょうどこでまちあわせる	今日どこで待ち合わせる	colloquial
+v2-colloquial-0002	あと5ふんでつく	あと5分で着く	colloquial
+v2-colloquial-0003	さきにはいってて	先に入ってて	colloquial
+v2-colloquial-0004	いまからでてもまにあう	今から出ても間に合う	colloquial
+v2-colloquial-0005	こんどのどようびあいてる	今度の土曜日空いてる	colloquial
+v2-colloquial-0006	そのけんまたあとではなそう	その件また後で話そう	colloquial
+v2-colloquial-0007	いったんえきまでもどろう	一旦駅まで戻ろう|いったん駅まで戻ろう	colloquial
+v2-colloquial-0008	かえりにちょっとよってく	帰りにちょっと寄ってく	colloquial
+v2-colloquial-0009	よていずれそう	予定ずれそう	colloquial
+v2-colloquial-0010	ついたられんらくして	着いたら連絡して	colloquial
+v2-colloquial-0011	きょうはげんちしゅうごうで	今日は現地集合で	colloquial
+v2-colloquial-0012	あしたのあさおこして	明日の朝起こして	colloquial
+v2-colloquial-0013	しゅうまつゆっくりしよう	週末ゆっくりしよう	colloquial
+v2-colloquial-0014	このあとどうする	この後どうする	colloquial
+v2-colloquial-0015	いけたらとちゅうからいく	行けたら途中から行く	colloquial
+v2-colloquial-0016	むりならべつのひにしよ	無理なら別の日にしよ	colloquial
+v2-colloquial-0017	だいたいなんじごろになりそう	大体何時頃になりそう	colloquial
+v2-colloquial-0018	でんしゃいっぽんのがした	電車一本逃した	colloquial
+v2-colloquial-0019	みちまちがえたかも	道間違えたかも	colloquial
+v2-colloquial-0020	ここでちょっとまってる	ここでちょっと待ってる	colloquial
+v2-colloquial-0021	ばんごはんなにがいい	晩ご飯何がいい	colloquial
+v2-colloquial-0022	れいぞうこにのこりものある	冷蔵庫に残り物ある	colloquial
+v2-colloquial-0023	ごはんたけたよ	ご飯炊けたよ	colloquial
+v2-colloquial-0024	みそしるあたためなおす	味噌汁温め直す	colloquial
+v2-colloquial-0025	せんたくものとりこんどいて	洗濯物取り込んどいて	colloquial
+v2-colloquial-0026	ごみだしわすれないで	ごみ出し忘れないで|ゴミ出し忘れないで	colloquial
+v2-colloquial-0027	でんきけしてきた	電気消してきた	colloquial
+v2-colloquial-0028	げんかんのかぎかけた	玄関の鍵かけた	colloquial
+v2-colloquial-0029	たくはいぼっくすみてくる	宅配ボックス見てくる	colloquial
+v2-colloquial-0030	おふろさきにはいっていい	お風呂先に入っていい	colloquial
+v2-colloquial-0031	しょうゆきらしてた	醤油切らしてた	colloquial
+v2-colloquial-0032	きょうはおそうざいですませよう	今日はお惣菜で済ませよう|今日はお総菜で済ませよう	colloquial
+v2-colloquial-0033	こめあとなんごうある	米あと何合ある	colloquial
+v2-colloquial-0034	ふとんほしておいた	布団干しておいた	colloquial
+v2-colloquial-0035	えあこんたいまーにした	エアコンタイマーにした	colloquial
+v2-colloquial-0036	さらあらいはあとでいい	皿洗いは後でいい	colloquial
+v2-colloquial-0037	にもつうけとってくれた	荷物受け取ってくれた	colloquial
+v2-colloquial-0038	まどすこしあけとこう	窓少し開けとこう	colloquial
+v2-colloquial-0039	かいおきまだあった	買い置きまだあった	colloquial
+v2-colloquial-0040	ひるはかるくすませた	昼は軽く済ませた	colloquial
+v2-colloquial-0041	そのしりょうあとでみます	その資料後で見ます	colloquial
+v2-colloquial-0042	いったんもちかえってかくにんします	一旦持ち帰って確認します|いったん持ち帰って確認します	colloquial
+v2-colloquial-0043	きょうじゅうにへんしんします	今日中に返信します	colloquial
+v2-colloquial-0044	ここだけさきになおしておく	ここだけ先に直しておく	colloquial
+v2-colloquial-0045	かいぎ5ふんおくれます	会議5分遅れます	colloquial
+v2-colloquial-0046	そのたすくわたしがひろいます	そのタスク私が拾います	colloquial
+v2-colloquial-0047	りすけできるかきいてみる	リスケできるか聞いてみる	colloquial
+v2-colloquial-0048	ねんのためろぐのこしといて	念のためログ残しといて	colloquial
+v2-colloquial-0049	しょうにんまちでとまってます	承認待ちで止まってます	colloquial
+v2-colloquial-0050	きょうはここまでにしよう	今日はここまでにしよう	colloquial
+v2-colloquial-0051	しゅくだいあといちもん	宿題あと一問	colloquial
+v2-colloquial-0052	のーとみせてもらっていい	ノート見せてもらっていい	colloquial
+v2-colloquial-0053	つぎのじゅぎょうきょうしつどこ	次の授業教室どこ	colloquial
+v2-colloquial-0054	れぽーとしめきりらいしゅうだよ	レポート締め切り来週だよ	colloquial
+v2-colloquial-0055	ぶかつきょうやすみになった	部活今日休みになった	colloquial
+v2-colloquial-0056	てすとはんいここまでだって	テスト範囲ここまでだって	colloquial
+v2-colloquial-0057	せんせいにあとできいてみる	先生に後で聞いてみる	colloquial
+v2-colloquial-0058	ぷりんといちまいたりない	プリント一枚足りない	colloquial
+v2-colloquial-0059	ぐるーぷわけもうでてる	グループ分けもう出てる	colloquial
+v2-colloquial-0060	きょうのふりかえりかいとく	今日の振り返り書いとく	colloquial
+v2-colloquial-0061	そのきもちすごくわかる	その気持ちすごく分かる|その気持ちすごくわかる	colloquial
+v2-colloquial-0062	さすがにそのけっかはびっくり	さすがにその結果はびっくり	colloquial
+v2-colloquial-0063	おもってたよりよかった	思ってたより良かった|思ってたよりよかった	colloquial
+v2-colloquial-0064	なんかこのかんじしっくりこない	なんかこの感じしっくりこない|なんかこの感じしっくり来ない	colloquial
+v2-colloquial-0065	それきいてあんしんした	それ聞いて安心した	colloquial
+v2-colloquial-0066	ちょっときもちがもやもやする	ちょっと気持ちがもやもやする	colloquial
+v2-colloquial-0067	いまのはじわじわくる	今のはじわじわくる|今のはじわじわ来る	colloquial
+v2-colloquial-0068	まじでたすかった	マジで助かった|まじで助かった	colloquial
+v2-colloquial-0069	それはえぐいてんかいだって	それはえぐい展開だって	colloquial
+v2-colloquial-0070	きたいしすぎたかも	期待し過ぎたかも|期待しすぎたかも	colloquial
+v2-colloquial-0071	うれしいけどてれくさい	嬉しいけど照れくさい	colloquial
+v2-colloquial-0072	なんともいえないきもち	何とも言えない気持ち|なんとも言えない気持ち	colloquial
+v2-colloquial-0073	きょうはついてない	今日はついてない	colloquial
+v2-colloquial-0074	そこまできにしなくていい	そこまで気にしなくていい	colloquial
+v2-colloquial-0075	いわれてみればたしかに	言われてみれば確かに	colloquial
+v2-colloquial-0076	それはさすがにむりある	それはさすがに無理ある	colloquial
+v2-colloquial-0077	ちょっとなっとくいかない	ちょっと納得いかない	colloquial
+v2-colloquial-0078	きょうはそういうひだった	今日はそういう日だった	colloquial
+v2-colloquial-0079	なんだかんだたのしかった	なんだかんだ楽しかった	colloquial
+v2-colloquial-0080	それならはなしはやい	それなら話早い	colloquial
+v2-colloquial-0081	つうちきってたからきづかなかった	通知切ってたから気付かなかった|通知切ってたから気づかなかった	colloquial
+v2-colloquial-0082	あとでりぷかえす	後でリプ返す	colloquial
+v2-colloquial-0083	そのどうがあとでみる	その動画後で見る	colloquial
+v2-colloquial-0084	すくしょとっといて	スクショ撮っといて	colloquial
+v2-colloquial-0085	りんくもういっかいおくって	リンクもう一回送って	colloquial
+v2-colloquial-0086	いったんみゅーとにしとく	一旦ミュートにしとく|いったんミュートにしとく	colloquial
+v2-colloquial-0087	はいしんあーかいぶでみる	配信アーカイブで見る	colloquial
+v2-colloquial-0088	こめんとらんあれてる	コメント欄荒れてる	colloquial
+v2-colloquial-0089	そのとうこうほぞんした	その投稿保存した	colloquial
+v2-colloquial-0090	たいむらいんおえてない	タイムライン追えてない	colloquial
+v2-colloquial-0091	ねたばれふまないようにする	ネタバレ踏まないようにする	colloquial
+v2-colloquial-0092	でぃーえむあとでかくにんする	DM後で確認する	colloquial
+v2-colloquial-0093	つうわはいったんぬける	通話一旦抜ける|通話いったん抜ける	colloquial
+v2-colloquial-0094	そのすれまだのびてる	そのスレまだ伸びてる	colloquial
+v2-colloquial-0095	こうしきからこくちでた	公式から告知出た	colloquial
+v2-colloquial-0096	でんぱわるくてかたまった	電波悪くて固まった	colloquial
+v2-colloquial-0097	あかうんときりかえわすれた	アカウント切り替え忘れた	colloquial
+v2-colloquial-0098	そのはっしゅたぐみた	そのハッシュタグ見た	colloquial
+v2-colloquial-0099	あとでぶっくまーくせいりする	後でブックマーク整理する	colloquial
+v2-colloquial-0100	おんらいんひょうじけしてる	オンライン表示消してる	colloquial
+v2-colloquial-0101	これさいずちがいある	これサイズ違いある	colloquial
+v2-colloquial-0102	しちゃくしてからきめる	試着してから決める	colloquial
+v2-colloquial-0103	ざいこあるかきいてみる	在庫あるか聞いてみる	colloquial
+v2-colloquial-0104	くーぽんつかいわすれた	クーポン使い忘れた	colloquial
+v2-colloquial-0105	れじこっちのほうがはやそう	レジこっちの方が早そう	colloquial
+v2-colloquial-0106	きゃっしゅれすでだいじょうぶ	キャッシュレスで大丈夫	colloquial
+v2-colloquial-0107	もちかえりでおねがいします	持ち帰りでお願いします	colloquial
+v2-colloquial-0108	ふくろいちまいください	袋一枚ください	colloquial
+v2-colloquial-0109	りょうしゅうしょわけてもらえますか	領収書分けてもらえますか	colloquial
+v2-colloquial-0110	よやくしたものです	予約した者です|予約したものです	colloquial
+v2-colloquial-0111	うけとりじかんかえられる	受取時間変えられる|受け取り時間変えられる	colloquial
+v2-colloquial-0112	つぎのかくえきにのる	次の各駅に乗る	colloquial
+v2-colloquial-0113	きゅうこうこんでそう	急行混んでそう	colloquial
+v2-colloquial-0114	のりかえいっかいですむ	乗り換え一回で済む	colloquial
+v2-colloquial-0115	ばすもうでちゃった	バスもう出ちゃった	colloquial
+v2-colloquial-0116	ちゃーじざんだかたりない	チャージ残高足りない	colloquial
+v2-colloquial-0117	いちばんうしろにならんでる	一番後ろに並んでる	colloquial
+v2-colloquial-0118	かいさつでひっかかった	改札で引っ掛かった|改札で引っかかった	colloquial
+v2-colloquial-0119	じてんしゃおいてかえる	自転車置いて帰る	colloquial
+v2-colloquial-0120	たくしーよんだほうがはやい	タクシー呼んだ方が早い	colloquial
+v2-colloquial-0121	こんびにでこまかいのくずす	コンビニで細かいの崩す	colloquial
+v2-colloquial-0122	きょうちょっとのどいたい	今日ちょっと喉痛い	colloquial
+v2-colloquial-0123	ねぶそくであたままわらない	寝不足で頭回らない	colloquial
+v2-colloquial-0124	くすりのんだららくになった	薬飲んだら楽になった	colloquial
+v2-colloquial-0125	むりせずはやめにやすむ	無理せず早めに休む	colloquial
+v2-colloquial-0126	かたこりひどくなってきた	肩こりひどくなってきた|肩凝りひどくなってきた	colloquial
+v2-colloquial-0127	めがつかれたからきゅうけい	目が疲れたから休憩	colloquial
+v2-colloquial-0128	きょうははやめにねる	今日は早めに寝る	colloquial
+v2-colloquial-0129	しょくよくはもどってきた	食欲は戻ってきた	colloquial
+v2-colloquial-0130	あめふりそうだからかさもつ	雨降りそうだから傘持つ	colloquial
+v2-colloquial-0131	きゅうにさむくなった	急に寒くなった	colloquial
+v2-colloquial-0132	たいふうのしんろきになる	台風の進路気になる	colloquial
+v2-colloquial-0133	せんたくものかわかなそう	洗濯物乾かなそう	colloquial
+v2-colloquial-0134	ひざしつよいからぼうしかぶる	日差し強いから帽子かぶる	colloquial
+v2-colloquial-0135	きょうかふんおおそう	今日花粉多そう	colloquial
+v2-colloquial-0136	ゆうがたからくずれるって	夕方から崩れるって	colloquial
+v2-colloquial-0137	あさはろめんこおってた	朝は路面凍ってた	colloquial
+v2-colloquial-0138	むしあつくてねぐるしい	蒸し暑くて寝苦しい	colloquial
+v2-colloquial-0139	かぜつよいからまどしめる	風強いから窓閉める	colloquial
+v2-colloquial-0140	にわかあめにふられた	にわか雨に降られた	colloquial
+v2-colloquial-0141	あしたはせんたくびよりだって	明日は洗濯日和だって	colloquial
+v2-colloquial-0142	ぼちぼちしごとにもどるわ	ぼちぼち仕事に戻るわ	colloquial
+v2-colloquial-0143	むかしはよくここにきたもんだ	昔はよくここに来たもんだ	colloquial
+v2-colloquial-0144	そんなあせらんでもええよ	そんな焦らんでもええよ	colloquial
+v2-colloquial-0145	ほなさきいっとくわ	ほな先行っとくわ	colloquial
+v2-colloquial-0146	そないにきにせんでええ	そないに気にせんでええ	colloquial
+v2-colloquial-0147	したっけまたこんどね	したっけまた今度ね	colloquial
+v2-colloquial-0148	だいじょうぶだからしんぱいすんな	大丈夫だから心配すんな	colloquial
+v2-colloquial-0149	おばんですきょうもさむいね	お晩です今日も寒いね|おばんです今日も寒いね	colloquial
+v2-colloquial-0150	じいじがむかえにいくよ	じいじが迎えに行くよ	colloquial
+v2-colloquial-0151	ばあばにもみせてあげよう	ばあばにも見せてあげよう	colloquial
+v2-colloquial-0152	おとうさんまだかえってない	お父さんまだ帰ってない	colloquial
+v2-colloquial-0153	かあさんにきいといて	母さんに聞いといて	colloquial
+v2-colloquial-0154	ねえちゃんにもつたえとく	姉ちゃんにも伝えとく	colloquial
+v2-colloquial-0155	おにいちゃんかして	兄ちゃん貸して	colloquial
+v2-colloquial-0156	うちのこさいきんはやおき	うちの子最近早起き	colloquial
+v2-colloquial-0157	まごのしゃしんおくってくれた	孫の写真送ってくれた	colloquial
+v2-colloquial-0158	こんどみんなでかおだそう	今度みんなで顔出そう	colloquial
+v2-colloquial-0159	おかげさまでげんきにしてます	おかげさまで元気にしてます	colloquial
+v2-colloquial-0160	まあむりせんていどにな	まあ無理せん程度にな	colloquial
+v2-colloquial-0161	ちょっとそこまでいってくる	ちょっとそこまで行ってくる	colloquial
+v2-colloquial-0162	おまたせしてすみません	お待たせしてすみません	colloquial
+v2-colloquial-0163	こちらでまちがいないですか	こちらで間違いないですか	colloquial
+v2-colloquial-0164	もういちどせつめいしてもらえますか	もう一度説明してもらえますか	colloquial
+v2-colloquial-0165	おてすきのときでだいじょうぶです	お手すきの時で大丈夫です|お手すきのときで大丈夫です	colloquial
+v2-colloquial-0166	さきほどのけんりょうかいしました	先ほどの件了解しました	colloquial
+v2-colloquial-0167	ねんのためさいそうします	念のため再送します	colloquial
+v2-colloquial-0168	ごめんいまてがはなせない	ごめん今手が離せない	colloquial
+v2-colloquial-0169	へんしんおそくなってごめん	返信遅くなってごめん	colloquial
+v2-colloquial-0170	きゅうでわるいんだけど	急で悪いんだけど	colloquial
+v2-colloquial-0171	できればごぜんちゅうにおねがい	できれば午前中にお願い	colloquial
+v2-colloquial-0172	ここにおいてもらっていい	ここに置いてもらっていい	colloquial
+v2-colloquial-0173	しゃしんとってもらえますか	写真撮ってもらえますか	colloquial
+v2-colloquial-0174	しつもんひとつだけいいですか	質問一つだけいいですか	colloquial
+v2-colloquial-0175	ちょっとだけそうだんのって	ちょっとだけ相談乗って	colloquial
+v2-colloquial-0176	いまはなしてもだいじょうぶ	今話しても大丈夫	colloquial
+v2-colloquial-0177	もしむずかしければだいじょうぶです	もし難しければ大丈夫です	colloquial
+v2-colloquial-0178	きにかけてくれてありがとう	気に掛けてくれてありがとう|気にかけてくれてありがとう	colloquial
+v2-colloquial-0179	てつだってくれてたすかった	手伝ってくれて助かった	colloquial
+v2-colloquial-0180	こちらこそおせわになりました	こちらこそお世話になりました	colloquial
+v2-colloquial-0181	またあらためてれんらくします	また改めて連絡します	colloquial
+v2-colloquial-0182	それなすぎてこえでた	それなすぎて声出た|それな過ぎて声出た	colloquial
+v2-colloquial-0183	わかりみがふかい	わかりみが深い	colloquial
+v2-colloquial-0184	かいわのてんぽよすぎる	会話のテンポ良すぎる|会話のテンポ良過ぎる	colloquial
+v2-colloquial-0185	そのてんかいはよそうがい	その展開は予想外	colloquial
+v2-colloquial-0186	ふらぐたったきがする	フラグ立った気がする	colloquial
+v2-colloquial-0187	おちまでかんぺきだった	オチまで完璧だった	colloquial
+v2-colloquial-0188	そのはっそうはなかった	その発想はなかった	colloquial
+v2-colloquial-0189	じわるからわらうのやめて	ジワるから笑うのやめて|じわるから笑うのやめて	colloquial
+v2-colloquial-0190	きょうのところはかんべんして	今日のところは勘弁して	colloquial
+v2-colloquial-0191	はなしはんぶんできいとく	話半分で聞いとく	colloquial
+v2-colloquial-0192	いちおうこころづもりはしとく	一応心積もりはしとく|一応心づもりはしとく	colloquial
+v2-colloquial-0193	なんとかなるっしょしんぱいない	何とかなるっしょ心配ない|なんとかなるっしょ心配ない	colloquial
+v2-colloquial-0194	そこはのりでいこう	そこはノリで行こう	colloquial
+v2-colloquial-0195	いまのなしでおねがい	今の無しでお願い|今のなしでお願い	colloquial
+v2-colloquial-0196	きょうはもうおひらきにしよ	今日はもうお開きにしよ	colloquial
+v2-colloquial-0197	そのうちわらいばなしになる	そのうち笑い話になる	colloquial
+v2-colloquial-0198	けっきょくいつものぱたーん	結局いつものパターン	colloquial
+v2-colloquial-0199	だめもとできいてみる	ダメ元で聞いてみる|駄目元で聞いてみる|だめ元で聞いてみる	colloquial
+v2-colloquial-0200	ひとまずようすみで	ひとまず様子見で	colloquial
+v2-homophone-0001	えきのかいさつでともだちにあう	駅の改札で友達に会う	homophone-context
+v2-homophone-0002	からだにあうさいずのくつをえらぶ	体に合うサイズの靴を選ぶ	homophone-context
+v2-homophone-0003	やまみちでとつぜんのらいうにあう	山道で突然の雷雨に遭う	homophone-context
+v2-homophone-0004	へやのまどをあけてかぜをとおす	部屋の窓を開けて風を通す	homophone-context
+v2-homophone-0005	ひるやすみになるとしょくどうのせきがあく	昼休みになると食堂の席が空く	homophone-context
+v2-homophone-0006	えきまえのみせはあさくじにあく	駅前の店は朝九時に開く	homophone-context
+v2-homophone-0007	てすりをつかんでかいだんをのぼる	手すりをつかんで階段を上る	homophone-context
+v2-homophone-0008	そうびをととのえてふじさんにのぼる	装備を整えて富士山に登る	homophone-context
+v2-homophone-0009	えんとつからしろいけむりがのぼる	煙突から白い煙が昇る	homophone-context
+v2-homophone-0010	ほーむにはいってくるしんかんせんをとる	ホームに入ってくる新幹線を撮る	homophone-context
+v2-homophone-0011	たなからあおいふぁいるをとる	棚から青いファイルを取る	homophone-context
+v2-homophone-0012	けんきゅうのためにむさくいにひょうほんをとる	研究のために無作為に標本を採る	homophone-context
+v2-homophone-0013	まないたのうえでやさいをきる	まな板の上で野菜を切る	homophone-context
+v2-homophone-0014	ゆきのひはあついこーとをきる	雪の日は厚いコートを着る	homophone-context
+v2-homophone-0015	よていどおりにもつがえきにつく	予定どおりに荷物が駅に着く	homophone-context
+v2-homophone-0016	さぎょうちゅうにぺんきがそでにつく	作業中にペンキが袖に付く	homophone-context
+v2-homophone-0017	にゅうしゃしてからさんねんのつきひがたつ	入社してから三年の月日が経つ	homophone-context
+v2-homophone-0018	しはつれっしゃがまだくらいうちにえきをたつ	始発列車がまだ暗いうちに駅を発つ	homophone-context
+v2-homophone-0019	しつもんするためにかいぎでせきをたつ	質問するために会議で席を立つ	homophone-context
+v2-homophone-0020	ないかいがちょうしんきでかんじゃをみる	内科医が聴診器で患者を診る	homophone-context
+v2-homophone-0021	てんぼうだいからみなとのやけいをみる	展望台から港の夜景を見る	homophone-context
+v2-homophone-0022	げきじょうでしんさくのしばいをみる	劇場で新作の芝居を観る|劇場で新作の芝居を見る	homophone-context
+v2-homophone-0023	りょこうざっしにうみのしゃしんがのる	旅行雑誌に海の写真が載る	homophone-context
+v2-homophone-0024	まいあさななじのつうきんでんしゃにのる	毎朝七時の通勤電車に乗る	homophone-context
+v2-homophone-0025	つよいかぜでぼうしがそらへとぶ	強い風で帽子が空へ飛ぶ	homophone-context
+v2-homophone-0026	せんしゅがたかいはーどるをとぶ	選手が高いハードルを跳ぶ	homophone-context
+v2-homophone-0027	きゅうこんをうえるためににわのつちをほる	球根を植えるために庭の土を掘る	homophone-context
+v2-homophone-0028	さむいあさにいぬがもうふへもぐる	寒い朝に犬が毛布へ潜る	homophone-context
+v2-homophone-0029	こどもたちがこうつうるーるをまもる	子どもたちが交通ルールを守る	homophone-context
+v2-homophone-0030	しょうぼうせつびでぶんかざいをひからまもる	消防設備で文化財を火から守る|消防設備で文化財を火から護る	homophone-context
+v2-homophone-0031	こうしのせつめいをさいごまできく	講師の説明を最後まで聞く	homophone-context
+v2-homophone-0032	おんきょうしつでこうきょうきょくをきく	音響室で交響曲を聴く|音響室で交響曲を聞く	homophone-context
+v2-homophone-0033	すとっぷうおっちでとうちゃくじかんをはかる	ストップウォッチで到着時間を計る	homophone-context
+v2-homophone-0034	おんどけいでぷーるのすいおんをはかる	温度計でプールの水温を測る	homophone-context
+v2-homophone-0035	はかりでぱんにいれるこむぎこをはかる	はかりでパンに入れる小麦粉を量る	homophone-context
+v2-homophone-0036	じどうかによってぎょうむのこうりつかをはかる	自動化によって業務の効率化を図る	homophone-context
+v2-homophone-0037	しんせいどのどうにゅうをりじかいにはかる	新制度の導入を理事会に諮る	homophone-context
+v2-homophone-0038	えにっきにゆうやけのうみをかく	絵日記に夕焼けの海を描く	homophone-context
+v2-homophone-0039	もうしこみしょにじぶんのじゅうしょをかく	申込書に自分の住所を書く	homophone-context
+v2-homophone-0040	かにさされたうでをつめでかく	蚊に刺された腕を爪で掻く	homophone-context
+v2-homophone-0041	きれたでんきゅうをあたらしいものにかえる	切れた電球を新しい物に替える	homophone-context
+v2-homophone-0042	くうこうでどるをえんにかえる	空港でドルを円に換える	homophone-context
+v2-homophone-0043	けいけんをこうりょしてたんとうしゃをかえる	経験を考慮して担当者を代える	homophone-context
+v2-homophone-0044	てんこうにあわせてしゅっぱつけいかくをかえる	天候に合わせて出発計画を変える	homophone-context
+v2-homophone-0045	きげんまでにしょとくぜいをおさめる	期限までに所得税を納める	homophone-context
+v2-homophone-0046	りょこうのしゃしんをきのがくにおさめる	旅行の写真を木の額に収める	homophone-context
+v2-homophone-0047	わかいおうがみだれたくにをおさめる	若い王が乱れた国を治める	homophone-context
+v2-homophone-0048	だいがくでほうがくをおさめる	大学で法学を修める	homophone-context
+v2-homophone-0049	そつぎょうごはしやくしょにつとめる	卒業後は市役所に勤める	homophone-context
+v2-homophone-0050	こんやのひょうしょうしきでしかいをつとめる	今夜の表彰式で司会を務める	homophone-context
+v2-homophone-0051	じこをふせぐためあんぜんかくにんにつとめる	事故を防ぐため安全確認に努める	homophone-context
+v2-homophone-0052	ちーむでけんきゅうけいかくをさきへすすめる	チームで研究計画を先へ進める	homophone-context
+v2-homophone-0053	しょしんしゃにこのにゅうもんしょをすすめる	初心者にこの入門書を勧める	homophone-context
+v2-homophone-0054	あさはやいでんしゃならざせきにすわれる	朝早い電車なら座席に座れる	homophone-context
+v2-homophone-0055	あめのあとはかわのながれがはやい	雨の後は川の流れが速い	homophone-context
+v2-homophone-0056	このぱんはいわのようにかたい	このパンは岩のように硬い	homophone-context
+v2-homophone-0057	ゆうしょうをめざすちーむのけっそくはかたい	優勝を目指すチームの結束は固い	homophone-context
+v2-homophone-0058	ひみつをもらさないくちのかたいひとだ	秘密を漏らさない口の堅い人だ	homophone-context
+v2-homophone-0059	はるのひざしがにわをあたたかくする	春の日差しが庭を暖かくする	homophone-context
+v2-homophone-0060	できたてのすーぷがからだをあたたかくする	出来たてのスープが体を温かくする	homophone-context
+v2-homophone-0061	ぶあついじしょをかばんにいれる	分厚い辞書をかばんに入れる	homophone-context
+v2-homophone-0062	まなつのたいいくかんはむしあつい	真夏の体育館は蒸し暑い	homophone-context
+v2-homophone-0063	なべのしるがまだあついのできをつける	鍋の汁がまだ熱いので気を付ける	homophone-context
+v2-homophone-0064	しゅじいがかんじゃにしゅじゅつほうしんをせつめいする	主治医が患者に手術方針を説明する	homophone-context
+v2-homophone-0065	けいやくをつづけるいしをめーるでつたえる	契約を続ける意思をメールで伝える	homophone-context
+v2-homophone-0066	かれはどんなぎゃっきょうにもまけないいしがつよい	彼はどんな逆境にも負けない意志が強い	homophone-context
+v2-homophone-0067	まらそんのかいじょうにせんしゅがあつまる	マラソンの会場に選手が集まる	homophone-context
+v2-homophone-0068	げきじょうのかいじょうをいりぐちでまつ	劇場の開場を入り口で待つ	homophone-context
+v2-homophone-0069	こんかいのちょうさはしょうがくせいをたいしょうとする	今回の調査は小学生を対象とする	homophone-context
+v2-homophone-0070	にまいのえをたいしょうしてちがいをさがす	二枚の絵を対照して違いを探す	homophone-context
+v2-homophone-0071	このさくひんがえいがさいのたいしょうをうけた	この作品が映画祭の大賞を受けた	homophone-context
+v2-homophone-0072	しけんもんだいのかいとうをようしにかく	試験問題の解答を用紙に書く	homophone-context
+v2-homophone-0073	しつもんへのかいとうをきょうじゅからもらう	質問への回答を教授からもらう	homophone-context
+v2-homophone-0074	ほうせきてんをねらうかいとうがつかまった	宝石店を狙う怪盗が捕まった	homophone-context
+v2-homophone-0075	めーかーがせいひんのひんしつをほしょうする	メーカーが製品の品質を保証する	homophone-context
+v2-homophone-0076	ほけんでじこのそんがいをほしょうする	保険で事故の損害を補償する	homophone-context
+v2-homophone-0077	けんぽうがこくみんのせいかつをほしょうする	憲法が国民の生活を保障する	homophone-context
+v2-homophone-0078	あんぜんのためしょくひんのゆにゅうをきせいする	安全のため食品の輸入を規制する	homophone-context
+v2-homophone-0079	ぼんやすみにこどもをつれてきせいする	盆休みに子どもを連れて帰省する	homophone-context
+v2-homophone-0080	きせいがいねんにとらわれずあんをだす	既成概念にとらわれず案を出す	homophone-context
+v2-homophone-0081	しゅっちょうちでしゃしんをとるきかいにめぐまれた	出張地で写真を撮る機会に恵まれた	homophone-context
+v2-homophone-0082	こうじょうのきかいをていきてんけんする	工場の機械を定期点検する	homophone-context
+v2-homophone-0083	しゅじゅつにつかうきかいをしょうどくする	手術に使う器械を消毒する	homophone-context
+v2-homophone-0084	こうじのこうていをひょうにまとめる	工事の工程を表にまとめる	homophone-context
+v2-homophone-0085	じどうがこうていでぼーるをおいかける	児童が校庭でボールを追いかける	homophone-context
+v2-homophone-0086	せんもんかがちりょうほうのこうかをこうていした	専門家が治療法の効果を肯定した	homophone-context
+v2-homophone-0087	にんきはいゆうのこうえんをげきじょうでみる	人気俳優の公演を劇場で観る|人気俳優の公演を劇場で見る	homophone-context
+v2-homophone-0088	せんもんかのこうえんをこうどうできく	専門家の講演を講堂で聴く|専門家の講演を講堂で聞く	homophone-context
+v2-homophone-0089	ちいきだんたいがぶんかさいをこうえんする	地域団体が文化祭を後援する	homophone-context
+v2-homophone-0090	しんせいのきげんはこんしゅうのきんようびだ	申請の期限は今週の金曜日だ	homophone-context
+v2-homophone-0091	けんきゅうしゃがせいめいのきげんをさぐる	研究者が生命の起源を探る	homophone-context
+v2-homophone-0092	ねぼうしたむすこのきげんがなおるのをまつ	寝坊した息子の機嫌が直るのを待つ	homophone-context
+v2-homophone-0093	しんぶんきしゃがしちょうにしつもんする	新聞記者が市長に質問する	homophone-context
+v2-homophone-0094	むかしのきしゃがけむりをあげてはしる	昔の汽車が煙を上げて走る	homophone-context
+v2-homophone-0095	えいぎょうさきからごごさんじにきしゃする	営業先から午後三時に帰社する	homophone-context
+v2-homophone-0096	きゅうしすてむからしんほうしきへいこうする	旧システムから新方式へ移行する	homophone-context
+v2-homophone-0097	かいぎへのさんかいこうをじぜんにたずねる	会議への参加意向を事前に尋ねる	homophone-context
+v2-homophone-0098	しがついこうはあたらしいりょうきんになる	四月以降は新しい料金になる	homophone-context
+v2-homophone-0099	けいけんのあるぎょうしゃがはしをしこうする	経験のある業者が橋を施工する	homophone-context
+v2-homophone-0100	じょうけんをせいりしてろんりてきにしこうする	条件を整理して論理的に思考する	homophone-context
+v2-homophone-0101	けんこうしこうのめにゅーをかいはつする	健康志向のメニューを開発する	homophone-context
+v2-homophone-0102	からいりょうりへのしこうがつよい	辛い料理への嗜好が強い	homophone-context
+v2-homophone-0103	かんとくのしじどおりにせんしゅがうごく	監督の指示どおりに選手が動く	homophone-context
+v2-homophone-0104	しみんのたすうがそのこうほしゃをしじする	市民の多数がその候補者を支持する	homophone-context
+v2-homophone-0105	わかいころからちゃどうのめいじんにしじする	若い頃から茶道の名人に師事する	homophone-context
+v2-homophone-0106	かぶしきしじょうでねだんがきまる	株式市場で値段が決まる	homophone-context
+v2-homophone-0107	そのきろくはたいかいしじょうはじめてだ	その記録は大会史上初めてだ	homophone-context
+v2-homophone-0108	しじょうをはさまずこうへいにはんだんする	私情を挟まず公平に判断する	homophone-context
+v2-homophone-0109	しんじんさっかがぶんがくしょうをじゅしょうする	新人作家が文学賞を受賞する	homophone-context
+v2-homophone-0110	しょうぼうしがちょうねんのこうせきでじゅしょうする	消防士が長年の功績で受章する	homophone-context
+v2-homophone-0111	いいんかいでしんせいどのどうにゅうをけんとうする	委員会で新制度の導入を検討する	homophone-context
+v2-homophone-0112	おしいしあいだったがわかいてんがけんとうした	惜しい試合だったが若いチームが健闘した	homophone-context
+v2-homophone-0113	じだいにあわせてしゃないまにゅあるをかいていする	時代に合わせて社内マニュアルを改訂する	homophone-context
+v2-homophone-0114	げんりょうひをもとにりょうきんをかいていする	原料費を基に料金を改定する	homophone-context
+v2-homophone-0115	ちょうさせんがふかいかいていをさぐる	調査船が深い海底を探る	homophone-context
+v2-homophone-0116	でざいんがいしゃがこうこくえいぞうをせいさくする	デザイン会社が広告映像を制作する	homophone-context
+v2-homophone-0117	こうじょうでちゅうもんどおりのかぐをせいさくする	工場で注文どおりの家具を製作する	homophone-context
+v2-homophone-0118	しゅっちょうごにりょひをせいさんする	出張後に旅費を精算する	homophone-context
+v2-homophone-0119	かいしゃをたたんでさいむをせいさんする	会社を畳んで債務を清算する	homophone-context
+v2-homophone-0120	かねつしたじゅしをかたにいれてせいけいする	加熱した樹脂を型に入れて成形する	homophone-context
+v2-homophone-0121	けがでゆがんだはなをげかでせいけいする	けがでゆがんだ鼻を外科で整形する	homophone-context
+v2-homophone-0122	そしきかくだいにあわせてかんりたいせいをみなおす	組織拡大に合わせて管理体制を見直す	homophone-context
+v2-homophone-0123	たいふうにそなえてけいかいたいせいをしく	台風に備えて警戒態勢を敷く	homophone-context
+v2-homophone-0124	じゅうみんのたいせいはけいかくにさんせいした	住民の大勢は計画に賛成した	homophone-context
+v2-homophone-0125	あたらしいきそくをらいげつからてきようする	新しい規則を来月から適用する	homophone-context
+v2-homophone-0126	ろんぶんのてきようをにひゃくじでまとめる	論文の摘要を二百字でまとめる	homophone-context
+v2-homophone-0127	こうしがみぢかなれいからわだいをてんかいする	講師が身近な例から話題を展開する	homophone-context
+v2-homophone-0128	せまいちゅうしゃじょうでしゃりょうがてんかいする	狭い駐車場で車両が転回する	homophone-context
+v2-homophone-0129	うけつけでさんかしゃぜんいんにしりょうをはいふする	受付で参加者全員に資料を配布する	homophone-context
+v2-homophone-0130	しょうたいじょうをたいしょうしゃだけにはいふする	招待状を対象者だけに配付する|招待状を対象者だけに配布する	homophone-context
+v2-homophone-0131	がいらいごをえいじひょうきにそろえる	外来語を英字表記にそろえる	homophone-context
+v2-homophone-0132	ひょうきのけんについてかいとうをおねがいします	標記の件について回答をお願いします	homophone-context
+v2-homophone-0133	ぎょうかいひょうじゅんにそったせいひんをつくる	業界標準に沿った製品を作る	homophone-context
+v2-homophone-0134	しゃげきじょうでまとにしょうじゅんをあわせる	射撃場で的に照準を合わせる	homophone-context
+v2-homophone-0135	ふたつのしすてむがれんけいしてでーたをおくる	二つのシステムが連携してデータを送る	homophone-context
+v2-homophone-0136	はぐるまのれんけいがずれるとおとがでる	歯車の連係がずれると音が出る	homophone-context
+v2-homophone-0137	しようしょにひつようなようけんをれっきょする	仕様書に必要な要件を列挙する	homophone-context
+v2-homophone-0138	とりひきさきへのようけんをでんわでつたえる	取引先への用件を電話で伝える	homophone-context
+v2-homophone-0139	こうはんでつかれたせんしゅをこうたいさせる	後半で疲れた選手を交代させる	homophone-context
+v2-homophone-0140	うりあげがさんかげつれんぞくでこうたいした	売り上げが三か月連続で後退した	homophone-context
+v2-homophone-0141	ぎんこうであたらしいこうざをひらく	銀行で新しい口座を開く	homophone-context
+v2-homophone-0142	しみんむけのれきしこうざをむりょうでひらく	市民向けの歴史講座を無料で開く	homophone-context
+v2-homophone-0143	かいぎのしりょうをうぇぶでこうかいする	会議の資料をウェブで公開する	homophone-context
+v2-homophone-0144	なつやすみによっとでちちゅうかいをこうかいする	夏休みにヨットで地中海を航海する	homophone-context
+v2-homophone-0145	かんじょうてきなはつげんをあとでこうかいする	感情的な発言を後で後悔する	homophone-context
+v2-homophone-0146	このちいきではこめをせいさんしている	この地域では米を生産している	homophone-context
+v2-homophone-0147	じこげんばのせいさんなこうけいにことばをうしなう	事故現場の凄惨な光景に言葉を失う	homophone-context
+v2-homophone-0148	けいきでせいかくなでんあつをそくていする	計器で正確な電圧を測定する	homophone-context
+v2-homophone-0149	あねはあかるくてしゃこうてきなせいかくだ	姉は明るくて社交的な性格だ	homophone-context
+v2-homophone-0150	らいしゅうからあたらしいじょうれいをしこうする	来週から新しい条例を施行する	homophone-context
+v2-homophone-0151	あくてんこうでもたいかいをけっこうする	悪天候でも大会を決行する	homophone-context
+v2-homophone-0152	ぎかいがよさんあんをたすうでかけつする	議会が予算案を多数で可決する	homophone-context
+v2-homophone-0153	ちーむでそうだんしてぎじゅつてきなかだいをかいけつする	チームで相談して技術的な課題を解決する	homophone-context
+v2-homophone-0154	さいばんかんがひこくにゆうざいはんけつをいいわたす	裁判官が被告に有罪判決を言い渡す	homophone-context
+v2-homophone-0155	いいんかいでしゅうせいあんのさいけつをおこなう	委員会で修正案の採決を行う	homophone-context
+v2-homophone-0156	こきゃくばんごうからけいやくないようをしょうかいする	顧客番号から契約内容を照会する	homophone-context
+v2-homophone-0157	しんにゅうしゃにおなじぶしょのせんぱいをしょうかいする	新入社員に同じ部署の先輩を紹介する	homophone-context
+v2-homophone-0158	じもとのしょうかいからじむようひんをしいれる	地元の商会から事務用品を仕入れる	homophone-context
+v2-homophone-0159	らんなーがこうえんのこーすをしゅうかいする	ランナーが公園のコースを周回する	homophone-context
+v2-homophone-0160	ちいきのしゅうかいでぼうさいけいかくをはなす	地域の集会で防災計画を話す	homophone-context
+v2-homophone-0161	なかまたちとあたらしいかいしゃをせつりつする	仲間たちと新しい会社を設立する	homophone-context
+v2-homophone-0162	じいんのけいだいにおおきなぶつぞうをこんりゅうする	寺院の境内に大きな仏像を建立する	homophone-context
+v2-homophone-0163	せんしゅがせかいしんきろくをじゅりつする	選手が世界新記録を樹立する	homophone-context
+v2-homophone-0164	きょうこうはとしんちょうはのいけんがたいりつする	強硬派と慎重派の意見が対立する	homophone-context
+v2-homophone-0165	しゅうしょくをきにおやもとからじりつする	就職を機に親元から自立する	homophone-context
+v2-homophone-0166	けんきゅういんがはくいをきてかがくじっけんをおこなう	研究員が白衣を着て化学実験を行う	homophone-context
+v2-homophone-0167	ほんぶからしぶへけいやくけんげんをいじょうする	本部から支部へ契約権限を委譲する	homophone-context
+v2-homophone-0168	いしにかぜのしょうじょうをくわしくつたえる	医師に風邪の症状を詳しく伝える	homophone-context
+v2-homophone-0169	にゅうしょうしゃにきんいろのしょうじょうをわたす	入賞者に金色の賞状を渡す	homophone-context
+v2-homophone-0170	そうちのこしょうでほぞんでーたがしょうしつした	装置の故障で保存データが消失した	homophone-context
+v2-homophone-0171	おおきなかさいでそうこがぜんぶしょうしつした	大きな火災で倉庫が全部焼失した	homophone-context
+v2-homophone-0172	せんさーがはいかんのがすもれをけんちする	センサーが配管のガス漏れを検知する	homophone-context
+v2-homophone-0173	けむりのにおいでちかくのかさいをかんちする	煙の匂いで近くの火災を感知する	homophone-context
+v2-homophone-0174	かおをみてがくせいじだいのちじんだとにんちする	顔を見て学生時代の知人だと認知する	homophone-context
+v2-homophone-0175	ぜんしゃいんにあたらしいきそくをしゅうちする	全社員に新しい規則を周知する	homophone-context
+v2-homophone-0176	ちずでしていひなんじょのいちをたしかめる	地図で指定避難所の位置を確かめる	homophone-context
+v2-homophone-0177	そふのいしをついでちいさなみせをまもる	祖父の遺志を継いで小さな店を守る	homophone-context
+v2-homophone-0178	にわでみつけたまるいいしをひろう	庭で見つけた丸い石を拾う	homophone-context
+v2-homophone-0179	じこひがいしゃにいしゃりょうをしはらう	事故被害者に慰謝料を支払う	homophone-context
+v2-homophone-0180	ちちのしさんをきょうだいでそうぞくする	父の資産を兄弟で相続する	homophone-context
+v2-homophone-0181	でんとうぎじゅつをじせだいへけいしょうする	伝統技術を次世代へ継承する	homophone-context
+v2-homophone-0182	りょうしゃがこうしょうをおえてきほんけいやくをていけつする	両社が交渉を終えて基本契約を締結する	homophone-context
+v2-homophone-0183	あんけーとけっかをしんせいさくにはんえいする	アンケート結果を新政策に反映する	homophone-context
+v2-homophone-0184	みなとのまちがぼうえきでおおいにはんえいする	港の町が貿易で大いに繁栄する	homophone-context
+v2-homophone-0185	ひみつとうひょうでつぎのだいひょうをせんしゅつする	秘密投票で次の代表を選出する	homophone-context
+v2-homophone-0186	こうわんからでんしぶひんをかいがいへゆしゅつする	港湾から電子部品を海外へ輸出する	homophone-context
+v2-homophone-0187	ぶたいかんとくがしょうめいとおんがくをえんしゅつする	舞台監督が照明と音楽を演出する	homophone-context
+v2-homophone-0188	しめきりまでにそつぎょうろんぶんをていしゅつする	締め切りまでに卒業論文を提出する	homophone-context
+v2-homophone-0189	そくていちからいちにちのへいきんをさんしゅつする	測定値から一日の平均を算出する	homophone-context
+v2-homophone-0190	しょうぼうたいがとじこめられたひとをきゅうしゅつする	消防隊が閉じ込められた人を救出する	homophone-context
+v2-homophone-0191	へんしゅうしゃがいんさつまえのげんこうをこうせいする	編集者が印刷前の原稿を校正する	homophone-context
+v2-homophone-0192	ぜいむしょがしんこくされたぜいがくをこうせいする	税務署が申告された税額を更正する	homophone-context
+v2-homophone-0193	ぜんさんしょうでひとつのものがたりをこうせいする	全三章で一つの物語を構成する	homophone-context
+v2-homophone-0194	だいさんしゃがこうせいなたちばでしんさする	第三者が公正な立場で審査する	homophone-context
+v2-homophone-0195	きゅうよからこうせいねんきんのほけんりょうをはらう	給与から厚生年金の保険料を払う	homophone-context
+v2-homophone-0196	じちたいがじぎょうしゃからぜいをちょうしゅうする	自治体が事業者から税を徴収する	homophone-context
+v2-homophone-0197	けいさつがもくげきしゃからくわしくじじょうをちょうしゅする	警察が目撃者から詳しく事情を聴取する	homophone-context
+v2-homophone-0198	はくぶつかんがちいきのれきししりょうをしゅうしゅうする	博物館が地域の歴史資料を収集する	homophone-context
+v2-homophone-0199	せきにんしゃがこんらんしたじたいをしゅうしゅうする	責任者が混乱した事態を収拾する	homophone-context
+v2-homophone-0200	こうすいからあまいにおいがする	香水から甘い匂いがする	homophone-context
+v2-long-0001	せっていふぁいるがよみこめないばあいでも、きどうじのきていちにもどせるよう、えらーのりゆうをろぐにのこしておく	設定ファイルが読み込めない場合でも、起動時の既定値に戻せるよう、エラーの理由をログに残しておく	long-structural
+v2-long-0002	つうしんがいちどきれただけでしっぱいにせず、まちじかんをすこしずつのばしながら、さんかいまでさいせつぞくをこころみる	通信が一度切れただけで失敗にせず、待ち時間を少しずつ延ばしながら、三回まで再接続を試みる	long-structural
+v2-long-0003	ざいこをへらすしょりとちゅうもんをほぞんするしょりは、どちらかがしっぱいしたら、りょうほうをもとにもどさなければならない	在庫を減らす処理と注文を保存する処理は、どちらかが失敗したら、両方を元に戻さなければならない	long-structural
+v2-long-0004	きゃっしゅをこうしんしてもふるいけっかがのこるなら、きーのつくりかたより、むこうかのじゅんじょをさきにうたがう	キャッシュを更新しても古い結果が残るなら、キーの作り方より、無効化の順序を先に疑う	long-structural
+v2-long-0005	すきーまをへんこうするまえに、きゅうばんがよむれつをすぐけさず、いこうきかんをおいてからだんかいてきにせいりする	スキーマを変更する前に、旧版が読む列をすぐ消さず、移行期間を置いてから段階的に整理する	long-structural
+v2-long-0006	あたらしいえーぴーあいをついかしても、きゅうくらいあんとがみちのふぃーるどをむしできるかぎり、こうかんせいはたもてる	新しいAPIを追加しても、旧クライアントが未知のフィールドを無視できる限り、互換性は保てる	long-structural
+v2-long-0007	ばっちしょりがとちゅうでとまったとき、さいじっこうでにじゅうとうろくしないよう、かんりょうずみのしるしをげんしてきにかきこむ	バッチ処理が途中で止まった時、再実行で二重登録しないよう、完了済みの印を原子的に書き込む	long-structural
+v2-long-0008	はいふぶつをうけとったら、ふぁいるめいだけをしんじるのではなく、こうかいされたはっしゅとじっさいのないようをつきあわせる	配布物を受け取ったら、ファイル名だけを信じるのではなく、公開されたハッシュと実際の内容を突き合わせる	long-structural
+v2-long-0009	ひみつじょうほうをそーすにかかず、かんきょうへんすうからわたすとしても、えらーひょうじにそのあたいがまざらないようちゅういする	秘密情報をソースに書かず、環境変数から渡すとしても、エラー表示にその値が混ざらないよう注意する	long-structural
+v2-long-0010	てすとがたまたまとおるじょうたいをさけるには、らんすうのたねとじこくをこていし、しっぱいしたにゅうりょくをさいげんできるようにする	テストがたまたま通る状態を避けるには、乱数の種と時刻を固定し、失敗した入力を再現できるようにする	long-structural
+v2-long-0011	きょうゆうろっくをながくにぎるほどあんぜんとはかぎらず、ほかのしょりをふさがないよう、ほごするはんいをひつようさいしょうげんにしぼる	共有ロックを長く握るほど安全とは限らず、他の処理を塞がないよう、保護する範囲を必要最小限に絞る	long-structural
+v2-long-0012	がめんをひらいたあとでおうとうがかえったとき、すでにべつのぺーじへうつっていたら、ふるいけっかでひょうじをうわがきしない	画面を開いた後で応答が返った時、すでに別のページへ移っていたら、古い結果で表示を上書きしない	long-structural
+v2-long-0013	いぞんぱっけーじをこうしんするなら、さいしんばんというりゆうだけできめず、へんこうてんとらいせんすとさいげんせいをまとめてかくにんする	依存パッケージを更新するなら、最新版という理由だけで決めず、変更点とライセンスと再現性をまとめて確認する	long-structural
+v2-long-0014	へいきんがおなじでもおそいりくえすとがかくれるため、たいかんそくどをくらべるときは、ちゅうおうちだけでなくきゅうじゅうごぱーせんたいるもみる	平均が同じでも遅いリクエストが隠れるため、体感速度を比べる時は、中央値だけでなく九十五パーセンタイルも見る	long-structural
+v2-long-0015	こうかいごにもどせないへんこうをさけるため、きのうふらぐでしんきけいろをきりかえ、もんだいがあればきゅうけいろへすぐもどす	公開後に戻せない変更を避けるため、機能フラグで新規経路を切り替え、問題があれば旧経路へすぐ戻す	long-structural
+v2-long-0016	かんりしゃけんげんがあればべんりだが、ひがいもおおきくなるので、にちじょうそうさにはひつようなけんげんだけをわりあてる	管理者権限があれば便利だが、被害も大きくなるので、日常操作には必要な権限だけを割り当てる	long-structural
+v2-long-0017	にゅうりょくをせいきかしてからけんしょうしないと、みためがおなじもじでもべつのあたいとしてあつかわれ、じゅうふくをみのがすことがある	入力を正規化してから検証しないと、見た目が同じ文字でも別の値として扱われ、重複を見逃すことがある	long-structural
+v2-long-0018	めっせーじがとうちゃくしたじゅんにしょりされるとはかぎらないため、ばんごうをくらべ、ふるいこうしんをあとからてきようしないようにする	メッセージが到着した順に処理されるとは限らないため、番号を比べ、古い更新を後から適用しないようにする	long-structural
+v2-long-0019	びるどがせいこうしたというきろくだけでなく、つかったそーすとつーるとせいせいぶつのはっしゅをむすびつけて、あとからたどれるようにする	ビルドが成功したという記録だけでなく、使ったソースとツールと生成物のハッシュを結び付けて、後からたどれるようにする	long-structural
+v2-long-0020	おふらいんちゅうのへんしゅうをあとでどうきするとき、りょうほうがかわっていたら、かってにうわがきせずりようしゃにえらんでもらう	オフライン中の編集を後で同期する時、両方が変わっていたら、勝手に上書きせず利用者に選んでもらう	long-structural
+v2-long-0021	あめがつよくなるよほうなら、せんたくはあしたにまわし、きょうはへやのかんきをみじかくすませてしつどだけかくにんする	雨が強くなる予報なら、洗濯は明日に回し、今日は部屋の換気を短く済ませて湿度だけ確認する	long-structural
+v2-long-0022	れいぞうこにあるやさいからつかえばむだはへるが、しょうみきげんのちかいとうふだけは、こんやのこんだてにさきにくみこむ	冷蔵庫にある野菜から使えば無駄は減るが、賞味期限の近い豆腐だけは、今夜の献立に先に組み込む	long-structural
+v2-long-0023	むかえのじかんにまにあわないとわかったじてんで、えんへれんらくし、だれがかわりにいけるかをかぞくでかくにんした	迎えの時間に間に合わないと分かった時点で、園へ連絡し、誰が代わりに行けるかを家族で確認した	long-structural
+v2-long-0024	ていでんがながびくかもしれないので、れいとうこのとびらはなるべくあけず、ひつようなものだけをいちらんにしてからとりだす	停電が長引くかもしれないので、冷凍庫の扉はなるべく開けず、必要な物だけを一覧にしてから取り出す	long-structural
+v2-long-0025	げつまつにせいきゅうをまとめてみなおすと、こまかなむだづかいだけでなく、つかっていないていがくさーびすにもきづける	月末に請求をまとめて見直すと、細かな無駄遣いだけでなく、使っていない定額サービスにも気付ける	long-structural
+v2-long-0026	ひっこしびがきまったら、でんきとみずのてつづきをべつべつにおぼえず、かいしびとていしびをひとつのひょうにまとめておく	引っ越し日が決まったら、電気と水の手続きを別々に覚えず、開始日と停止日を一つの表にまとめておく	long-structural
+v2-long-0027	りょこうちでよていをつめこみすぎるとつかれるため、ごぜんにひとつだけよやくし、ごごはてんきにあわせてえらべるようにした	旅行地で予定を詰め込み過ぎると疲れるため、午前に一つだけ予約し、午後は天気に合わせて選べるようにした	long-structural
+v2-long-0028	かぎがみつからなくてもすぐになくしたときめつけず、さいごにあけたかばんと、きのうきていたうわぎのぽけっとをじゅんにさがす	鍵が見つからなくてもすぐに無くしたと決め付けず、最後に開けた鞄と、昨日着ていた上着のポケットを順に探す	long-structural
+v2-long-0029	よるのおとがきになることをつたえるなら、あいてをせめるいいかたではなく、ねむれなかったじかんときぼうするたいおうをぐたいてきにいう	夜の音が気になることを伝えるなら、相手を責める言い方ではなく、眠れなかった時間と希望する対応を具体的に言う	long-structural
+v2-long-0030	しげんごみのひんもくはちいきでちがうから、まえのまちのるーるをおもいだすより、いまのしゅうしゅうひょうをみてわける	資源ごみの品目は地域で違うから、前の町のルールを思い出すより、今の収集表を見て分ける	long-structural
+v2-long-0031	るすちゅうのぺっとがふあんにならないよう、えさのりょうだけでなく、いつものさんぽみちとくすりのばしょもつたえた	留守中のペットが不安にならないよう、餌の量だけでなく、いつもの散歩道と薬の場所も伝えた	long-structural
+v2-long-0032	そうさをいちどにたくさんおしえるとこんらんするので、まずでんわのでかたをれんしゅうし、なれたらしゃしんのおくりかたへすすむ	操作を一度にたくさん教えると混乱するので、まず電話の出方を練習し、慣れたら写真の送り方へ進む	long-structural
+v2-long-0033	あさにやさいをきっておけばよるはらくだが、いたみやすいはものだけは、たべるちょくぜんにあらってみずけをきる	朝に野菜を切っておけば夜は楽だが、傷みやすい葉物だけは、食べる直前に洗って水気を切る	long-structural
+v2-long-0034	がっこうからのおしらせをよんだあと、ていしゅつびだけをかれんだーにいれず、ひつようなどうぐもそのひのめもにかいた	学校からのお知らせを読んだ後、提出日だけをカレンダーに入れず、必要な道具もその日のメモに書いた	long-structural
+v2-long-0035	にもつのうけとりじこくをかえられないなら、たくはいぼっくすをしていし、はいらないおおきさのときだけれんらくをもらう	荷物の受取時刻を変えられないなら、宅配ボックスを指定し、入らない大きさの時だけ連絡をもらう	long-structural
+v2-long-0036	かぞくのよていがくいちがわないよう、きまったことだけをきょうゆうかれんだーへいれ、そうだんちゅうのあんはめもにわける	家族の予定が食い違わないよう、決まったことだけを共有カレンダーへ入れ、相談中の案はメモに分ける	long-structural
+v2-long-0037	きおんがひょうてんかまでさがるよるは、すいどうかんのとうけつをふせぐため、じゃぐちからすこしだけみずをながしておく	気温が氷点下まで下がる夜は、水道管の凍結を防ぐため、蛇口から少しだけ水を流しておく	long-structural
+v2-long-0038	ひなんぶくろにはたべものをつめるだけでなく、でんちのきげんとかぞくのれんらくさきを、きせつのかわりめごとにみなおす	避難袋には食べ物を詰めるだけでなく、電池の期限と家族の連絡先を、季節の変わり目ごとに見直す	long-structural
+v2-long-0039	でんしゃがおおはばにおくれたため、べつのろせんへいそぐより、とうちゃくみこみをしらべてからまちあわせじかんをかえた	電車が大幅に遅れたため、別の路線へ急ぐより、到着見込みを調べてから待ち合わせ時間を変えた	long-structural
+v2-long-0040	やがいいべんとはこさめならじっしするが、かみなりちゅういほうがでたばあいは、かいしごでもすぐちゅうしするとあんないされた	野外イベントは小雨なら実施するが、雷注意報が出た場合は、開始後でもすぐ中止すると案内された	long-structural
+v2-long-0041	おきゃくさまがおなじそうさでにどえらーになったとはなしていたので、たんまつのしゅるいとじこくをかくにんしてさいげんをためす	お客様が同じ操作で二度エラーになったと話していたので、端末の種類と時刻を確認して再現を試す	long-structural
+v2-long-0042	かいぎのもくてきがほうこくなのかいしけっていなのかをさいしょにしめし、けつろんがひつようなぎだいからじゅんにあつかう	会議の目的が報告なのか意思決定なのかを最初に示し、結論が必要な議題から順に扱う	long-structural
+v2-long-0043	しょうにんしゃがふざいでもしごとがとまらないよう、きんがくにおうじただいこうしゃと、あとでほうこくするはんいをきめておく	承認者が不在でも仕事が止まらないよう、金額に応じた代行者と、後で報告する範囲を決めておく	long-structural
+v2-long-0044	よていよりおくれるとわかったら、かんせいまでだまってまつのではなく、えいきょうがおよぶはんいとあたらしいみこみをはやめにつたえる	予定より遅れると分かったら、完成まで黙って待つのではなく、影響が及ぶ範囲と新しい見込みを早めに伝える	long-structural
+v2-long-0045	たんとうをひきつぐさいは、さぎょうてじゅんだけでなく、そのはんだんのりゆうと、まだためしていないあんものこしておく	担当を引き継ぐ際は、作業手順だけでなく、その判断の理由と、まだ試していない案も残しておく	long-structural
+v2-long-0046	ぎじろくのはつげんがじじつとちがうときは、こっそりなおすのではなく、ていせいりゆうとへんこうまえのきろくをたどれるようにする	議事録の発言が事実と違う時は、こっそり直すのではなく、訂正理由と変更前の記録をたどれるようにする	long-structural
+v2-long-0047	みつもりをくらべるなら、そうがくだけをならべず、ほしゅのはんいとついかひようがはっせいするじょうけんまでおなじひょうにまとめる	見積もりを比べるなら、総額だけを並べず、保守の範囲と追加費用が発生する条件まで同じ表にまとめる	long-structural
+v2-long-0048	いろだけでじょうたいをくべつするとみえにくいひとにつたわらないため、もじのらべるとけいじょうのちがいもあわせてもちいる	色だけで状態を区別すると見えにくい人に伝わらないため、文字のラベルと形状の違いも併せて用いる	long-structural
+v2-long-0049	しょうがいほうこくにはだれがまちがえたかより、なにがおき、どうふっきゅうし、さいはつをどうふせぐかをじかんじゅんにかく	障害報告には誰が間違えたかより、何が起き、どう復旧し、再発をどう防ぐかを時間順に書く	long-structural
+v2-long-0050	じさのあるちーむでしめきりをつたえるとき、きんようびまでとかかず、ひづけとじこくとたいむぞーんをひとまとめにしてしめす	時差のあるチームで締め切りを伝える時、金曜日までと書かず、日付と時刻とタイムゾーンをひとまとめにして示す	long-structural
+v2-long-0051	しんにゅうしゃいんにすべてのきそくをよませるだけではみにつかないので、じっさいのれいをつかい、まよったときのそうだんさきもしょうかいする	新入社員に全ての規則を読ませるだけでは身に付かないので、実際の例を使い、迷った時の相談先も紹介する	long-structural
+v2-long-0052	きみつしりょうをてんぷするときは、あてさきをさいかくにんし、べつのけいろでぱすわーどをおくったあと、えつらんきげんもせっていする	機密資料を添付する時は、宛先を再確認し、別の経路でパスワードを送った後、閲覧期限も設定する	long-structural
+v2-long-0053	ようけんがふえたばあい、もとののうきのままぜんぶうけいれず、ゆうせんじゅんいをききなおして、こんかいはずすはんいをきめる	要件が増えた場合、元の納期のまま全部受け入れず、優先順位を聞き直して、今回は外す範囲を決める	long-structural
+v2-long-0054	ふりかえりではせいこうしたこともあげたうえで、こじんをせめずに、つぎのしゅうきでためすちいさなかいぜんをひとつえらぶ	振り返りでは成功したことも挙げた上で、個人を責めずに、次の周期で試す小さな改善を一つ選ぶ	long-structural
+v2-long-0055	ごしてきいただいたてんはかくにんしておりますが、えいきょうはんいをせいさするため、かいとうまでいましばらくおじかんをいただきます	ご指摘いただいた点は確認しておりますが、影響範囲を精査するため、回答まで今しばらくお時間をいただきます	long-structural
+v2-long-0056	ぷれぜんでせいかをしめすなら、おおきなすうじだけをきょうちょうせず、しゅうけいきかんとひかくたいしょうをおなじすらいどにめいきする	プレゼンで成果を示すなら、大きな数字だけを強調せず、集計期間と比較対象を同じスライドに明記する	long-structural
+v2-long-0057	ごしゅっせきのかたはきょうまでにごへんしんくださいとあんないし、へんしんがないひとをじどうてきにけっせきあつかいにはしない	ご出席の方は今日までにご返信くださいと案内し、返信がない人を自動的に欠席扱いにはしない	long-structural
+v2-long-0058	よさんをふやしてほしいとたのむまえに、げんじょうではなにができず、ついかぶんでどのこうかがみこめるかをすうじでせつめいする	予算を増やしてほしいと頼む前に、現状では何ができず、追加分でどの効果が見込めるかを数字で説明する	long-structural
+v2-long-0059	いけんをもらったらすべてをすぐなおすのではなく、もくてきにてらしてゆうせんどをつけ、たいおうしないりゆうもきろくする	意見をもらったら全てをすぐ直すのではなく、目的に照らして優先度を付け、対応しない理由も記録する	long-structural
+v2-long-0060	ごあんないしたないようにふめいなてんがございましたら、たんとうよりごせつめいいたしますので、えんりょなくおしらせください	ご案内した内容に不明な点がございましたら、担当よりご説明いたしますので、遠慮なくお知らせください	long-structural
+v2-long-0061	しんせいしょにふそくがあるとしんさがとまるため、ていしゅつまえに、ひつようしょるいとゆうこうきげんをちぇっくりすとでたしかめる	申請書に不足があると審査が止まるため、提出前に、必要書類と有効期限をチェックリストで確かめる	long-structural
+v2-long-0062	まどぐちがこんでいるときでも、ばんごうをよばれるまえにせきをはなれるなら、もどるめやすをうけつけにひとことつたえておく	窓口が混んでいる時でも、番号を呼ばれる前に席を離れるなら、戻る目安を受付に一言伝えておく	long-structural
+v2-long-0063	こうてきなしょうめいしょをゆうそうでせいきゅうするばあい、へんしんようふうとうとてすうりょうのほかに、ほんにんかくにんのうつしもひつようになる	公的な証明書を郵送で請求する場合、返信用封筒と手数料のほかに、本人確認の写しも必要になる	long-structural
+v2-long-0064	しめきりびがきゅうじつにあたるときのあつかいはせいどごとにちがうので、おもいこまず、こうしきのぼしゅうようこうでかくにんする	締切日が休日に当たる時の扱いは制度ごとに違うので、思い込まず、公式の募集要項で確認する	long-structural
+v2-long-0065	ひなんじょのかいせつじょうきょうはかわることがあるため、ふるいちらしだけにたよらず、さいしんのこうほうとぼうさいむせんをたしかめる	避難所の開設状況は変わることがあるため、古いチラシだけに頼らず、最新の広報と防災無線を確かめる	long-structural
+v2-long-0066	ぶんべつにまようごみは、もえないごみへまとめてだすのではなく、ざいしつとおおきさをしやくしょのいちらんでしらべる	分別に迷うごみは、燃えないごみへまとめて出すのではなく、材質と大きさを市役所の一覧で調べる	long-structural
+v2-long-0067	としょかんのほんをきげんまでにかえせないとわかったら、よやくがはいっていないかをみて、えんちょうできなければへんきゃくをゆうせんする	図書館の本を期限までに返せないと分かったら、予約が入っていないかを見て、延長できなければ返却を優先する	long-structural
+v2-long-0068	じゅうみんせつめいかいではけっていずみのけっかだけをしめさず、けんとうしたせんたくしと、いけんをはんえいできるきげんもつたえる	住民説明会では決定済みの結果だけを示さず、検討した選択肢と、意見を反映できる期限も伝える	long-structural
+v2-long-0069	のうぜいのきろくをかくにんするときは、こうざのひきおとしびだけでなく、たいしょうきかんとせいきゅうばんごうまでつきあわせる	納税の記録を確認する時は、口座の引落日だけでなく、対象期間と請求番号まで突き合わせる	long-structural
+v2-long-0070	こうきょうしせつのよやくがちゅうせんせいなら、もうしこみじゅんとおもいこまず、けっかはっぴょうびときゃんせるきげんをひかえておく	公共施設の予約が抽選制なら、申込順と思い込まず、結果発表日とキャンセル期限を控えておく	long-structural
+v2-long-0071	てつづきのせつめいをやさしいにほんごにするとき、じょうほうをけずりすぎず、ひとつのぶんをみじかくしてぐたいてきなことばにおきかえる	手続きの説明をやさしい日本語にする時、情報を削り過ぎず、一つの文を短くして具体的な言葉に置き換える	long-structural
+v2-long-0072	みみできくあんないだけではわかりにくいひともいるので、おんせいとおなじないようをもじでもしめし、こうしんじこくをそろえる	耳で聞く案内だけでは分かりにくい人もいるので、音声と同じ内容を文字でも示し、更新時刻をそろえる	long-structural
+v2-long-0073	どうろこうじでつうこうどめにするなら、くかんとじかんにくわえ、ほこうしゃがとおれるうかいるーとをちずでしめすひつようがある	道路工事で通行止めにするなら、区間と時間に加え、歩行者が通れる迂回ルートを地図で示す必要がある	long-structural
+v2-long-0074	こうえんのゆうぐにふぐあいがみつかったため、しゅうりがおわるまでかこいをもうけ、りゆうとさいかいのみこみをけいじした	公園の遊具に不具合が見つかったため、修理が終わるまで囲いを設け、理由と再開の見込みを掲示した	long-structural
+v2-long-0075	しょうがくきんにはへんさいがひつようなものとそうでないものがあるので、なまえだけでなく、じょうけんとそうきんじきをよみくらべる	奨学金には返済が必要なものとそうでないものがあるので、名前だけでなく、条件と送金時期を読み比べる	long-structural
+v2-long-0076	せんきょのとうひょうじょがぜんかいとおなじとはかぎらないため、にゅうじょうけんにかかれたばしょとじかんをじぜんにかくにんする	選挙の投票所が前回と同じとは限らないため、入場券に書かれた場所と時間を事前に確認する	long-structural
+v2-long-0077	こそだてそうだんをよやくするさい、なやみをうまくまとめられなくても、いつからどんなばめんでこまるかをめもしておけばつたえやすい	子育て相談を予約する際、悩みをうまくまとめられなくても、いつからどんな場面で困るかをメモしておけば伝えやすい	long-structural
+v2-long-0078	かんこうあんないをたげんごにほんやくしたあと、ちめいのひょうきとえいぎょうじかんがげんぶんといっちするかをべつのひとがたしかめる	観光案内を多言語に翻訳した後、地名の表記と営業時間が原文と一致するかを別の人が確かめる	long-structural
+v2-long-0079	じょうれいあんへのいけんをぼしゅうするとき、さんせいかはんたいかだけでなく、そのりゆうとしゅうせいあんもかけるようにする	条例案への意見を募集する時、賛成か反対かだけでなく、その理由と修正案も書けるようにする	long-structural
+v2-long-0080	しせつのりようきそくをかえるまえに、げんざいのりようしゃへしゅうちし、いこうきかんとといあわせさきをわかりやすくしめす	施設の利用規則を変える前に、現在の利用者へ周知し、移行期間と問い合わせ先を分かりやすく示す	long-structural
+v2-long-0081	かせつがただしいかをたしかめるには、つごうのよいれいだけをあつめず、はんたいのけっかがでるじょうけんもさきにきめておく	仮説が正しいかを確かめるには、都合の良い例だけを集めず、反対の結果が出る条件も先に決めておく	long-structural
+v2-long-0082	ふたつのへんすうがいっしょにふえていても、いっぽうがたほうのげんいんとはかぎらず、だいさんのよういんをけんとうするひつようがある	二つの変数が一緒に増えていても、一方が他方の原因とは限らず、第三の要因を検討する必要がある	long-structural
+v2-long-0083	いんようしたしゅちょうをじぶんのことばでようやくするときも、でんきょのぺーじとしゅっぱんねんをしめし、いみをかえないようにする	引用した主張を自分の言葉で要約する時も、典拠のページと出版年を示し、意味を変えないようにする	long-structural
+v2-long-0084	じっけんぐんとたいしょうぐんのちがいをしょりだけにするため、そくていじこくやおんどなど、ほかのじょうけんはできるだけそろえる	実験群と対照群の違いを処理だけにするため、測定時刻や温度など、他の条件はできるだけそろえる	long-structural
+v2-long-0085	ぼうえんきょうでみえたひかりはむかしのじょうたいをしめすので、かんそくたいしょうがとおいほど、げんざいとのじかんのずれもおおきくなる	望遠鏡で見えた光は昔の状態を示すので、観測対象が遠いほど、現在との時間のずれも大きくなる	long-structural
+v2-long-0086	あるしゅだけがへったげんいんをかんがえるなら、きおんのへんかだけでなく、えさとてんてきとせいそくちのかんけいをあわせてしらべる	ある種だけが減った原因を考えるなら、気温の変化だけでなく、餌と天敵と生息地の関係を併せて調べる	long-structural
+v2-long-0087	こもんじょのきじゅつがじじつかどうかをはんだんするには、かいたひとのたちばをふまえ、きじゅつをどうじだいのべつのしりょうとつきあわせる	古文書の記述が事実かどうかを判断するには、書いた人の立場を踏まえ、記述を同時代の別の資料と突き合わせる	long-structural
+v2-long-0088	おなじことばでもちいきやせだいでいみがずれるため、じれいをあつめるときは、はなしてのぞくせいとばめんをきろくする	同じ言葉でも地域や世代で意味がずれるため、事例を集める時は、話し手の属性と場面を記録する	long-structural
+v2-long-0089	ひょうほんすうがおおくてもかたよりがあればぜんたいをだいひょうしないので、だれをどのほうほうでえらんだかをろんぶんにめいきする	標本数が多くても偏りがあれば全体を代表しないので、誰をどの方法で選んだかを論文に明記する	long-structural
+v2-long-0090	さどくいけんがきびしくてもけつろんだけをまもろうとせず、こんきょがたりないぶぶんはついかじっけんかひょうげんのしゅうせいでおうじる	査読意見が厳しくても結論だけを守ろうとせず、根拠が足りない部分は追加実験か表現の修正で応じる	long-structural
+v2-long-0091	けっそくのあるぎょうだけけすとけっかがかたよることがあるため、けっそくのりゆうをしらべ、あつかいをじぜんにきめる	欠測のある行だけ消すと結果が偏ることがあるため、欠測の理由を調べ、扱いを事前に決める	long-structural
+v2-long-0092	しんしいがくてきなはっけんをほうこくするまえに、ぐうぜんのおそれがないかをべつのしゅほうでたしかめ、げんかいもあわせてしめす	新しい医学的な発見を報告する前に、偶然の恐れがないかを別の手法で確かめ、限界も併せて示す	long-structural
+v2-long-0093	ちずのしゃくどがちがえばおなじきょりでもみえかたがかわるので、めんせきをくらべるときはとうえいほうとたんいをそろえる	地図の縮尺が違えば同じ距離でも見え方が変わるので、面積を比べる時は投影法と単位をそろえる	long-structural
+v2-long-0094	しりょうをでじたるかするとき、もじをよめるようにするだけでなく、げんぶつのはいれつとけんさくようのじょうほうものこす	資料をデジタル化する時、文字を読めるようにするだけでなく、現物の配列と検索用の情報も残す	long-structural
+v2-long-0095	けんきゅうさんかしゃへせつめいするさい、せんもんようごをならべず、よそうされるりえきとふたんをわけて、じゆうにことわれるとつたえる	研究参加者へ説明する際、専門用語を並べず、予想される利益と負担を分けて、自由に断れると伝える	long-structural
+v2-long-0096	けいさんけっかがりろんとあわないとき、すうしきをすぐうたがうより、たんいのへんかんときょうかいじょうけんをさいかくにんする	計算結果が理論と合わない時、数式をすぐ疑うより、単位の変換と境界条件を再確認する	long-structural
+v2-long-0097	しゅつどじょうきょうがふめいないぶつは、にたかたちだけでねんだいをきめず、そういのじゅんじょとしゅうへんのしゅつどひんからはんだんする	出土状況が不明な遺物は、似た形だけで年代を決めず、層位の順序と周辺の出土品から判断する	long-structural
+v2-long-0098	ほんやくごのえらびかたでいんしょうがかわるため、げんごのいみだけでなく、とうじのしゃかいてきぶんみゃくまでちゅうにしるす	翻訳語の選び方で印象が変わるため、原語の意味だけでなく、当時の社会的文脈まで注に記す	long-structural
+v2-long-0099	かんそくそうちをこうかんしたあともれんぞくしたでーたとしてつかうなら、しんきゅうりょうほうでそくていするきかんをもうけてほせいする	観測装置を交換した後も連続したデータとして使うなら、新旧両方で測定する期間を設けて補正する	long-structural
+v2-long-0100	けんきゅうのけつろんがさいげんされなかったばあい、しっぱいとしてかくすのではなく、ちがったじょうけんとけっかをこうかいするかちがある	研究の結論が再現されなかった場合、失敗として隠すのではなく、違った条件と結果を公開する価値がある	long-structural
+v2-long-0101	じゅぎょうのはじめにぜんかいのないようをみじかくたしかめ、りかいにさがあるとわかったら、せつめいのあとでぐるーぷをくみなおす	授業の初めに前回の内容を短く確かめ、理解に差があると分かったら、説明の後でグループを組み直す	long-structural
+v2-long-0102	しょうせつのせりふをいんようするとき、だれがだれにむけていったかというじょうほうをはぶくといみがかわるため、ぜんごのばめんもあわせてよむ	小説の台詞を引用する時、誰が誰に向けて言ったかという情報を省くと意味が変わるため、前後の場面も併せて読む	long-structural
+v2-long-0103	はくぶつかんのかいせつは、せんもんかがよんでもせいかくであるだけでなく、はじめてみるひとがじゅんろにそってりかいできるながれにする	博物館の解説は、専門家が読んでも正確であるだけでなく、初めて見る人が順路に沿って理解できる流れにする	long-structural
+v2-long-0104	かいわをほんやくするさい、たんごのいみがあっていても、ねんれいやかんけいにそぐわないくちょうなら、じんぶつのいんしょうがかわってしまう	会話を翻訳する際、単語の意味が合っていても、年齢や関係にそぐわない口調なら、人物の印象が変わってしまう	long-structural
+v2-long-0105	どきゅめんたりーでさいげんえいぞうをつかうなら、じっさいのきろくとこんどうされないよう、さつえいじきとえんしゅつであることをしめす	ドキュメンタリーで再現映像を使うなら、実際の記録と混同されないよう、撮影時期と演出であることを示す	long-structural
+v2-long-0106	みだしをみじかくするためにじょうけんをけずると、ほんぶんとちがういんしょうをあたえるので、れいがいがあるばあいはみだしにもふくめる	見出しを短くするために条件を削ると、本文と違う印象を与えるので、例外がある場合は見出しにも含める	long-structural
+v2-long-0107	ふるいえいぞうをしゅうふくするとき、きずをすべてけしてしまうより、げんばんのとくちょうをのこしつつ、みづらいぶぶんだけをおぎなう	古い映像を修復する時、傷を全て消してしまうより、原版の特徴を残しつつ、見づらい部分だけを補う	long-structural
+v2-long-0108	がっそうでおとがずれるとき、こじんのぎじゅつだけをなおすのではなく、だれのこきゅうをあいずにするかをぜんいんでかくにんする	合奏で音がずれる時、個人の技術だけを直すのではなく、誰の呼吸を合図にするかを全員で確認する	long-structural
+v2-long-0109	しあいのけっかだけをみるとさくせんのよしあしをみあやまるため、てんをとるまでのせんたくと、あいてがかえたはいちもふりかえる	試合の結果だけを見ると作戦の良し悪しを見誤るため、点を取るまでの選択と、相手が変えた配置も振り返る	long-structural
+v2-long-0110	ぶたいのだいえんをじゅんびするなら、せりふをおぼえるだけでなく、しょうめいやどうぐのきっかけをほんやくとおなじながれでれんしゅうする	舞台の代演を準備するなら、台詞を覚えるだけでなく、照明や道具のきっかけを本役と同じ流れで練習する	long-structural
+v2-long-0111	どくしょかいでかんそうがわかれたときは、ただしいよみをひとつにきめず、どのひょうげんからそうかんじたかをたがいにしめす	読書会で感想が分かれた時は、正しい読みを一つに決めず、どの表現からそう感じたかを互いに示す	long-structural
+v2-long-0112	がいこくごのたんごをたんたいでおぼえてもつかいわけにまようので、だれにどんなばめんでいうかをふくむみじかいれいぶんでれんしゅうする	外国語の単語を単体で覚えても使い分けに迷うので、誰にどんな場面で言うかを含む短い例文で練習する	long-structural
+v2-long-0113	びじゅつひんのしゅうふくざいりょうは、いまきれいにみえるかだけでなく、しょうらいとりのぞけるかとへんしつしないかをかんがえてえらぶ	美術品の修復材料は、今きれいに見えるかだけでなく、将来取り除けるかと変質しないかを考えて選ぶ	long-structural
+v2-long-0114	ききとりちょうさをこうかいするまえに、はなしてがのぞまないこじんじょうほうをはずし、どこまでいんようしてよいかをさいどかくにんする	聞き取り調査を公開する前に、話し手が望まない個人情報を外し、どこまで引用してよいかを再度確認する	long-structural
+v2-long-0115	こうがいがくしゅうのちずにはもくてきちだけでなく、しゅうごうばしょときけんなこうさてんと、あめのときのうかいけいろもかきこむ	校外学習の地図には目的地だけでなく、集合場所と危険な交差点と、雨の時の迂回経路も書き込む	long-structural
+v2-long-0116	りかのじっけんをはじめるまえに、つうじょうのてじゅんだけでなく、こぼれたばあいのたいおうとほごぐのつかいかたもさきにかくにんする	理科の実験を始める前に、通常の手順だけでなく、こぼれた場合の対応と保護具の使い方も先に確認する	long-structural
+v2-long-0117	しけんもんだいにふたつのよみかたができるとじぜんにわかったら、さいてんごにちょうせいせず、かいとうをはじめるまえにほそくしてじょうけんをそろえる	試験問題に二つの読み方ができると事前に分かったら、採点後に調整せず、解答を始める前に補足して条件をそろえる	long-structural
+v2-long-0118	おんどくでくとうてんをただとまるしるしにせず、だれのことばがどこまでつづくかと、ぶんのちょうしがかわるばしょをかんがえてよむ	音読で句読点をただ止まる印にせず、誰の言葉がどこまで続くかと、文の調子が変わる場所を考えて読む	long-structural
+v2-long-0119	とうろんのあとであいてのいけんをまとめるなら、はんろんしやすいぶぶんだけをとらず、もっともつよいこんきょまでこうへいにしょうかいする	討論の後で相手の意見をまとめるなら、反論しやすい部分だけを取らず、最も強い根拠まで公平に紹介する	long-structural
+v2-long-0120	ごほうをていせいするきじでは、ただしいないようへさしかえるだけでなく、いつどこをなおしたかをどくしゃがわかるかたちでのこす	誤報を訂正する記事では、正しい内容へ差し替えるだけでなく、いつどこを直したかを読者が分かる形で残す	long-structural
+v2-long-0121	ねむるじかんをはやめたいなら、よるだけむりにねようとするより、あさおなじじこくにひかりをあびるしゅうかんからととのえる	眠る時間を早めたいなら、夜だけ無理に寝ようとするより、朝同じ時刻に光を浴びる習慣から整える	long-structural
+v2-long-0122	うんどうちゅうにいつもとちがういたみをかんじたら、もくひょうのきょりをゆうせんせず、いったんとまってじょうたいをたしかめる	運動中にいつもと違う痛みを感じたら、目標の距離を優先せず、いったん止まって状態を確かめる	long-structural
+v2-long-0123	しょくひんのひょうじをみるとき、しょうひんめいだけであんぜんとはんだんせず、げんざいりょうとほぞんほうほうをさいごまでよむ	食品の表示を見る時、商品名だけで安全と判断せず、原材料と保存方法を最後まで読む	long-structural
+v2-long-0124	あついひはのどがかわくまえにみずぶんをとり、そとでのさぎょうをつづけるなら、ひかげでやすむじかんもよていにくみこむ	暑い日は喉が渇く前に水分を取り、外での作業を続けるなら、日陰で休む時間も予定に組み込む	long-structural
+v2-long-0125	くすりののみかたがせつめいとちがってみえたので、じぶんではんだんしてりょうをかえず、ふくろをもってせんもんかにかくにんした	薬の飲み方が説明と違って見えたので、自分で判断して量を変えず、袋を持って専門家に確認した	long-structural
+v2-long-0126	しゅうちゅうがきれたままさぎょうをつづけるより、たんじかんせきをはなれてから、のこりをちいさなたんいにわけてさいかいする	集中が切れたまま作業を続けるより、短時間席を離れてから、残りを小さな単位に分けて再開する	long-structural
+v2-long-0127	つくえのたかさがあわないとしせいだけではなおせないため、いすとがめんのいちをちょうせいし、あしがゆかにつくようにする	机の高さが合わないと姿勢だけでは直せないため、椅子と画面の位置を調整し、足が床に着くようにする	long-structural
+v2-long-0128	へやをかんきするときはまどをすこしあけるだけでなく、くうきのいりぐちとでぐちをつくり、ひとがいないじかんもかつようする	部屋を換気する時は窓を少し開けるだけでなく、空気の入口と出口を作り、人がいない時間も活用する	long-structural
+v2-long-0129	なやみがいくつもかさなってせいりできないときは、すぐこたえをだそうとせず、しんらいできるそうだんさきで、じょうきょうをひとつずつはなす	悩みがいくつも重なって整理できない時は、すぐ答えを出そうとせず、信頼できる相談先で、状況を一つずつ話す	long-structural
+v2-long-0130	ちいきのみまもりではあやしいひとをきめつけるのでなく、ふだんとちがうじょうきょうをきろくし、きんきゅうならこうてききかんへつなぐ	地域の見守りでは怪しい人を決め付けるのでなく、普段と違う状況を記録し、緊急なら公的機関へつなぐ	long-structural
+v2-long-0131	やまかじのきけんがたかいきせつは、たきびをひかえるだけでなく、かぜのつよさとひなんけいろをにゅうざんまえにかくにんする	山火事の危険が高い季節は、たき火を控えるだけでなく、風の強さと避難経路を入山前に確認する	long-structural
+v2-long-0132	こうずいはざーどまっぷでいえがいろづけされていなくても、ちかくのかわからのきょりと、よるにひなんじょへむかうみちのあかりをたしかめる	洪水ハザードマップで家が色づけされていなくても、近くの川からの距離と、夜に避難所へ向かう道の明かりを確かめる	long-structural
+v2-long-0133	みずがかぎられるはたけでは、まいにちおなじりょうをまくより、つちのしつどとさくもつのせいちょうにあわせてじかんをかえる	水が限られる畑では、毎日同じ量をまくより、土の湿度と作物の成長に合わせて時間を変える	long-structural
+v2-long-0134	はなをふやすだけではゆたかなせいたいけいにならないので、きせつごとのみつげんと、こんちゅうがすごせるばしょをのこす	花を増やすだけでは豊かな生態系にならないので、季節ごとの蜜源と、昆虫が過ごせる場所を残す	long-structural
+v2-long-0135	かわのみずをしらべるなら、いちにちだけでけつろんをださず、あめのまえとあとでおんどやにごりがどうかわるかをくらべる	川の水を調べるなら、一日だけで結論を出さず、雨の前と後で温度や濁りがどう変わるかを比べる	long-structural
+v2-long-0136	かいがんせいそうでごみをひろったあと、りょうだけをほうこくせず、どんなしゅるいがどこにおおかったかをぶんるいしてよぼうにつなげる	海岸清掃でごみを拾った後、量だけを報告せず、どんな種類がどこに多かったかを分類して予防につなげる	long-structural
+v2-long-0137	でんりょくがたりなくなるじかんをへらすには、はつでんりょうをふやすだけでなく、しょうひがしゅうちゅうするじかんをずらすくふうもいる	電力が足りなくなる時間を減らすには、発電量を増やすだけでなく、消費が集中する時間をずらす工夫も要る	long-structural
+v2-long-0138	たいようこうぱねるのまいすうがおおくても、たてもののかげがかかるとこうりつがおちるため、きせつごとのにっしょうをしみゅれーしょんする	太陽光パネルの枚数が多くても、建物の影が掛かると効率が落ちるため、季節ごとの日照をシミュレーションする	long-structural
+v2-long-0139	もりをていれするさい、すべてのきぎをおなじかんかくにせず、わかいきとふるいきがともにのこるよう、ばしょごとにかんばつする	森を手入れする際、全ての木々を同じ間隔にせず、若い木と古い木が共に残るよう、場所ごとに間伐する	long-structural
+v2-long-0140	まちなかのあつさをやわらげるには、みどりをふやすだけでなく、ひかげをつなぎ、かぜがとおるくうかんをけんちくけいかくにいれる	街中の暑さを和らげるには、緑を増やすだけでなく、日陰をつなぎ、風が通る空間を建築計画に入れる	long-structural
+v2-long-0141	よさんをたてるときはよていどおりのししゅつだけでなく、こしょうやねあがりにそなえるよびひを、もくてきべつにわけておく	予算を立てる時は予定通りの支出だけでなく、故障や値上がりに備える予備費を、目的別に分けておく	long-structural
+v2-long-0142	うりあげがのびていてもにゅうきんがおそければしはらいにこまるため、りえきとげんきんのながれをべつのひょうでかんりする	売上が伸びていても入金が遅ければ支払いに困るため、利益と現金の流れを別の表で管理する	long-structural
+v2-long-0143	じゅようよそくはきょねんのおなじつきだけにたよらず、てんきときゅうじつときゃんぺーんのえいきょうをわけてみつもる	需要予測は去年の同じ月だけに頼らず、天気と休日とキャンペーンの影響を分けて見積もる	long-structural
+v2-long-0144	しょうみきげんのあるざいこは、はいってきたじゅんではなく、きげんがちかいものからだせるよう、たなのならびとらべるをそろえる	賞味期限のある在庫は、入ってきた順ではなく、期限が近い物から出せるよう、棚の並びとラベルをそろえる	long-structural
+v2-long-0145	ひとつのしいれさきがとまってもせいぞうをつづけられるよう、だいたいざいりょうとべつけいろのちょうたつさきをじぜんにしょうにんしておく	一つの仕入先が止まっても製造を続けられるよう、代替材料と別経路の調達先を事前に承認しておく	long-structural
+v2-long-0146	けいやくしょのしゅうりょうじょうけんがあいまいなら、もんだいがおきてからかいしゃくせず、つうちきかんとせいさんほうほうをめいぶんかする	契約書の終了条件が曖昧なら、問題が起きてから解釈せず、通知期間と精算方法を明文化する	long-structural
+v2-long-0147	かかくをかえるばあい、あたらしいきんがくだけをつたえず、いつからだれにてきようし、すでによやくしたぶんをどうあつかうかもせつめいする	価格を変える場合、新しい金額だけを伝えず、いつから誰に適用し、すでに予約した分をどう扱うかも説明する	long-structural
+v2-long-0148	こべつのくじょうをたんぱつとしておわらせず、おなじそうさやじかんたいにかたよっていないかをしらべると、こうぞうてきなもんだいがみえる	個別の苦情を単発として終わらせず、同じ操作や時間帯に偏っていないかを調べると、構造的な問題が見える	long-structural
+v2-long-0149	ふたつのがめんをくらべるじっけんでは、すきなほうをえらばせるだけでなく、もくてきのそうさをおえるまでのじかんをはかり、まちがいのかずもかぞえる	二つの画面を比べる実験では、好きな方を選ばせるだけでなく、目的の操作を終えるまでの時間を測り、間違いの数も数える	long-structural
+v2-long-0150	せいひんのあんぜんにかかわるふぐあいがみつかったら、げんいんのかくていをまつまえに、たいしょうせいひんとしようをちゅうしするほうほうをこうひょうする	製品の安全に関わる不具合が見つかったら、原因の確定を待つ前に、対象製品と使用を中止する方法を公表する	long-structural
+v2-long-0151	おんどかんりがひつようなにもつは、とどいたときのじょうたいだけでなく、ゆそうちゅうのきろくがきょようはんいにおさまったかをかくにんする	温度管理が必要な荷物は、届いた時の状態だけでなく、輸送中の記録が許容範囲に収まったかを確認する	long-structural
+v2-long-0152	そうこのさぎょうどうせんをみなおすとき、たんにきょりをみじかくせず、ひととふぉーくりふとがこうさしないけいろをゆうせんする	倉庫の作業動線を見直す時、単に距離を短くせず、人とフォークリフトが交差しない経路を優先する	long-structural
+v2-long-0153	ちょうたつさきとこじんてきなかんけいがあるばあいは、こうへいせいをうたがわれないよう、せんていからはずれてきろくをのこす	調達先と個人的な関係がある場合は、公平性を疑われないよう、選定から外れて記録を残す	long-structural
+v2-long-0154	せいきゅうしょのきんがくがはっちゅうとあわないとき、さがくだけをなおしてもらわず、たんかとかずとぜいのどこがちがうかをとくていする	請求書の金額が発注と合わない時、差額だけを直してもらわず、単価と数と税のどこが違うかを特定する	long-structural
+v2-long-0155	かいやくがふえたげつは、ねだんだけをげんいんにせず、りようかいしごにつまずいたばしょと、といあわせないようをあわせてみる	解約が増えた月は、値段だけを原因にせず、利用開始後につまずいた場所と、問い合わせ内容を併せて見る	long-structural
+v2-long-0156	きせつでうりあげがかわるしょうてんは、はんぼうきのじんいんをつうねんでかかえず、けんしゅうずみのおうえんよういんをはやめにかくほする	季節で売上が変わる商店は、繁忙期の人員を通年で抱えず、研修済みの応援要員を早めに確保する	long-structural
+v2-long-0157	がいかでしはらうけいやくでは、いまのかわせだけでさいさんをみず、そうばがうごいたばあいのさいさんを、ふくすうのれーとでけいさんしておく	外貨で支払う契約では、今の為替だけで採算を見ず、相場が動いた場合の採算を、複数のレートで計算しておく	long-structural
+v2-long-0158	そんがいほけんをえらぶとき、ほしょうがひろいというせつめいだけでなく、たいしょうがいになるじょうけんとじこふたんのきんがくをよみくらべる	損害保険を選ぶ時、補償が広いという説明だけでなく、対象外になる条件と自己負担の金額を読み比べる	long-structural
+v2-long-0159	きふきんのつかいみちをほうこくするなら、かつどうしゃしんだけをのせず、しゅうにゅうとししゅつとざんがくがつながるようにしめす	寄付金の使い道を報告するなら、活動写真だけを載せず、収入と支出と残額がつながるように示す	long-structural
+v2-long-0160	きょうどうくみあいでじゅうようなことをきめるとき、さんかできなかったひとにも、ぎあんとけつぎとしょうすういけんをあとからきょうゆうする	協同組合で重要なことを決める時、参加できなかった人にも、議案と決議と少数意見を後から共有する	long-structural
+v2-long-0161	ともだちがみんなそういっているとはなしても、そのみんながだれかをたしかめないまま、じじつとしてべつのひとへつたえない	友達が皆そう言っていると話しても、その皆が誰かを確かめないまま、事実として別の人へ伝えない	long-structural
+v2-long-0162	かれがせんせいにわたしたというぶんだけでは、わたしたものがわからないため、しょうりゃくされたもくてきごをぜんごからおぎなう	彼が先生に渡したという文だけでは、渡した物が分からないため、省略された目的語を前後から補う	long-structural
+v2-long-0163	あやまるときに、きぶんをわるくさせたならとじょうけんをつけるより、じぶんのこうどうとあいてへのえいきょうをぐたいてきにみとめる	謝る時に、気分を悪くさせたならと条件を付けるより、自分の行動と相手への影響を具体的に認める	long-structural
+v2-long-0164	いけんがあわなくても、まずあいてのしゅちょうをあいてがなっとくするかたちでいいなおし、そのあとにことなるこんきょをしめす	意見が合わなくても、まず相手の主張を相手が納得する形で言い直し、その後に異なる根拠を示す	long-structural
+v2-long-0165	うわさがきゅうにひろがったら、ひろめたひとをさがすより、げんてんとされるじょうほうがじっさいにそんざいするかをたしかめる	噂が急に広がったら、広めた人を探すより、原典とされる情報が実際に存在するかを確かめる	long-structural
+v2-long-0166	ぐるーぷのかいわをとちゅうからよむと、りょうかいのたいしょうをとりちがえるため、へんしんさきとちょくぜんのしつもんまでさかのぼる	グループの会話を途中から読むと、了解の対象を取り違えるため、返信先と直前の質問までさかのぼる	long-structural
+v2-long-0167	こうはいへちゅういするとき、せいかくをひていすることばをさけ、いつ、どのこうどうがもんだいで、どうかえてほしいかをわけてつたえる	後輩へ注意する時、性格を否定する言葉を避け、いつ、どの行動が問題で、どう変えてほしいかを分けて伝える	long-structural
+v2-long-0168	もめごとのなかだちをするなら、どちらがただしいかをすぐきめず、たがいがもとめるけっかと、ゆずれないじょうけんをべつべつにきく	もめ事の仲立ちをするなら、どちらが正しいかをすぐ決めず、互いが求める結果と、譲れない条件を別々に聞く	long-structural
+v2-long-0169	あるちいきではていねいなしぐさでも、べつのぶんかではきょりをかんじさせることがあるので、はんのうをみながらせつめいをそえる	ある地域では丁寧なしぐさでも、別の文化では距離を感じさせることがあるので、反応を見ながら説明を添える	long-structural
+v2-long-0170	おなじできごとのきおくがふたりのあいだでちがうとき、どちらかがうそだときめず、しゃしんやめーるなどとうじのきろくをいっしょにたどる	同じ出来事の記憶が二人の間で違う時、どちらかが嘘だと決めず、写真やメールなど当時の記録を一緒にたどる	long-structural
+v2-long-0171	それをあしたまでにおねがいしますといわれても、たいしょうがふたつあるなら、どちらをさすかと、あしたのなんじまでかをかくにんする	それを明日までにお願いしますと言われても、対象が二つあるなら、どちらを指すかと、明日の何時までかを確認する	long-structural
+v2-long-0172	じけんをじかんじゅんにならべただけではげんいんをしめしたことにならないので、ほかのせつめいでもおなじけっかになるかをかんがえる	事件を時間順に並べただけでは原因を示したことにならないので、他の説明でも同じ結果になるかを考える	long-structural
+v2-long-0173	べんりになったいっぽうでふたんもふえたというけつろんをかくなら、りてんとけってんをべつのきじゅんでくらべないようにする	便利になった一方で負担も増えたという結論を書くなら、利点と欠点を別の基準で比べないようにする	long-structural
+v2-long-0174	ようぼうをならべるだけではじゅんばんをきめられないため、きんきゅうせい、えいきょうするにんずう、ひようのさんてんでせいりする	要望を並べるだけでは順番を決められないため、緊急性、影響する人数、費用の三点で整理する	long-structural
+v2-long-0175	しゃないのひとをおきゃくさまへしょうかいするときは、ふだんはけいしょうをつけてよんでいるじょうしでも、そとにむけてはけいしょうをつけない	社内の人をお客様へ紹介する時は、普段は敬称を付けて呼んでいる上司でも、外に向けては敬称を付けない	long-structural
+v2-long-0176	まどをあけてもらえるとたすかりますというひょうげんは、けいしきじょうはきぼうでも、ばめんによってはいらいとしてうけとられる	窓を開けてもらえると助かりますという表現は、形式上は希望でも、場面によっては依頼として受け取られる	long-structural
+v2-long-0177	じょうだんのつもりでぎゃくのことをかいても、こえのちょうしがつたわらないぶんしょうではごかいされやすいため、まぎらわしいひょうげんをさける	冗談のつもりで逆のことを書いても、声の調子が伝わらない文章では誤解されやすいため、紛らわしい表現を避ける	long-structural
+v2-long-0178	へんじがないことをさんせいとみなすと、いそがしくてよめなかったひとのいしをとりこぼすので、じゅうようなけっていはめいじてきにかくにんする	返事がないことを賛成と見なすと、忙しくて読めなかった人の意思を取りこぼすので、重要な決定は明示的に確認する	long-structural
+v2-long-0179	いちどどういしたあとでもじょうきょうがかわればきもちもかわりうるため、つづけてよいかをそのつどたしかめ、ことわりをうけいれる	一度同意した後でも状況が変われば気持ちも変わり得るため、続けてよいかをその都度確かめ、断りを受け入れる	long-structural
+v2-long-0180	そうだんないようをほかのひとときょうゆうするひつようがでたら、ぜんぶをてんそうせず、もくてきにひつようなはんいをほんにんとたしかめる	相談内容を他の人と共有する必要が出たら、全部を転送せず、目的に必要な範囲を本人と確かめる	long-structural
+v2-long-0181	こうじがあめでおくれたばあい、かんせいびだけをうしろへずらさず、そうおんがでるさぎょうとつうこうきせいのひづけもこうしんする	工事が雨で遅れた場合、完成日だけを後ろへずらさず、騒音が出る作業と通行規制の日付も更新する	long-structural
+v2-long-0182	れしぴのざいりょうがひとつなくても、にたあじというだけでおきかえず、すいぶんとしおけがぜんたいにどうえいきょうするかをかんがえる	レシピの材料が一つなくても、似た味というだけで置き換えず、水分と塩気が全体にどう影響するかを考える	long-structural
+v2-long-0183	きかいからへんなおとがしてもすぐぶひんをこうかんせず、いつなり、そうさをやめるととまるかをきろくしてからげんいんをしぼる	機械から変な音がしてもすぐ部品を交換せず、いつ鳴り、操作をやめると止まるかを記録してから原因を絞る	long-structural
+v2-long-0184	にわにうえるしょくぶつをえらぶなら、はながさくきせつだけでなく、せいちょうしたおおきさとふゆのひあたりまでみこんでならべる	庭に植える植物を選ぶなら、花が咲く季節だけでなく、成長した大きさと冬の日当たりまで見込んで並べる	long-structural
+v2-long-0185	えきのばりあふりーけいろをあんないするとき、えれべーたーのばしょだけでなく、のりかえにひつようなじかんとこうじちゅうのうかいけいろもふくめる	駅のバリアフリー経路を案内する時、エレベーターの場所だけでなく、乗り換えに必要な時間と工事中の迂回経路も含める	long-structural
+v2-long-0186	きんきゅうじのたげんごあんないは、ちょくやくでながいぶんにせず、こうどうをひとつずつしめし、えとおんせいでもおなじじゅんにする	緊急時の多言語案内は、直訳で長い文にせず、行動を一つずつ示し、絵と音声でも同じ順にする	long-structural
+v2-long-0187	れきしてんじでひょうかがわかれるじんぶつをあつかうなら、ひとつのけつろんへみちびかず、ことなるしりょうとそのはいけいをならべる	歴史展示で評価が分かれる人物を扱うなら、一つの結論へ導かず、異なる資料とその背景を並べる	long-structural
+v2-long-0188	はんていあるごりずむのせいどがぜんたいでたかくても、しゅうだんごとにあやまりのわりあいをしらべ、かたよりのげんいんをみなおす	判定アルゴリズムの精度が全体で高くても、集団ごとに誤りの割合を調べ、偏りの原因を見直す	long-structural
+v2-long-0189	せいせいえーあいのこたえをしりょうにつかうばあい、もっともらしいぶんしょうをそのままいんようせず、げんてんとすうじをじぶんでかくにんする	生成AIの答えを資料に使う場合、もっともらしい文章をそのまま引用せず、原典と数字を自分で確認する	long-structural
+v2-long-0190	きこうもでるのけっかをひとつのみらいとしてだんていせず、はいしゅつりょうなどのぜんていがちがうふくすうのしなりおをならべる	気候モデルの結果を一つの未来として断定せず、排出量などの前提が違う複数のシナリオを並べる	long-structural
+v2-long-0191	しみんがあつめたかんそくでーたをけんきゅうにつかうなら、そうちのちがいをほせいし、きろくがないひをぜろとしてあつかわない	市民が集めた観測データを研究に使うなら、装置の違いを補正し、記録がない日をゼロとして扱わない	long-structural
+v2-long-0192	ちいきのまつりがあめでたんしゅくされても、ちゅうしになったもよおしと、じかんをかえておこなうもよおしをわけてあんないする	地域の祭りが雨で短縮されても、中止になった催しと、時間を変えて行う催しを分けて案内する	long-structural
+v2-long-0193	おんらいんじゅぎょうをろくがするまえに、あとでみるひとのりべんせいだけでなく、さんかしゃのなまえやはつげんがのこることをせつめいする	オンライン授業を録画する前に、後で見る人の利便性だけでなく、参加者の名前や発言が残ることを説明する	long-structural
+v2-long-0194	としょかんのしりょうをでじたるこうかいするとき、よめるじょうたいだからとすぐのせず、けんりとかんらんはんいをしりょうごとにかくにんする	図書館の資料をデジタル公開する時、読める状態だからとすぐ載せず、権利と閲覧範囲を資料ごとに確認する	long-structural
+v2-long-0195	れきしてきなたてものをかいしゅうするなら、しんせつぶぶんをしょうらいとりはずせるほうほうにし、かいしゅうまえのじょうたいもきろくする	歴史的な建物を改修するなら、新設部分を将来取り外せる方法にし、改修前の状態も記録する	long-structural
+v2-long-0196	しょくざいのもんだいがみつかったとき、みせにならぶさいしゅうしょうひんから、げんりょうのろっととゆそうけいろまでさかのぼれるようにする	食材の問題が見つかった時、店に並ぶ最終商品から、原料のロットと輸送経路までさかのぼれるようにする	long-structural
+v2-long-0197	おくがいのげいじゅつさいではさくひんのせつめいだけでなく、だんさをさけるけいろと、しずかにやすめるばしょをまっぷにしめす	屋外の芸術祭では作品の説明だけでなく、段差を避ける経路と、静かに休める場所をマップに示す	long-structural
+v2-long-0198	うちゅうたんさきはひとつのそうちがこわれてもかんそくをつづけられるよう、じゅうようなけいとうをぶんりし、だいたいしゅだんをもたせる	宇宙探査機は一つの装置が壊れても観測を続けられるよう、重要な系統を分離し、代替手段を持たせる	long-structural
+v2-long-0199	せんきょけっかをでーたでこうかいするなら、しゅうけいちだけでなく、こうしんりれきとていせいのりゆうをきかいでもよめるかたちでそえる	選挙結果をデータで公開するなら、集計値だけでなく、更新履歴と訂正の理由を機械でも読める形で添える	long-structural
+v2-long-0200	しんせいどをぜんめんどうにゅうするまえに、ちいさなはんいでためし、せいこうきじゅんとちゅうしじょうけんをきめてからけっかをひょうかする	新制度を全面導入する前に、小さな範囲で試し、成功基準と中止条件を決めてから結果を評価する	long-structural
+v2-grimodex-0001	GrimodexのconverterをMozcにきりかえる	GrimodexのconverterをMozcに切り替える	grimodex-regression
+v2-grimodex-0002	じどうへんかんdelayを120msにせっていする	自動変換delayを120msに設定する	grimodex-regression
+v2-grimodex-0003	preedit cursorをせんとうにひょうじする	preedit cursorを先頭に表示する	grimodex-regression
+v2-grimodex-0004	こうほを1pageあたり9けんひょうじする	候補を1pageあたり9件表示する	grimodex-regression
+v2-grimodex-0005	Ctrl+Spaceのshortcutしょうとつをさける	Ctrl+Spaceのshortcut衝突を避ける	grimodex-regression
+v2-grimodex-0006	くとうてんstyleを、。にそろえる	句読点styleを、。に揃える	grimodex-regression
+v2-grimodex-0007	きごうinputをぜんかくゆうせんにする	記号inputを全角優先にする	grimodex-regression
+v2-grimodex-0008	Grimodexようのromaji tableをよみこむ	Grimodex用のromaji tableを読み込む	grimodex-regression
+v2-grimodex-0009	kana direct inputをゆうこうにする	kana direct inputを有効にする	grimodex-regression
+v2-grimodex-0010	live conversionをこのappだけとめる	live conversionをこのappだけ止める	grimodex-regression
+v2-grimodex-0011	かくていずみtextをさいへんかんする	確定済みtextを再変換する	grimodex-regression
+v2-grimodex-0012	segment resizeをShift+Arrowでおこなう	segment resizeをShift+Arrowで行う	grimodex-regression
+v2-grimodex-0013	へんかんちゅうのSpaceをこうほせんたくにする	変換中のSpaceを候補選択にする	grimodex-regression
+v2-grimodex-0014	Enter 1かいでpreeditをかくていする	Enter 1回でpreeditを確定する	grimodex-regression
+v2-grimodex-0015	Escでみかくていのへんしゅうをとりけす	Escで未確定の編集を取り消す	grimodex-regression
+v2-grimodex-0016	Shift+Spaceではんかくspaceをいれる	Shift+Spaceで半角spaceを入れる	grimodex-regression
+v2-grimodex-0017	さいきどうごにひらがなmodeをふくげんする	再起動後にひらがなmodeを復元する	grimodex-regression
+v2-grimodex-0018	appごとのにゅうりょくじょうたいをわける	appごとの入力状態を分ける	grimodex-regression
+v2-grimodex-0019	Mozc modeではlearningをむこうにする	Mozc modeではlearningを無効にする	grimodex-regression
+v2-grimodex-0020	privacy modeでりれきをほぞんしない	privacy modeで履歴を保存しない	grimodex-regression
+v2-grimodex-0021	scope modeにおうじたGrimodex contextをわたす	scope modeに応じたGrimodex contextを渡す	grimodex-regression
+v2-grimodex-0022	こうほのならびじゅんをdefaultへもどす	候補の並び順をdefaultへ戻す	grimodex-regression
+v2-grimodex-0023	key repeatちゅうのにじゅうかくていをふせぐ	key repeat中の二重確定を防ぐ	grimodex-regression
+v2-grimodex-0024	preeditのたいしょうsegmentをきょうちょうする	preeditの対象segmentを強調する	grimodex-regression
+v2-grimodex-0025	live conversion delayを1000msいかにする	live conversion delayを1000ms以下にする	grimodex-regression
+v2-grimodex-0026	こうほwindowをcaretのしたにだす	候補windowをcaretの下に出す	grimodex-regression
+v2-grimodex-0027	surrounding textのていきょうをきょかする	surrounding textの提供を許可する	grimodex-regression
+v2-grimodex-0028	IME configをsessionちゅうにreloadする	IME configをsession中にreloadする	grimodex-regression
+v2-grimodex-0029	B0 artifactのmanifestをこていする	B0 artifactのmanifestを固定する	grimodex-regression
+v2-grimodex-0030	B1 generationのhelper hashをしょうごうする	B1 generationのhelper hashを照合する	grimodex-regression
+v2-grimodex-0031	Mozc dataのsizeをinstallまえにはかる	Mozc dataのsizeをinstall前に測る	grimodex-regression
+v2-grimodex-0032	artifact bundleからhelperをてんかいする	artifact bundleからhelperを展開する	grimodex-regression
+v2-grimodex-0033	content-addressed runtimeをしんきさくせいする	content-addressed runtimeを新規作成する	grimodex-regression
+v2-grimodex-0034	おなじgenerationのruntimeをさいりようする	同じgenerationのruntimeを再利用する	grimodex-regression
+v2-grimodex-0035	readonly directoryのかきかえをきょひする	readonly directoryの書き換えを拒否する	grimodex-regression
+v2-grimodex-0036	TOCTOUけんしゅつじにfail-closedでとめる	TOCTOU検出時にfail-closedで止める	grimodex-regression
+v2-grimodex-0037	helperのPINGおうとうをinstallまえにためす	helperのPING応答をinstall前に試す	grimodex-regression
+v2-grimodex-0038	Mozc identityとABIをどうじにけんしょうする	Mozc identityとABIを同時に検証する	grimodex-regression
+v2-grimodex-0039	generation pathのsymlinkをきょひする	generation pathのsymlinkを拒否する	grimodex-regression
+v2-grimodex-0040	artifact cacheのふるいentryをそうじする	artifact cacheの古いentryを掃除する	grimodex-regression
+v2-grimodex-0041	FCITX5_GRIMODEX_MOZC_HELPERへぜったいpathをわたす	FCITX5_GRIMODEX_MOZC_HELPERへ絶対pathを渡す	grimodex-regression
+v2-grimodex-0042	FCITX5_GRIMODEX_MOZC_DATAへreadonly fileをわたす	FCITX5_GRIMODEX_MOZC_DATAへreadonly fileを渡す	grimodex-regression
+v2-grimodex-0043	FCITX5_GRIMODEX_CONVERTER=mozcをさいきどうごもたもつ	FCITX5_GRIMODEX_CONVERTER=mozcを再起動後も保つ	grimodex-regression
+v2-grimodex-0044	manifestのないbundleはinstallをきょひする	manifestのないbundleはinstallを拒否する	grimodex-regression
+v2-grimodex-0045	SHA-256ふいっちのartifactをfail-closedできょひする	SHA-256不一致のartifactをfail-closedで拒否する	grimodex-regression
+v2-grimodex-0046	みかんりょうdownloadをartifactにしない	未完了downloadをartifactにしない	grimodex-regression
+v2-grimodex-0047	B0とB1のdata identityをくらべる	B0とB1のdata identityを比べる	grimodex-regression
+v2-grimodex-0048	runtime ownerをげんざいuserにしぼる	runtime ownerを現在userに絞る	grimodex-regression
+v2-grimodex-0049	mode 0555のgenerationをよみとる	mode 0555のgenerationを読み取る	grimodex-regression
+v2-grimodex-0050	helper executableのbitをかくにんする	helper executableのbitを確認する	grimodex-regression
+v2-grimodex-0051	data fileのinodeこうかんをけんしゅつする	data fileのinode交換を検出する	grimodex-regression
+v2-grimodex-0052	artifact verifierのけっかをlogにのこす	artifact verifierの結果をlogに残す	grimodex-regression
+v2-grimodex-0053	custom prefixしたのruntimeをさがす	custom prefix下のruntimeを探す	grimodex-regression
+v2-grimodex-0054	multiarch libdirからaddonをよみこむ	multiarch libdirからaddonを読み込む	grimodex-regression
+v2-grimodex-0055	build-grimodex-mozcをせんようにたもつ	build-grimodex-mozcを専用に保つ	grimodex-regression
+v2-grimodex-0056	こわれたgenerationをactiveにしない	壊れたgenerationをactiveにしない	grimodex-regression
+v2-grimodex-0057	OpenSessionをさいしょのactionとしておくる	OpenSessionを最初のactionとして送る	grimodex-regression
+v2-grimodex-0058	OpenSessionResultのprotocol_versionが2であることをかくにんする	OpenSessionResultのprotocol_versionが2であることを確認する	grimodex-regression
+v2-grimodex-0059	request_idを1から128 UTF-8 bytesにせいげんする	request_idを1から128 UTF-8 bytesに制限する	grimodex-regression
+v2-grimodex-0060	expected_revisionをげんざいrevisionとしょうごうする	expected_revisionを現在revisionと照合する	grimodex-regression
+v2-grimodex-0061	optional stringのみしていちをnullでなくからもじれつにする	optional stringの未指定値をnullでなく空文字列にする	grimodex-regression
+v2-grimodex-0062	Protocol v2 frameを4-byte length-prefixでよむ	Protocol v2 frameを4-byte length-prefixで読む	grimodex-regression
+v2-grimodex-0063	socket payloadを1MiBいかにせいげんする	socket payloadを1MiB以下に制限する	grimodex-regression
+v2-grimodex-0064	RequestEnvelopeをprotobufでかいせきする	RequestEnvelopeをprotobufで解析する	grimodex-regression
+v2-grimodex-0065	unsupported actionにMALFORMED_REQUESTをかえす	unsupported actionにMALFORMED_REQUESTを返す	grimodex-regression
+v2-grimodex-0066	PING responseをrequest_idでしょうごうする	PING responseをrequest_idで照合する	grimodex-regression
+v2-grimodex-0067	きょうゆうsocket I/O deadlineをsteady clockではかる	共有socket I/O deadlineをsteady clockで測る	grimodex-regression
+v2-grimodex-0068	Cancelをsemantic actionとしてしょりする	Cancelをsemantic actionとして処理する	grimodex-regression
+v2-grimodex-0069	partial writeののこりをoutput bufferにたもつ	partial writeの残りをoutput bufferに保つ	grimodex-regression
+v2-grimodex-0070	EOFでclient connectionをとじる	EOFでclient connectionを閉じる	grimodex-regression
+v2-grimodex-0071	client_feature_bitsでlive conversionをゆうこうにする	client_feature_bitsでlive conversionを有効にする	grimodex-regression
+v2-grimodex-0072	artifact verifierでABIをけんしょうする	artifact verifierでABIを検証する	grimodex-regression
+v2-grimodex-0073	candidateせんたくじにgenerationとIDをしょうごうする	candidate選択時にgenerationとIDを照合する	grimodex-regression
+v2-grimodex-0074	おなじrequest_idのretryへcached resultをかえす	同じrequest_idのretryへcached resultを返す	grimodex-regression
+v2-grimodex-0075	surrounding contextのanchorをUnicode scalarでかぞえる	surrounding contextのanchorをUnicode scalarで数える	grimodex-regression
+v2-grimodex-0076	control characterをふくむuser dictionary entryをきょひする	control characterを含むuser dictionary entryを拒否する	grimodex-regression
+v2-grimodex-0077	candidate itemsのじゅんじょをsnapshotへはんえいする	candidate itemsの順序をsnapshotへ反映する	grimodex-regression
+v2-grimodex-0078	statusとerror_messageをべつfieldにする	statusとerror_messageを別fieldにする	grimodex-regression
+v2-grimodex-0079	sessionじょうげんとうたつをFAILEDとしてかえす	session上限到達をFAILEDとして返す	grimodex-regression
+v2-grimodex-0080	client capabilityをuint64 bitmaskでひょうげんする	client capabilityをuint64 bitmaskで表現する	grimodex-regression
+v2-grimodex-0081	contextなしではleft contextとright contextをからにする	contextなしではleft contextとright contextを空にする	grimodex-regression
+v2-grimodex-0082	secure inputでcheckpoint restoreをきょひする	secure inputでcheckpoint restoreを拒否する	grimodex-regression
+v2-grimodex-0083	CloseSessionでsession ownerをしょうごうする	CloseSessionでsession ownerを照合する	grimodex-regression
+v2-grimodex-0084	OpenSessionResultからsession_idをうけとる	OpenSessionResultからsession_idを受け取る	grimodex-regression
+v2-grimodex-0085	user dictionaryのこうほをMozcこうほよりまえにoverlayする	user dictionaryの候補をMozc候補より前にoverlayする	grimodex-regression
+v2-grimodex-0086	ひだりぶんみゃくをprivate helperへわたさない	左文脈をprivate helperへ渡さない	grimodex-regression
+v2-grimodex-0087	Mozc requestにはみぎぶんみゃくfieldをもたせない	Mozc requestには右文脈fieldを持たせない	grimodex-regression
+v2-grimodex-0088	user dictionaryのよみをNFKCごにかたかなへそろえる	user dictionaryの読みをNFKC後にカタカナへ揃える	grimodex-regression
+v2-grimodex-0089	みちのpartOfSpeechをこゆうめいしにmapする	未知のpartOfSpeechを固有名詞にmapする	grimodex-regression
+v2-grimodex-0090	priorityが1から3いがいのproject snapshotをきょひする	priorityが1から3以外のproject snapshotを拒否する	grimodex-regression
+v2-grimodex-0091	normalized readingとsurfaceとCIDがひとしいentryをdeduplicateする	normalized readingとsurfaceとCIDが等しいentryをdeduplicateする	grimodex-regression
+v2-grimodex-0092	こわれたJSONのuser dictionary importをきょひする	壊れたJSONのuser dictionary importを拒否する	grimodex-regression
+v2-grimodex-0093	もっともながいdictionary prefixをへんかんたいしょうにする	最も長いdictionary prefixを変換対象にする	grimodex-regression
+v2-grimodex-0094	secure inputではMozcこうほをからにする	secure inputではMozc候補を空にする	grimodex-regression
+v2-grimodex-0095	Mozc modeのかくていをがくしゅうりれきにほぞんしない	Mozc modeの確定を学習履歴に保存しない	grimodex-regression
+v2-grimodex-0096	Mozc backendのlearning capabilityをconversionOnlyにこていする	Mozc backendのlearning capabilityをconversionOnlyに固定する	grimodex-regression
+v2-grimodex-0097	compositionちゅうはproject generationをpinする	composition中はproject generationをpinする	grimodex-regression
+v2-grimodex-0098	pending snapshotをcompositionしゅうりょうごにてきようする	pending snapshotをcomposition終了後に適用する	grimodex-regression
+v2-grimodex-0099	よみがちがうuser entryをべつのこうほとしてたもつ	読みが違うuser entryを別の候補として保つ	grimodex-regression
+v2-grimodex-0100	built-in guardのこうほをMozcこうほよりまえにおく	built-in guardの候補をMozc候補より前に置く	grimodex-regression
+v2-grimodex-0101	standardこうほではASCII tokenのcaseをたもつ	standard候補ではASCII tokenのcaseを保つ	grimodex-regression
+v2-grimodex-0102	project dictionaryのentryをpriorityこうじゅんにならべる	project dictionaryのentryをpriority降順に並べる	grimodex-regression
+v2-grimodex-0103	Mozc modeのpredictionはからのこうほlistをかえす	Mozc modeのpredictionは空の候補listを返す	grimodex-regression
+v2-grimodex-0104	standardこうほではASCIIきごうのはばをたもつ	standard候補ではASCII記号の幅を保つ	grimodex-regression
+v2-grimodex-0105	protected surfaceをこわすstandardこうほをじょがいする	protected surfaceを壊すstandard候補を除外する	grimodex-regression
+v2-grimodex-0106	readingが255 scalarsまたは1023 bytesをこえたrequestをきょひする	readingが255 scalarsまたは1023 bytesを超えたrequestを拒否する	grimodex-regression
+v2-grimodex-0107	からのsurfaceをかえすMozcこうほをきょひする	空のsurfaceを返すMozc候補を拒否する	grimodex-regression
+v2-grimodex-0108	long vowelのちがうよみを1つにまとめない	long vowelの違う読みを1つにまとめない|long vowelの違う読みを一つにまとめない	grimodex-regression
+v2-grimodex-0109	projectめいをsnapshotのproject_nameからよみこむ	project名をsnapshotのproject_nameから読み込む	grimodex-regression
+v2-grimodex-0110	scope policyがきょひしたproject contextをつかわない	scope policyが拒否したproject contextを使わない	grimodex-regression
+v2-grimodex-0111	user dictionaryをkeyじゅんのJSONとしてexportする	user dictionaryをkey順のJSONとしてexportする	grimodex-regression
+v2-grimodex-0112	dictionary reloadをへんかんのあいだにおこなう	dictionary reloadを変換の間に行う	grimodex-regression
+v2-grimodex-0113	Grimodex setting paneにMozcをひょうじする	Grimodex setting paneにMozcを表示する	grimodex-regression
+v2-grimodex-0114	B0せんたくちゅうのbadgeをあおにする	B0選択中のbadgeを青にする	grimodex-regression
+v2-grimodex-0115	converter cardにwarm p95をだす	converter cardにwarm p95を出す	grimodex-regression
+v2-grimodex-0116	PSSとRSSをべつのrowにひょうじする	PSSとRSSを別のrowに表示する	grimodex-regression
+v2-grimodex-0117	protected 100/100をみどりでしめす	protected 100/100を緑で示す	grimodex-regression
+v2-grimodex-0118	both_badのけんすうにtooltipをつける	both_badの件数にtooltipを付ける	grimodex-regression
+v2-grimodex-0119	candidate diffを左右にならべる	candidate diffを左右に並べる	grimodex-regression
+v2-grimodex-0120	readingをcopyするbuttonをおく	readingをcopyするbuttonを置く	grimodex-regression
+v2-grimodex-0121	long textのcandidateを2ぎょうにおさめる	long textのcandidateを2行に収める	grimodex-regression
+v2-grimodex-0122	しっぱいしたcaseだけをfilterする	失敗したcaseだけをfilterする	grimodex-regression
+v2-grimodex-0123	category tabにごうけいすうをだす	category tabに合計数を出す	grimodex-regression
+v2-grimodex-0124	keyboardだけでB0とB1をくらべる	keyboardだけでB0とB1を比べる	grimodex-regression
+v2-grimodex-0125	human preferenceをblind labelでひかくする	human preferenceをblind labelで比較する	grimodex-regression
+v2-grimodex-0126	ひょうかずみcaseをundoできるようにする	評価済みcaseをundoできるようにする	grimodex-regression
+v2-grimodex-0127	progress barを1260けんでけいさんする	progress barを1260件で計算する	grimodex-regression
+v2-grimodex-0128	protected suiteをべつsectionにわける	protected suiteを別sectionに分ける	grimodex-regression
+v2-grimodex-0129	context inputをおりたたんでひょうじする	context inputを折り畳んで表示する	grimodex-regression
+v2-grimodex-0130	protocol versionをfooterにひょうじする	protocol versionをfooterに表示する	grimodex-regression
+v2-grimodex-0131	artifact hashをmonospaceでみせる	artifact hashをmonospaceで見せる	grimodex-regression
+v2-grimodex-0132	copyずみiconを1びょうだけだす	copy済みiconを1秒だけ出す	grimodex-regression
+v2-grimodex-0133	soak testのけいかじかんをliveひょうじする	soak testの経過時間をlive表示する	grimodex-regression
+v2-grimodex-0134	crashじのlast logをdialogにだす	crash時のlast logをdialogに出す	grimodex-regression
+v2-grimodex-0135	install statusを3だんかいでしめす	install statusを3段階で示す	grimodex-regression
+v2-grimodex-0136	missing dataにrepair buttonをだす	missing dataにrepair buttonを出す	grimodex-regression
+v2-grimodex-0137	setting resetまえにかくにんする	setting reset前に確認する	grimodex-regression
+v2-grimodex-0138	IME previewでcompositionをさいげんする	IME previewでcompositionを再現する	grimodex-regression
+v2-grimodex-0139	light modeでもdiffのいろをみわける	light modeでもdiffの色を見分ける	grimodex-regression
+v2-grimodex-0140	screen readerへへんかんじょうたいをつたえる	screen readerへ変換状態を伝える	grimodex-regression
+v2-grimodex-0141	Mozcせんようrunnerのinstall commandをじっこうする	Mozc専用runnerのinstall commandを実行する	grimodex-regression
+v2-grimodex-0142	つうじょうrunnerへMozcせんようflagをたさない	通常runnerへMozc専用flagを足さない	grimodex-regression
+v2-grimodex-0143	CMAKE_INSTALL_FULL_LIBDIR/fcitx5-grimodexからhelper pathをきめる	CMAKE_INSTALL_FULL_LIBDIR/fcitx5-grimodexからhelper pathを決める	grimodex-regression
+v2-grimodex-0144	custom prefixのshare dirへdataをおく	custom prefixのshare dirへdataを置く	grimodex-regression
+v2-grimodex-0145	Debian multiarchでhelperをみつける	Debian multiarchでhelperを見つける	grimodex-regression
+v2-grimodex-0146	package contractでartifactをけんしょうする	package contractでartifactを検証する	grimodex-regression
+v2-grimodex-0147	helperとdataとlicenseをGNUInstallDirsのdestinationへはいちする	helperとdataとlicenseをGNUInstallDirsのdestinationへ配置する	grimodex-regression
+v2-grimodex-0148	GRIMODEX_STAGED_ROOTのhelperとdataをけんしょうする	GRIMODEX_STAGED_ROOTのhelperとdataを検証する	grimodex-regression
+v2-grimodex-0149	install prefixをこていちにしない	install prefixを固定値にしない	grimodex-regression
+v2-grimodex-0150	artifact bundleをpackageに1つだけいれる	artifact bundleをpackageに1つだけ入れる|artifact bundleをpackageに一つだけ入れる	grimodex-regression
+v2-grimodex-0151	license noticeをMozc dataにそえる	license noticeをMozc dataに添える	grimodex-regression
+v2-grimodex-0152	stripまえのhelper hashをつかわない	strip前のhelper hashを使わない	grimodex-regression
+v2-grimodex-0153	postinstでruntime generationをつくらない	postinstでruntime generationを作らない	grimodex-regression
+v2-grimodex-0154	uninstallじにuser cacheをのこす	uninstall時にuser cacheを残す	grimodex-regression
+v2-grimodex-0155	upgradeまえにactive generationをたもつ	upgrade前にactive generationを保つ	grimodex-regression
+v2-grimodex-0156	package versionへartifact IDをふくめる	package versionへartifact IDを含める	grimodex-regression
+v2-grimodex-0157	CMake --installでhelperのexecutable bitをたもつ	CMake --installでhelperのexecutable bitを保つ	grimodex-regression
+v2-grimodex-0158	relative symlinkをstagingでけんしょうする	relative symlinkをstagingで検証する	grimodex-regression
+v2-grimodex-0159	RPM upgradeのscriptletをべきとうにする	RPM upgradeのscriptletを冪等にする	grimodex-regression
+v2-grimodex-0160	Arch packageのbackup arrayをみなおす	Arch packageのbackup arrayを見直す	grimodex-regression
+v2-grimodex-0161	debug packageへsymbolをぶんりする	debug packageへsymbolを分離する	grimodex-regression
+v2-grimodex-0162	offline installではnetworkせつぞくをおこなわない	offline installではnetwork接続を行わない	grimodex-regression
+v2-grimodex-0163	artifact pathにspaceがあってもあつかう	artifact pathにspaceがあっても扱う	grimodex-regression
+v2-grimodex-0164	readonly rootでもuser runtimeをつくる	readonly rootでもuser runtimeを作る	grimodex-regression
+v2-grimodex-0165	package checksumをrelease noteにかく	package checksumをrelease noteに書く	grimodex-regression
+v2-grimodex-0166	old ABIのaddonとどうきょさせない	old ABIのaddonと同居させない	grimodex-regression
+v2-grimodex-0167	relocationごにPING testをおこなう	relocation後にPING testを行う	grimodex-regression
+v2-grimodex-0168	staged installのfile listをこていする	staged installのfile listを固定する	grimodex-regression
+v2-grimodex-0169	warm latency p95をくりかえしけいそくする	warm latency p95を繰り返し計測する	grimodex-regression
+v2-grimodex-0170	PSSをsmaps_rollupからしゅとくする	PSSをsmaps_rollupから取得する	grimodex-regression
+v2-grimodex-0171	RSS peakをsoakちゅうにきろくする	RSS peakをsoak中に記録する	grimodex-regression
+v2-grimodex-0172	helper crashのexit codeをのこす	helper crashのexit codeを残す	grimodex-regression
+v2-grimodex-0173	Fcitx restartごのenvをdumpする	Fcitx restart後のenvをdumpする	grimodex-regression
+v2-grimodex-0174	active generationのhashを1ぷんごとにみる	active generationのhashを1分ごとに見る	grimodex-regression
+v2-grimodex-0175	conversion timeoutをcategoryべつにかぞえる	conversion timeoutをcategory別に数える	grimodex-regression
+v2-grimodex-0176	soakちゅうのfile descriptorをかんしする	soak中のfile descriptorを監視する	grimodex-regression
+v2-grimodex-0177	zombie helperがいないことをかくにんする	zombie helperがいないことを確認する	grimodex-regression
+v2-grimodex-0178	SIGSEGVじにcore dumpをかいしゅうする	SIGSEGV時にcore dumpを回収する	grimodex-regression
+v2-grimodex-0179	runtime generationのかいざんをけんしゅつしてきょひする	runtime generationの改ざんを検出して拒否する	grimodex-regression
+v2-grimodex-0180	PINGがしっぱいしたconverterをactivateしない	PINGが失敗したconverterをactivateしない	grimodex-regression
+v2-grimodex-0181	helper timeoutごにprocessをさいきどうする	helper timeout後にprocessを再起動する	grimodex-regression
+v2-grimodex-0182	log rotationごもsession IDをたもつ	log rotation後もsession IDを保つ	grimodex-regression
+v2-grimodex-0183	OOM killのかいすうをcgroupからよむ	OOM killの回数をcgroupから読む	grimodex-regression
+v2-grimodex-0184	memory leakを30ぷんまどでけんちする	memory leakを30分窓で検知する	grimodex-regression
+v2-grimodex-0185	conversion resultのふいっちをartifactべつにだす	conversion resultの不一致をartifact別に出す	grimodex-regression
+v2-grimodex-0186	retry stormをcircuit breakerでとめる	retry stormをcircuit breakerで止める	grimodex-regression
+v2-grimodex-0187	runtime permission errorをrepairへみちびく	runtime permission errorをrepairへ導く	grimodex-regression
+v2-grimodex-0188	serverきどうじにstale socket pathをunlinkする	server起動時にstale socket pathをunlinkする	grimodex-regression
+v2-grimodex-0189	server --replaceをきどうして2びょうごにせいぞんかくにんする	server --replaceを起動して2秒後に生存確認する	grimodex-regression
+v2-grimodex-0190	crash loopじにbackoffをじょうげんまでふやす	crash loop時にbackoffを上限まで増やす	grimodex-regression
+v2-grimodex-0191	orphan runtimeをdry-runでれっきょする	orphan runtimeをdry-runで列挙する	grimodex-regression
+v2-grimodex-0192	install logにsecretをださない	install logにsecretを出さない	grimodex-regression
+v2-grimodex-0193	health checkのれんぞく3かいしっぱいをあつかう	health checkの連続3回失敗を扱う	grimodex-regression
+v2-grimodex-0194	soakけっかをJSON reportにほぞんする	soak結果をJSON reportに保存する	grimodex-regression
+v2-grimodex-0195	CPU spikeじのstack sampleをとる	CPU spike時のstack sampleを取る	grimodex-regression
+v2-grimodex-0196	recoveryごにおなじartifactをさいけんしょうする	recovery後に同じartifactを再検証する	grimodex-regression
+v2-grimodex-0197	mainとorigin/mainのaheadをかくにんする	mainとorigin/mainのaheadを確認する	grimodex-regression
+v2-grimodex-0198	Mozc runnerのへんこうだけをgit addする	Mozc runnerの変更だけをgit addする	grimodex-regression
+v2-grimodex-0199	package contractのさぶんをreviewする	package contractの差分をreviewする	grimodex-regression
+v2-grimodex-0200	artifact hashのへんこうをcommitからわける	artifact hashの変更をcommitから分ける	grimodex-regression
+v2-grimodex-0201	READMEのじっこうれいをworktreeでためす	READMEの実行例をworktreeで試す	grimodex-regression
+v2-grimodex-0202	grimodex-ime.shとのぶんりをdiffでまもる	grimodex-ime.shとの分離をdiffで守る	grimodex-regression
+v2-grimodex-0203	untracked artifactをcommitにふくめない	untracked artifactをcommitに含めない	grimodex-regression
+v2-grimodex-0204	git diff --checkをpushまえにとおす	git diff --checkをpush前に通す	grimodex-regression
+v2-grimodex-0205	ctestのけっかをぜんけんきろくする	ctestの結果を全件記録する	grimodex-regression
+v2-grimodex-0206	package testのcaseすうをREADMEとそろえる	package testのcase数をREADMEと揃える	grimodex-regression
+v2-grimodex-0207	げんざいのHEAD patchをかくにんする	現在のHEAD patchを確認する	grimodex-regression
+v2-grimodex-0208	originへpushするまえにstatusをみる	originへpushする前にstatusを見る	grimodex-regression
+v2-grimodex-0209	worktree cleanをhashこうしんごにたしかめる	worktree cleanをhash更新後に確かめる	grimodex-regression
+v2-grimodex-0210	generated manifestをsourceとくべつする	generated manifestをsourceと区別する	grimodex-regression
+v2-grimodex-0211	fixture IDのけつばんをCIでけんしゅつする	fixture IDの欠番をCIで検出する	grimodex-regression
+v2-grimodex-0212	TSVの4 columnをpre-commitでまもる	TSVの4 columnをpre-commitで守る	grimodex-regression
+v2-grimodex-0213	v1 readingとのoverlapをぜろにする	v1 readingとのoverlapをゼロにする	grimodex-regression
+v2-grimodex-0214	v2 builderでTSVかくfieldのNFCをけんしょうする	v2 builderでTSV各fieldのNFCを検証する	grimodex-regression
+v2-grimodex-0215	near-duplicate reviewをべつcommitにする	near-duplicate reviewを別commitにする	grimodex-regression
+v2-grimodex-0216	provenanceなしではmanifestをつくらない	provenanceなしではmanifestを作らない	grimodex-regression
+v2-grimodex-0217	B0とB1のfreezeごにholdoutをひらく	B0とB1のfreeze後にholdoutを開く	grimodex-regression
+v2-grimodex-0218	B2をv2 corpusのたいしょうからはずす	B2をv2 corpusの対象から外す	grimodex-regression
+v2-grimodex-0219	reviewずみfixtureだけをmergeする	review済みfixtureだけをmergeする	grimodex-regression
+v2-grimodex-0220	commit messageにcategoryをめいきする	commit messageにcategoryを明記する	grimodex-regression
+v2-protected-0001	RUST_LOG=debugでくわしいろぐをだす	RUST_LOG=debugで詳しいログを出す	protected
+v2-protected-0002	SWIFT_SCRATCH_PATH=/tmp/swift-v2をびるどさきにする	SWIFT_SCRATCH_PATH=/tmp/swift-v2をビルド先にする	protected
+v2-protected-0003	GGML_BACKEND_DIR=/opt/grimodex/libをけんさくさきにくわえる	GGML_BACKEND_DIR=/opt/grimodex/libを検索先に加える	protected
+v2-protected-0004	LD_LIBRARY_PATH=./runtime/libをじっこうまえにせっていする	LD_LIBRARY_PATH=./runtime/libを実行前に設定する	protected
+v2-protected-0005	HOME=/nonexistentでいぞんをけんしょうする	HOME=/nonexistentで依存を検証する	protected
+v2-protected-0006	TMPDIR=/var/tmp/grimodexをいちじほぞんさきにする	TMPDIR=/var/tmp/grimodexを一時保存先にする	protected
+v2-protected-0007	LANG=C.UTF-8をてすとじにこていする	LANG=C.UTF-8をテスト時に固定する	protected
+v2-protected-0008	TZ=UTCでたいむすたんぷをきろくする	TZ=UTCでタイムスタンプを記録する	protected
+v2-protected-0009	GRIMODEX_PROCESS_E2E_AB_WARMUPS=5をうぉーむあっぷかいすうにする	GRIMODEX_PROCESS_E2E_AB_WARMUPS=5をウォームアップ回数にする	protected
+v2-protected-0010	GRIMODEX_PROCESS_E2E_AB_ITERATIONS=20でけいそくをくりかえす	GRIMODEX_PROCESS_E2E_AB_ITERATIONS=20で計測を繰り返す	protected
+v2-protected-0011	GRIMODEX_FCITX_SOAK_ITERATIONS=150000をそうくしけんにつかう	GRIMODEX_FCITX_SOAK_ITERATIONS=150000をソーク試験に使う	protected
+v2-protected-0012	XDG_RUNTIME_DIR=/run/user/1000をそけっとのきてんにする	XDG_RUNTIME_DIR=/run/user/1000をソケットの起点にする	protected
+v2-protected-0013	ASAN_OPTIONS=detect_leaks=1をめもりけんしょうでゆうこうにする	ASAN_OPTIONS=detect_leaks=1をメモリ検証で有効にする	protected
+v2-protected-0014	UBSAN_OPTIONS=halt_on_error=1でいじょうじにていしする	UBSAN_OPTIONS=halt_on_error=1で異常時に停止する	protected
+v2-protected-0015	SOURCE_DATE_EPOCH=0をさいげんびるどでつかう	SOURCE_DATE_EPOCH=0を再現ビルドで使う	protected
+v2-protected-0016	/usr/share/fcitx5/addon/grimodex.confをよみこむ	/usr/share/fcitx5/addon/grimodex.confを読み込む	protected
+v2-protected-0017	/etc/xdg/fcitx5/profileのゆうせんじゅんいをかくにんする	/etc/xdg/fcitx5/profileの優先順位を確認する	protected
+v2-protected-0018	./build-grimodex/bin/hazkey-serverをちょくせつきどうする	./build-grimodex/bin/hazkey-serverを直接起動する	protected
+v2-protected-0019	../fixtures/mozc-adoption-v2/manifest.jsonをけんしょうする	../fixtures/mozc-adoption-v2/manifest.jsonを検証する	protected
+v2-protected-0020	$HOME/.local/share/fcitx5/grimodexにせっていをほぞんする	$HOME/.local/share/fcitx5/grimodexに設定を保存する	protected
+v2-protected-0021	/run/user/1000/fcitx5-grimodex/server.sockへせつぞくする	/run/user/1000/fcitx5-grimodex/server.sockへ接続する	protected
+v2-protected-0022	/proc/self/statusからめもりしひょうをよむ	/proc/self/statusからメモリ指標を読む	protected
+v2-protected-0023	/dev/nullへふようなしゅつりょくをすてる	/dev/nullへ不要な出力を捨てる	protected
+v2-protected-0024	./runtime/lib/libggml-base.soのそんざいをしらべる	./runtime/lib/libggml-base.soの存在を調べる	protected
+v2-protected-0025	/opt/grimodex/share/mozc.dataをよみとりせんようにする	/opt/grimodex/share/mozc.dataを読み取り専用にする	protected
+v2-protected-0026	/var/cache/grimodex/bundle.lockでどうじこうしんをふせぐ	/var/cache/grimodex/bundle.lockで同時更新を防ぐ	protected
+v2-protected-0027	/tmp/holdout-v2/near-duplicate-review.jsonにけっかをかきだす	/tmp/holdout-v2/near-duplicate-review.jsonに結果を書き出す	protected
+v2-protected-0028	hazkey-server/Sources/hazkey-server/ABProbe.swiftをへんこうする	hazkey-server/Sources/hazkey-server/ABProbe.swiftを変更する	protected
+v2-protected-0029	tools/dictionary/build_frozen_corpus_v2.pyでまにふぇすとをつくる	tools/dictionary/build_frozen_corpus_v2.pyでマニフェストを作る	protected
+v2-protected-0030	.github/workflows/linux.ymlのじょぶをかくにんする	.github/workflows/linux.ymlのジョブを確認する	protected
+v2-protected-0031	https://example.invalid/api/v2/cases?limit=100&sort=idからいちらんをとる	https://example.invalid/api/v2/cases?limit=100&sort=idから一覧を取る	protected
+v2-protected-0032	https://github.com/example/hazkey/commit/462dfd7をひらく	https://github.com/example/hazkey/commit/462dfd7を開く	protected
+v2-protected-0033	http://127.0.0.1:8080/healthzでけんこうじょうたいをみる	http://127.0.0.1:8080/healthzで健康状態を見る	protected
+v2-protected-0034	unix:///run/user/1000/grimodex.sockへりくえすとをおくる	unix:///run/user/1000/grimodex.sockへリクエストを送る	protected
+v2-protected-0035	ssh://git@example.invalid:2222/repo.gitからしゅとくする	ssh://git@example.invalid:2222/repo.gitから取得する	protected
+v2-protected-0036	file:///opt/grimodex/mozc.dataをろーかるでひらく	file:///opt/grimodex/mozc.dataをローカルで開く	protected
+v2-protected-0037	https://docs.example.invalid/#b0-b1のせつめいをよむ	https://docs.example.invalid/#b0-b1の説明を読む	protected
+v2-protected-0038	https://api.example.invalid/items/42?dry_run=trueをためす	https://api.example.invalid/items/42?dry_run=trueを試す	protected
+v2-protected-0039	wss://socket.example.invalid/v2/eventsをかんしする	wss://socket.example.invalid/v2/eventsを監視する	protected
+v2-protected-0040	postgresql://user@db.example.invalid:5432/grimodexへつなぐ	postgresql://user@db.example.invalid:5432/grimodexへつなぐ	protected
+v2-protected-0041	mailto:ime-test@example.invalidへれんらくする	mailto:ime-test@example.invalidへ連絡する	protected
+v2-protected-0042	urn:sha256:0123456789abcdefをしきべつしにつかう	urn:sha256:0123456789abcdefを識別子に使う	protected
+v2-protected-0043	{"backend":"B1","top_k":10}をそのままそうしんする	{"backend":"B1","top_k":10}をそのまま送信する	protected
+v2-protected-0044	{"ready":true,"cases":1360}をれすぽんすにふくめる	{"ready":true,"cases":1360}をレスポンスに含める	protected
+v2-protected-0045	["B0","B1"]をこうほはいれつとしてほぞんする	["B0","B1"]を候補配列として保存する	protected
+v2-protected-0046	{"protected":{"required":100}}をけいやくにきろくする	{"protected":{"required":100}}を契約に記録する	protected
+v2-protected-0047	schema="hazkey.frozen.v2"をめたでーたにのこす	schema="hazkey.frozen.v2"をメタデータに残す	protected
+v2-protected-0048	status=pending_collectionをしょきちにする	status=pending_collectionを初期値にする	protected
+v2-protected-0049	quality_cases: 1260をやむるにかく	quality_cases: 1260をYAMLに書く	protected
+v2-protected-0050	[artifact]をとむるのせくしょんめいにする	[artifact]をTOMLのセクション名にする	protected
+v2-protected-0051	candidate = "B1"をせっていふぁいるにのこす	candidate = "B1"を設定ファイルに残す	protected
+v2-protected-0052	<backend id="B0"/>をえっくすえむえるにうめこむ	<backend id="B0"/>をXMLに埋め込む	protected
+v2-protected-0053	SELECT id FROM cases WHERE category='protected';をじっこうする	SELECT id FROM cases WHERE category='protected';を実行する	protected
+v2-protected-0054	INSERT INTO audit(status) VALUES('closed');をとらんざくしょんでおくる	INSERT INTO audit(status) VALUES('closed');をトランザクションで送る	protected
+v2-protected-0055	{"path":"C:\\Grimodex\\data"}をせっていとしてよむ	{"path":"C:\\Grimodex\\data"}を設定として読む	protected
+v2-protected-0056	nullではなくfalseをぶーるちとしてほぞんする	nullではなくfalseをブール値として保存する	protected
+v2-protected-0057	Content-Type: application/jsonをへっだーにつける	Content-Type: application/jsonをヘッダーに付ける	protected
+v2-protected-0058	cmake --build build-grimodex -j6をじっこうする	cmake --build build-grimodex -j6を実行する	protected
+v2-protected-0059	ctest --test-dir build-grimodex --output-on-failureをはしらせる	ctest --test-dir build-grimodex --output-on-failureを走らせる	protected
+v2-protected-0060	git diff --checkでくうはくえらーをしらべる	git diff --checkで空白エラーを調べる	protected
+v2-protected-0061	git rev-parse HEADでげんざいのこみっとをとる	git rev-parse HEADで現在のコミットを取る	protected
+v2-protected-0062	python3 -m unittest discover -s tools/dictionary/testsをじっこうする	python3 -m unittest discover -s tools/dictionary/testsを実行する	protected
+v2-protected-0063	swift test --filter MozcSidecarTestsでたいしょうをしぼる	swift test --filter MozcSidecarTestsで対象を絞る	protected
+v2-protected-0064	bash -n scripts/grimodex-ime_mozc.shでこうぶんをしらべる	bash -n scripts/grimodex-ime_mozc.shで構文を調べる	protected
+v2-protected-0065	cmake -S . -B build-v2 -G Ninjaでこうせいする	cmake -S . -B build-v2 -G Ninjaで構成する	protected
+v2-protected-0066	ninja -C build-v2 hazkey-serverをびるどする	ninja -C build-v2 hazkey-serverをビルドする	protected
+v2-protected-0067	sha256sum mozc.dataではっしゅをだす	sha256sum mozc.dataでハッシュを出す	protected
+v2-protected-0068	chmod 0444 mozc.dataでかきこみをきんしする	chmod 0444 mozc.dataで書き込みを禁止する	protected
+v2-protected-0069	install -Dm755 helper /usr/lib/grimodex/helperでせっちする	install -Dm755 helper /usr/lib/grimodex/helperで設置する	protected
+v2-protected-0070	env -i PATH=/usr/bin:/bin ./probeでかんきょうをからにする	env -i PATH=/usr/bin:/bin ./probeで環境を空にする	protected
+v2-protected-0071	taskset -c 2-3 ./benchmarkでしーぴーゆーをこていする	taskset -c 2-3 ./benchmarkでCPUを固定する	protected
+v2-protected-0072	timeout 900s ./probeでじょうげんをもうける	timeout 900s ./probeで上限を設ける	protected
+v2-protected-0073	kill -TERM 4242でしゅうりょうをつうちする	kill -TERM 4242で終了を通知する	protected
+v2-protected-0074	journalctl --user -u fcitx5.serviceでろぐをよむ	journalctl --user -u fcitx5.serviceでログを読む	protected
+v2-protected-0075	systemctl --user restart fcitx5.serviceでさいきどうする	systemctl --user restart fcitx5.serviceで再起動する	protected
+v2-protected-0076	v2.0.0-rc.1+holdoutをりりーすこうほにつける	v2.0.0-rc.1+holdoutをリリース候補に付ける	protected
+v2-protected-0077	Swift 6.3.3でぱっけーじをてすとする	Swift 6.3.3でパッケージをテストする	protected
+v2-protected-0078	Bazel 9.0.2をびるどつーるにする	Bazel 9.0.2をビルドツールにする	protected
+v2-protected-0079	GLIBC_2.38へのいぞんをけんしゅつする	GLIBC_2.38への依存を検出する	protected
+v2-protected-0080	GLIBCXX_3.4.32をしんぼるひょうでかくにんする	GLIBCXX_3.4.32をシンボル表で確認する	protected
+v2-protected-0081	CXXABI_1.3.15があるかしらべる	CXXABI_1.3.15があるか調べる	protected
+v2-protected-0082	sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdefをこていする	sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdefを固定する	protected
+v2-protected-0083	sha256-046bcfa093aac43ad6ee64afd4b3a3e8325bab0f3d20b8cb083c447ba8c91a2fをせだいしきべつしにする	sha256-046bcfa093aac43ad6ee64afd4b3a3e8325bab0f3d20b8cb083c447ba8c91a2fを世代識別子にする	protected
+v2-protected-0084	sha256:728d9a79c0f540a832d3f404a2603f49080e1f9e7ee1d24df1a0a69f5a4a75e8をへるぱーのはっしゅにする	sha256:728d9a79c0f540a832d3f404a2603f49080e1f9e7ee1d24df1a0a69f5a4a75e8をヘルパーのハッシュにする	protected
+v2-protected-0085	sha256:b9884362e37772f772a0d28d1e12622455c14353497b3435deed60aa7e592c5eをでーたのはっしゅにする	sha256:b9884362e37772f772a0d28d1e12622455c14353497b3435deed60aa7e592c5eをデータのハッシュにする	protected
+v2-protected-0086	0x7fffffffをじょうげんちとしてあつかう	0x7fffffffを上限値として扱う	protected
+v2-protected-0087	2026-07-15T12:34:56Zをきじゅんじこくにする	2026-07-15T12:34:56Zを基準時刻にする	protected
+v2-protected-0088	MozcKanaKanjiConverterAdapterをしょきかする	MozcKanaKanjiConverterAdapterを初期化する	protected
+v2-protected-0089	persistent_learning_available=falseをのうりょくおうとうにいれる	persistent_learning_available=falseを能力応答に入れる	protected
+v2-protected-0090	OpenSessionResult.persistent_learning_availableをさんしょうする	OpenSessionResult.persistent_learning_availableを参照する	protected
+v2-protected-0091	GRIMODEX_MOZC_TEST_BUNDLEをてすとようにこていする	GRIMODEX_MOZC_TEST_BUNDLEをテスト用に固定する	protected
+v2-protected-0092	hazkey.frozen-conversion-corpus-manifest.v2をすきーまめいにする	hazkey.frozen-conversion-corpus-manifest.v2をスキーマ名にする	protected
+v2-protected-0093	v2-protected-0100をさいしゅうけーすのしきべつしにする	v2-protected-0100を最終ケースの識別子にする	protected
+v2-protected-0094	case_locator_sha256()をよびだしてはっしゅをえる	case_locator_sha256()を呼び出してハッシュを得る	protected
+v2-protected-0095	ProcessIdentity(pid=42,start_time=9001)をすなっぷしょっとにのこす	ProcessIdentity(pid=42,start_time=9001)をスナップショットに残す	protected
+v2-protected-0096	std::optional<std::string>をもどりがたにつかう	std::optional<std::string>を戻り型に使う	protected
+v2-protected-0097	Result<Snapshot,Error>をかんすうからかえす	Result<Snapshot,Error>を関数から返す	protected
+v2-protected-0098	foo_bar::BazQuxをなまえくうかんからよぶ	foo_bar::BazQuxを名前空間から呼ぶ	protected
+v2-protected-0099	candidate[0].valueをせんとうこうほとしてよむ	candidate[0].valueを先頭候補として読む	protected
+v2-protected-0100	manifest["aggregate"]["cases"]をひょうじする	manifest["aggregate"]["cases"]を表示する	protected

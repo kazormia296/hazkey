@@ -1,0 +1,241 @@
+id	reading	expected	category
+v2-technical-0001	CMake Presetsでこうせいをきりかえる	CMake Presetsで構成を切り替える	technical-mixed
+v2-technical-0002	Ninjaでへいれつびるどをはしらせる	Ninjaで並列ビルドを走らせる	technical-mixed
+v2-technical-0003	debug symbolsをべつふぁいるにぶんりする	debug symbolsを別ファイルに分離する	technical-mixed
+v2-technical-0004	LTOをゆうこうにしてさいてきかする	LTOを有効にして最適化する	technical-mixed
+v2-technical-0005	ccacheのひっとりつをかくにんする	ccacheのヒット率を確認する	technical-mixed
+v2-technical-0006	ARM64むけにくろすこんぱいるする	ARM64向けにクロスコンパイルする	technical-mixed
+v2-technical-0007	ABIのふいっちをけんしゅつする	ABIの不一致を検出する	technical-mixed
+v2-technical-0008	linker mapからしんぼるをさがす	linker mapからシンボルを探す	technical-mixed
+v2-technical-0009	ASanつきのてすとばんをつくる	ASan付きのテスト版を作る	technical-mixed
+v2-technical-0010	ぞうぶんびるどのたいしょうをしぼる	増分ビルドの対象を絞る	technical-mixed
+v2-technical-0011	ふくすうのstatic libraryをひとつにまとめる	複数のstatic libraryを一つにまとめる|複数のstatic libraryをひとつにまとめる	technical-mixed
+v2-technical-0012	じどうせいせいheaderをさきにつくる	自動生成headerを先に作る	technical-mixed
+v2-technical-0013	compile_commands.jsonをしゅつりょくする	compile_commands.jsonを出力する	technical-mixed
+v2-technical-0014	FEATURE_X=ONでじっけんきのうをいれる	FEATURE_X=ONで実験機能を入れる	technical-mixed
+v2-technical-0015	いぞんgraphのじゅんかんをほどく	依存graphの循環を解く	technical-mixed
+v2-technical-0016	SOURCE_DATE_EPOCHをこていする	SOURCE_DATE_EPOCHを固定する	technical-mixed
+v2-technical-0017	PGOようのprofileをしゅうしゅうする	PGO用のprofileを収集する	technical-mixed
+v2-technical-0018	unit-test binaryだけをさいびるどする	unit-test binaryだけを再ビルドする	technical-mixed
+v2-technical-0019	RPATHにそうたいぱすをせっていする	RPATHに相対パスを設定する	technical-mixed
+v2-technical-0020	-j8でjobすうをせいげんする	-j8でjob数を制限する	technical-mixed
+v2-technical-0021	Linuxのcgroup v2でしげんをわける	Linuxのcgroup v2で資源を分ける	technical-mixed
+v2-technical-0022	systemd unitのきどうじゅんをなおす	systemd unitの起動順を直す	technical-mixed
+v2-technical-0023	Waylandのclipboardけいろをしらべる	Waylandのclipboard経路を調べる	technical-mixed
+v2-technical-0024	XDG_RUNTIME_DIRのけんげんをみなおす	XDG_RUNTIME_DIRの権限を見直す	technical-mixed
+v2-technical-0025	macOSのsandboxせいやくをかくにんする	macOSのsandbox制約を確認する	technical-mixed
+v2-technical-0026	Windows 11でIMEをさいとうろくする	Windows 11でIMEを再登録する	technical-mixed
+v2-technical-0027	FreeBSD jailないでdaemonをうごかす	FreeBSD jail内でdaemonを動かす	technical-mixed
+v2-technical-0028	kernel 6.xのmoduleをよみなおす	kernel 6.xのmoduleを読み直す	technical-mixed
+v2-technical-0029	/tmpをtmpfsにまうんとする	/tmpをtmpfsにマウントする	technical-mixed
+v2-technical-0030	localeをja_JP.UTF-8にそろえる	localeをja_JP.UTF-8に揃える	technical-mixed
+v2-technical-0031	SIGTERMをうけてあんぜんにしゅうりょうする	SIGTERMを受けて安全に終了する	technical-mixed
+v2-technical-0032	inotifyのwatchじょうげんをあげる	inotifyのwatch上限を上げる	technical-mixed
+v2-technical-0033	ulimit -nのせっていをひきあげる	ulimit -nの設定を引き上げる	technical-mixed
+v2-technical-0034	POSIX shared memoryをそうじする	POSIX shared memoryを掃除する	technical-mixed
+v2-technical-0035	D-Bus sessionのownerをかくにんする	D-Bus sessionのownerを確認する	technical-mixed
+v2-technical-0036	udev ruleでdeviceめいをこていする	udev ruleでdevice名を固定する	technical-mixed
+v2-technical-0037	AppArmor profileにきょかをたす	AppArmor profileに許可を足す	technical-mixed
+v2-technical-0038	SELinuxのaudit logをよみとく	SELinuxのaudit logを読み解く	technical-mixed
+v2-technical-0039	WSL2からhostのportへせつぞくする	WSL2からhostのportへ接続する	technical-mixed
+v2-technical-0040	zombie processのおやをとくていする	zombie processの親を特定する	technical-mixed
+v2-technical-0041	git rebase --ontoでれきしをつけかえる	git rebase --ontoで履歴を付け替える	technical-mixed
+v2-technical-0042	cherry-pickしたcommitをとりけす	cherry-pickしたcommitを取り消す	technical-mixed
+v2-technical-0043	.gitignoreのれいがいruleをたす	.gitignoreの例外ruleを足す	technical-mixed
+v2-technical-0044	git bisectでたいこうをしぼりこむ	git bisectで退行を絞り込む	technical-mixed
+v2-technical-0045	submoduleのSHAをこうしんする	submoduleのSHAを更新する	technical-mixed
+v2-technical-0046	worktreeごとのbranchをせいりする	worktreeごとのbranchを整理する	technical-mixed
+v2-technical-0047	merge-baseからさぶんをとる	merge-baseから差分を取る	technical-mixed
+v2-technical-0048	git reflogでけしたHEADをもどす	git reflogで消したHEADを戻す	technical-mixed
+v2-technical-0049	GPGしょめいずみtagをけんしょうする	GPG署名済みtagを検証する	technical-mixed
+v2-technical-0050	shallow cloneのふかさをふやす	shallow cloneの深さを増やす	technical-mixed
+v2-technical-0051	LFS pointerのじったいをしゅとくする	LFS pointerの実体を取得する	technical-mixed
+v2-technical-0052	pre-commit hookのしっぱいをなおす	pre-commit hookの失敗を直す	technical-mixed
+v2-technical-0053	fixup! commitをautosquashでとうごうする	fixup! commitをautosquashで統合する	technical-mixed
+v2-technical-0054	remote tracking branchをはりなおす	remote tracking branchを張り直す	technical-mixed
+v2-technical-0055	pathspecでたいしょうdirectoryをしぼる	pathspecで対象directoryを絞る	technical-mixed
+v2-technical-0056	git notesにけんしょうけっかをのこす	git notesに検証結果を残す	technical-mixed
+v2-technical-0057	conflict markerをぜんけんけんさくする	conflict markerを全件検索する	technical-mixed
+v2-technical-0058	sparse-checkoutでひつようぶんだけひらく	sparse-checkoutで必要分だけ開く	technical-mixed
+v2-technical-0059	commit-msg hookでけいしきをしばる	commit-msg hookで形式を縛る	technical-mixed
+v2-technical-0060	origin/HEADのむきさきをなおす	origin/HEADの向き先を直す	technical-mixed
+v2-technical-0061	HTTP/3のhandshakeをけいそくする	HTTP/3のhandshakeを計測する	technical-mixed
+v2-technical-0062	IPv6のdefault routeをかくにんする	IPv6のdefault routeを確認する	technical-mixed
+v2-technical-0063	DNS over HTTPSをむこうかする	DNS over HTTPSを無効化する	technical-mixed
+v2-technical-0064	TLS 1.3のcipher suiteをせいげんする	TLS 1.3のcipher suiteを制限する	technical-mixed
+v2-technical-0065	WebSocketのpingかんかくをちょうせいする	WebSocketのping間隔を調整する	technical-mixed
+v2-technical-0066	gRPC streamのたいむあうとをのばす	gRPC streamのタイムアウトを延ばす	technical-mixed
+v2-technical-0067	QUIC packetのろすりつをはかる	QUIC packetのロス率を測る	technical-mixed
+v2-technical-0068	proxy.pacのruleをみなおす	proxy.pacのruleを見直す	technical-mixed
+v2-technical-0069	localhost:8080へSSH tunnelけいゆでせつぞくする	localhost:8080へSSH tunnel経由で接続する	technical-mixed
+v2-technical-0070	CIDR /24のはんいをけいさんする	CIDR /24の範囲を計算する	technical-mixed
+v2-technical-0071	Path MTUにあわせてpacket sizeをさげる	Path MTUに合わせてpacket sizeを下げる	technical-mixed
+v2-technical-0072	NAT gatewayのsessionをおう	NAT gatewayのsessionを追う	technical-mixed
+v2-technical-0073	CORSのpreflightをきゃっしゅする	CORSのpreflightをキャッシュする	technical-mixed
+v2-technical-0074	TCP keepaliveを30びょうにする	TCP keepaliveを30秒にする	technical-mixed
+v2-technical-0075	Unix domain socketをつかいまわす	Unix domain socketを使い回す	technical-mixed
+v2-technical-0076	load balancerのhealth checkをなおす	load balancerのhealth checkを直す	technical-mixed
+v2-technical-0077	mTLSでclientしょうめいしょをもとめる	mTLSでclient証明書を求める	technical-mixed
+v2-technical-0078	SNIごとにcertificateをきりかえる	SNIごとにcertificateを切り替える	technical-mixed
+v2-technical-0079	packet captureをpcapでほぞんする	packet captureをpcapで保存する	technical-mixed
+v2-technical-0080	429おうとうにexponential backoffをいれる	429応答にexponential backoffを入れる	technical-mixed
+v2-technical-0081	PostgreSQLでcovering indexをつくる	PostgreSQLでcovering indexを作る	technical-mixed
+v2-technical-0082	SQLiteのWAL checkpointをはしらせる	SQLiteのWAL checkpointを走らせる	technical-mixed
+v2-technical-0083	MySQL 8のslow queryをぶんせきする	MySQL 8のslow queryを分析する	technical-mixed
+v2-technical-0084	RedisのTTLをいっかつこうしんする	RedisのTTLを一括更新する	technical-mixed
+v2-technical-0085	MongoDBのcompound keyをみなおす	MongoDBのcompound keyを見直す	technical-mixed
+v2-technical-0086	foreign keyのCASCADEをはずす	foreign keyのCASCADEを外す	technical-mixed
+v2-technical-0087	SERIALIZABLEでさいしこうをいれる	SERIALIZABLEで再試行を入れる	technical-mixed
+v2-technical-0088	N+1 queryをbatchよみこみにかえる	N+1 queryをbatch読み込みに変える	technical-mixed
+v2-technical-0089	EXPLAIN ANALYZEのけっかをくらべる	EXPLAIN ANALYZEの結果を比べる	technical-mixed
+v2-technical-0090	partial indexのじょうけんをせまくする	partial indexの条件を狭くする	technical-mixed
+v2-technical-0091	migration 042をtransactionでかこむ	migration 042をtransactionで囲む	technical-mixed
+v2-technical-0092	read replicaのおくれをかんしする	read replicaの遅れを監視する	technical-mixed
+v2-technical-0093	JSONB columnからfieldをぬきだす	JSONB columnからfieldを抜き出す	technical-mixed
+v2-technical-0094	VACUUM FULLのじっこうじかんたいをきめる	VACUUM FULLの実行時間帯を決める	technical-mixed
+v2-technical-0095	connection poolを32せつぞくにしぼる	connection poolを32接続に絞る	technical-mixed
+v2-technical-0096	unique constraintのしょうとつをあつかう	unique constraintの衝突を扱う	technical-mixed
+v2-technical-0097	CDC eventのじゅんじょをほしょうする	CDC eventの順序を保証する	technical-mixed
+v2-technical-0098	partition keyをつきたんいにかえる	partition keyを月単位に変える	technical-mixed
+v2-technical-0099	backupからPITRでふっきゅうする	backupからPITRで復旧する	technical-mixed
+v2-technical-0100	NULLS LASTでならびじゅんをこていする	NULLS LASTで並び順を固定する	technical-mixed
+v2-technical-0101	OAuth 2.1のPKCEをひっすにする	OAuth 2.1のPKCEを必須にする	technical-mixed
+v2-technical-0102	JWTのaud claimをけんしょうする	JWTのaud claimを検証する	technical-mixed
+v2-technical-0103	Argon2idでpasswordをはっしゅする	Argon2idでpasswordをハッシュする	technical-mixed
+v2-technical-0104	CSP nonceをrequestごとにかえる	CSP nonceをrequestごとに変える	technical-mixed
+v2-technical-0105	CSRF tokenをcookieとしょうごうする	CSRF tokenをcookieと照合する	technical-mixed
+v2-technical-0106	X.509 chainのきげんをしらべる	X.509 chainの期限を調べる	technical-mixed
+v2-technical-0107	secretをKMSでふうごうかする	secretをKMSで復号化する	technical-mixed
+v2-technical-0108	SBOMのpackage hashをけんしょうする	SBOMのpackage hashを検証する	technical-mixed
+v2-technical-0109	SLSA level 3のprovenanceをのこす	SLSA level 3のprovenanceを残す	technical-mixed
+v2-technical-0110	SQL injectionをparameterでふせぐ	SQL injectionをparameterで防ぐ	technical-mixed
+v2-technical-0111	pathをせいきかしてbase directoryないかかくにんする	pathを正規化してbase directory内か確認する	technical-mixed
+v2-technical-0112	rate limitをIPたんいでかける	rate limitをIP単位でかける	technical-mixed
+v2-technical-0113	2FAのrecovery codeをさいはっこうする	2FAのrecovery codeを再発行する	technical-mixed
+v2-technical-0114	passkeyのRP IDをかくにんする	passkeyのRP IDを確認する	technical-mixed
+v2-technical-0115	AES-256-GCMでbackupをあんごうかする	AES-256-GCMでbackupを暗号化する	technical-mixed
+v2-technical-0116	EDRのalertをSIEMへおくる	EDRのalertをSIEMへ送る	technical-mixed
+v2-technical-0117	least privilegeでIAMをしぼる	least privilegeでIAMを絞る	technical-mixed
+v2-technical-0118	zero-dayたいおうのpatchをあてる	zero-day対応のpatchを当てる	technical-mixed
+v2-technical-0119	private packageのnamespaceをわけてregistryのゆうせんじゅんいをこていする	private packageのnamespaceを分けてregistryの優先順位を固定する	technical-mixed
+v2-technical-0120	certificate pinningのこうしんをためす	certificate pinningの更新を試す	technical-mixed
+v2-technical-0121	AWS Lambdaのcold startをへらす	AWS Lambdaのcold startを減らす	technical-mixed
+v2-technical-0122	S3 bucketのversioningをゆうこうにする	S3 bucketのversioningを有効にする	technical-mixed
+v2-technical-0123	Azure Functionsのslotをswapしてきりかえる	Azure Functionsのslotをswapして切り替える	technical-mixed
+v2-technical-0124	GCP projectのquotaをかくにんする	GCP projectのquotaを確認する	technical-mixed
+v2-technical-0125	Kubernetes HPAのCPUもくひょうを70%にせっていする	Kubernetes HPAのCPU目標を70%に設定する	technical-mixed
+v2-technical-0126	Helm chartのvaluesをぶんりする	Helm chartのvaluesを分離する	technical-mixed
+v2-technical-0127	Terraform stateをremoteにうつす	Terraform stateをremoteに移す	technical-mixed
+v2-technical-0128	CloudFrontのcache keyをへらす	CloudFrontのcache keyを減らす	technical-mixed
+v2-technical-0129	ECS taskのhealth graceをのばす	ECS taskのhealth graceを延ばす	technical-mixed
+v2-technical-0130	Cloud Runのさいしょうinstanceすうを1にせっていする	Cloud Runの最小instance数を1に設定する	technical-mixed
+v2-technical-0131	VPC peeringのrouteをついかする	VPC peeringのrouteを追加する	technical-mixed
+v2-technical-0132	object storageのlifecycleをせっていする	object storageのlifecycleを設定する	technical-mixed
+v2-technical-0133	serverless queueのDLQをかんしする	serverless queueのDLQを監視する	technical-mixed
+v2-technical-0134	3つのavailability zoneへぶんさんする	3つのavailability zoneへ分散する	technical-mixed
+v2-technical-0135	spot instanceのちゅうだんをひろう	spot instanceの中断を拾う	technical-mixed
+v2-technical-0136	container registryのimageをそうじする	container registryのimageを掃除する	technical-mixed
+v2-technical-0137	managed databaseのfailoverをためす	managed databaseのfailoverを試す	technical-mixed
+v2-technical-0138	WAF ruleをcount modeでためす	WAF ruleをcount modeで試す	technical-mixed
+v2-technical-0139	cost allocation tagをひっすにする	cost allocation tagを必須にする	technical-mixed
+v2-technical-0140	multi-regionのDNSきりかえをれんしゅうする	multi-regionのDNS切り替えを練習する	technical-mixed
+v2-technical-0141	LLMのcontext windowをけいそくする	LLMのcontext windowを計測する	technical-mixed
+v2-technical-0142	RAGのtop-kを8にしぼる	RAGのtop-kを8に絞る	technical-mixed
+v2-technical-0143	embeddingをcosineきょりでくらべる	embeddingをcosine距離で比べる	technical-mixed
+v2-technical-0144	LoRA adapterをbase modelへよみこむ	LoRA adapterをbase modelへ読み込む	technical-mixed
+v2-technical-0145	GPU batch sizeをVRAMにあわせる	GPU batch sizeをVRAMに合わせる	technical-mixed
+v2-technical-0146	FP16 modelをINT8けいしきへquantizeする	FP16 modelをINT8形式へquantizeする	technical-mixed
+v2-technical-0147	tokenizerのspecial tokenをそろえる	tokenizerのspecial tokenを揃える	technical-mixed
+v2-technical-0148	beam searchのlength penaltyをさげる	beam searchのlength penaltyを下げる	technical-mixed
+v2-technical-0149	prompt injectionのひょうかせっとをつくる	prompt injectionの評価セットを作る	technical-mixed
+v2-technical-0150	inference serverのKV cacheをさいりようする	inference serverのKV cacheを再利用する	technical-mixed
+v2-technical-0151	ONNX graphのていすうをconstant foldする	ONNX graphの定数をconstant foldする	technical-mixed
+v2-technical-0152	CUDA OOMじのretryをとめる	CUDA OOM時のretryを止める	technical-mixed
+v2-technical-0153	multimodal inputのがぞうをresizeする	multimodal inputの画像をresizeする	technical-mixed
+v2-technical-0154	fine-tuningのlearning rateをおさえる	fine-tuningのlearning rateを抑える	technical-mixed
+v2-technical-0155	validation lossでかじょうてきごうをみる	validation lossで過剰適合を見る	technical-mixed
+v2-technical-0156	LLM judgeのいちかんせいをにじゅうかくにんする	LLM judgeの一貫性を二重確認する	technical-mixed
+v2-technical-0157	vector DBのchunkを512もじにする	vector DBのchunkを512文字にする	technical-mixed
+v2-technical-0158	streaming responseのTTFTをはかる	streaming responseのTTFTを測る	technical-mixed
+v2-technical-0159	guardrailでPIIをけんしゅつしてmaskする	guardrailでPIIを検出してmaskする	technical-mixed
+v2-technical-0160	model cardにげんかいをめいきする	model cardに限界を明記する	technical-mixed
+v2-technical-0161	Rustのborrow checkerにあわせてなおす	Rustのborrow checkerに合わせて直す	technical-mixed
+v2-technical-0162	Swift 6のactor isolationをまもる	Swift 6のactor isolationを守る	technical-mixed
+v2-technical-0163	TypeScriptのstrictNullChecksをつける	TypeScriptのstrictNullChecksを付ける	technical-mixed
+v2-technical-0164	Python 3.13のvenvをつくる	Python 3.13のvenvを作る	technical-mixed
+v2-technical-0165	C++20のconceptでかたをしぼる	C++20のconceptで型を絞る	technical-mixed
+v2-technical-0166	Goのgoroutine leakをとめる	Goのgoroutine leakを止める	technical-mixed
+v2-technical-0167	Kotlin coroutineのcancelをかいそうぜんたいへでんぱさせる	Kotlin coroutineのcancelを階層全体へ伝播させる	technical-mixed
+v2-technical-0168	Java 21のvirtual threadをためす	Java 21のvirtual threadを試す	technical-mixed
+v2-technical-0169	C#のnullable warningをぜろにする	C#のnullable warningをゼロにする|C#のnullable warningを0にする	technical-mixed
+v2-technical-0170	Ruby gemのnative extensionをびるどする	Ruby gemのnative extensionをビルドする	technical-mixed
+v2-technical-0171	PHP 8のattributeをよみとる	PHP 8のattributeを読み取る	technical-mixed
+v2-technical-0172	Scalaのimplicit scopeをせまくする	Scalaのimplicit scopeを狭くする	technical-mixed
+v2-technical-0173	Elixir supervisorのrestartをためす	Elixir supervisorのrestartを試す	technical-mixed
+v2-technical-0174	Haskellのlazy evaluationをけいそくする	Haskellのlazy evaluationを計測する	technical-mixed
+v2-technical-0175	Lua scriptをsandboxでうごかす	Lua scriptをsandboxで動かす	technical-mixed
+v2-technical-0176	Dart isolateへmessageをわたす	Dart isolateへmessageを渡す	technical-mixed
+v2-technical-0177	Zigのcomptimeでtableをつくる	Zigのcomptimeでtableを作る	technical-mixed
+v2-technical-0178	Objective-C bridgeのownershipをなおす	Objective-C bridgeのownershipを直す	technical-mixed
+v2-technical-0179	Bashのset -euo pipefailをたもつ	Bashのset -euo pipefailを保つ	technical-mixed
+v2-technical-0180	SQLのwindow functionでじゅんいをだす	SQLのwindow functionで順位を出す	technical-mixed
+v2-technical-0181	OpenTelemetryのtrace IDをserviceかんででんぱさせる	OpenTelemetryのtrace IDをservice間で伝播させる	technical-mixed
+v2-technical-0182	Prometheusのhistogram bucketをなおす	Prometheusのhistogram bucketを直す	technical-mixed
+v2-technical-0183	Grafana dashboardにp95をだす	Grafana dashboardにp95を出す	technical-mixed
+v2-technical-0184	structured logへrequest_idをいれる	structured logへrequest_idを入れる	technical-mixed
+v2-technical-0185	Sentryのrelease tagをひもづける	Sentryのrelease tagをひも付ける|Sentryのrelease tagを紐付ける	technical-mixed
+v2-technical-0186	RED metricsをserviceごとにだす	RED metricsをserviceごとに出す	technical-mixed
+v2-technical-0187	USE methodでbottleneckをさがす	USE methodでbottleneckを探す	technical-mixed
+v2-technical-0188	span attributeからtenantをけす	span attributeからtenantを消す	technical-mixed
+v2-technical-0189	log levelをruntimeでかえる	log levelをruntimeで変える	technical-mixed
+v2-technical-0190	alert fatigueをseverityでへらす	alert fatigueをseverityで減らす	technical-mixed
+v2-technical-0191	SLO 99.9%のerror budgetをけいさんする	SLO 99.9%のerror budgetを計算する	technical-mixed
+v2-technical-0192	flame graphでhot pathをみつける	flame graphでhot pathを見つける	technical-mixed
+v2-technical-0193	core dumpからstack traceをひらく	core dumpからstack traceを開く	technical-mixed
+v2-technical-0194	continuous profilingのsample rateを5%にしぼりこむ	continuous profilingのsample rateを5%に絞り込む	technical-mixed
+v2-technical-0195	blackbox probeでTLSきげんをみる	blackbox probeでTLS期限を見る	technical-mixed
+v2-technical-0196	metric cardinalityのばくはつをおさえる	metric cardinalityの爆発を抑える	technical-mixed
+v2-technical-0197	baggage headerからPIIをのぞく	baggage headerからPIIを除く	technical-mixed
+v2-technical-0198	canaryのsuccess rateをくらべる	canaryのsuccess rateを比べる	technical-mixed
+v2-technical-0199	crash loopをevent timelineでおう	crash loopをevent timelineで追う	technical-mixed
+v2-technical-0200	profiling overheadを1%いかにする	profiling overheadを1%以下にする	technical-mixed
+v2-technical-0201	Reactのhydration mismatchをなおす	Reactのhydration mismatchを直す	technical-mixed
+v2-technical-0202	CSSを12-column gridにせっていする	CSSを12-column gridに設定する	technical-mixed
+v2-technical-0203	WCAG 2.2のfocus orderをまもる	WCAG 2.2のfocus orderを守る	technical-mixed
+v2-technical-0204	aria-labelをicon buttonにつける	aria-labelをicon buttonに付ける	technical-mixed
+v2-technical-0205	Retina 2xようのassetをよういする	Retina 2x用のassetを用意する	technical-mixed
+v2-technical-0206	dark modeのcontrastをはかる	dark modeのcontrastを測る	technical-mixed
+v2-technical-0207	virtualized listのscrollをたもつ	virtualized listのscrollを保つ	technical-mixed
+v2-technical-0208	touch targetを44pxいじょうにする	touch targetを44px以上にする	technical-mixed
+v2-technical-0209	IME compositionちゅうのrerenderをふせぐ	IME composition中のrerenderを防ぐ	technical-mixed
+v2-technical-0210	SVG iconのviewBoxをそろえる	SVG iconのviewBoxを揃える	technical-mixed
+v2-technical-0211	responsive breakpointを768pxにせっていする	responsive breakpointを768pxに設定する	technical-mixed
+v2-technical-0212	modalをとじたらfocus trapをかいじょしてよびだしもとへfocusをもどす	modalを閉じたらfocus trapを解除して呼び出し元へfocusを戻す	technical-mixed
+v2-technical-0213	localeごとにdate formatをかえる	localeごとにdate formatを変える	technical-mixed
+v2-technical-0214	font fallbackにNoto Sansをたす	font fallbackにNoto Sansを足す	technical-mixed
+v2-technical-0215	skeleton UIでlayout shiftをへらす	skeleton UIでlayout shiftを減らす	technical-mixed
+v2-technical-0216	keyboard shortcutのしょうとつをさける	keyboard shortcutの衝突を避ける	technical-mixed
+v2-technical-0217	canvasをdevicePixelRatioにあわせる	canvasをdevicePixelRatioに合わせる	technical-mixed
+v2-technical-0218	undo stackを100けんにせいげんする	undo stackを100件に制限する	technical-mixed
+v2-technical-0219	toastを5びょうごにじどうでとじる	toastを5秒後に自動で閉じる	technical-mixed
+v2-technical-0220	print CSSでnavigationをかくす	print CSSでnavigationを隠す	technical-mixed
+v2-technical-0221	Debian packageのcontrolをこうしんする	Debian packageのcontrolを更新する	technical-mixed
+v2-technical-0222	RPM specのRequiresをしぼる	RPM specのRequiresを絞る	technical-mixed
+v2-technical-0223	Arch PKGBUILDのsha256sumsをかえる	Arch PKGBUILDのsha256sumsを変える	technical-mixed
+v2-technical-0224	Flatpak manifestにpermissionをたす	Flatpak manifestにpermissionを足す	technical-mixed
+v2-technical-0225	Snap confinementをstrictにせっていしてけんげんをしぼる	Snap confinementをstrictに設定して権限を絞る	technical-mixed
+v2-technical-0226	Homebrew formulaのbottleをこうしんする	Homebrew formulaのbottleを更新する	technical-mixed
+v2-technical-0227	certificateをつかってMSIX packageをsignする	certificateを使ってMSIX packageをsignする	technical-mixed
+v2-technical-0228	AppImageのdesktop fileをなおす	AppImageのdesktop fileを直す	technical-mixed
+v2-technical-0229	tar.zstのownerをrootにそろえる	tar.zstのownerをrootに揃える	technical-mixed
+v2-technical-0230	semantic versionのpre-releaseをつける	semantic versionのpre-releaseを付ける	technical-mixed
+v2-technical-0231	package registryへSBOMをそえる	package registryへSBOMを添える	technical-mixed
+v2-technical-0232	multiarchのlibdirをじどうけんしゅつする	multiarchのlibdirを自動検出する	technical-mixed
+v2-technical-0233	post-install scriptをidempotentにしてさいじっこうをあんぜんにする	post-install scriptをidempotentにして再実行を安全にする	technical-mixed
+v2-technical-0234	ELF binaryからdebug sectionをけす	ELF binaryからdebug sectionを消す	technical-mixed
+v2-technical-0235	code signingのtimestampをけんしょうする	code signingのtimestampを検証する	technical-mixed
+v2-technical-0236	license fileをdistにふくめる	license fileをdistに含める	technical-mixed
+v2-technical-0237	delta updateのpatch sizeをはかる	delta updateのpatch sizeを測る	technical-mixed
+v2-technical-0238	rollbackように1つまえのartifactをのこす	rollback用に1つ前のartifactを残す|rollback用に一つ前のartifactを残す	technical-mixed
+v2-technical-0239	reproducible packageのhashをくらべる	reproducible packageのhashを比べる	technical-mixed
+v2-technical-0240	install prefixを/opt/appにかえる	install prefixを/opt/appに変える	technical-mixed
