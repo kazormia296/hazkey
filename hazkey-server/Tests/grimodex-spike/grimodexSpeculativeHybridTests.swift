@@ -169,6 +169,28 @@ private final class RecordingHybridChildConverter: KanaKanjiConverting {
 }
 
 final class GrimodexSpeculativeHybridTests: XCTestCase {
+  func testShadowPromotionDiagnosticsMergeAndStructuredLog() {
+    var first = MozcFirstHybridDiagnostics()
+    first.shadowPromotionEvaluations = 2
+    first.shadowPromotionOpportunities = 1
+
+    var second = MozcFirstHybridDiagnostics()
+    second.shadowPromotionEvaluations = 3
+    second.shadowPromotionOpportunities = 2
+    second.shadowPromotionBoundaryRejected = 1
+
+    first.merge(second)
+
+    XCTAssertEqual(first.shadowPromotionEvaluations, 5)
+    XCTAssertEqual(first.shadowPromotionOpportunities, 3)
+    XCTAssertEqual(first.shadowPromotionBoundaryRejected, 1)
+    XCTAssertTrue(first.structuredLogLine.contains("shadow_promotion_evaluations=5"))
+    XCTAssertTrue(first.structuredLogLine.contains("shadow_promotion_opportunities=3"))
+    XCTAssertTrue(
+      first.structuredLogLine.contains("shadow_promotion_boundary_rejected=1")
+    )
+  }
+
   func testFormalConversionDoesNotRunOrWaitForPendingHazkeyWork() throws {
     let fixture = makeFixture()
     let context = makeContext(revision: 1, text: "かな")
@@ -397,6 +419,148 @@ final class GrimodexSpeculativeHybridTests: XCTestCase {
     XCTAssertEqual(fixture.hazkey.segmentRequests, [context.input])
     XCTAssertEqual(fixture.hybrid.diagnosticsSnapshot().formalReadyConsumed, 1)
     XCTAssertEqual(fixture.hybrid.diagnosticsSnapshot().mergedRequests, 1)
+  }
+
+  func testShadowOneSidedConsensusPreservesMozcOrderOriginAndFenceBehavior() throws {
+    let fixture = makeFixture(
+      mozcCandidates: [
+        hybridCandidate("Mozc-Top", count: 2, sourceID: "mozc-top"),
+        hybridCandidate("Consensus", count: 2, sourceID: "mozc-consensus"),
+        hybridCandidate("Mozc-Third", count: 2, sourceID: "mozc-third"),
+      ],
+      hazkeyCandidates: [
+        hybridCandidate("Consensus", count: 2, sourceID: "hazkey-consensus")
+      ],
+      shadowPromotionPolicy: .oneSidedConsensus
+    )
+    let context = makeContext(revision: 8, text: "かな")
+
+    fixture.hybrid.prepareSpeculativeConversion(context)
+    fixture.executor.run()
+    XCTAssertEqual(fixture.gate.activeSpeculationFenceCount, 1)
+    fixture.hybrid.lockCandidateOrder(for: context.revision)
+    let output = try fixture.hybrid.segmentCandidates(
+      for: context.input,
+      options: context.options
+    )
+
+    XCTAssertEqual(
+      output.candidates.map(\.text),
+      ["Mozc-Top", "Consensus", "Mozc-Third"]
+    )
+    XCTAssertTrue(output.candidates.allSatisfy { !$0.isLearnable })
+    XCTAssertEqual(fixture.gate.activeSpeculationFenceCount, 0)
+
+    fixture.hybrid.setCompletedData(output.candidates[1])
+    XCTAssertEqual(fixture.mozc.completedSourceIDs, ["mozc-consensus"])
+    XCTAssertTrue(fixture.hazkey.completedSourceIDs.isEmpty)
+
+    let diagnostics = fixture.hybrid.diagnosticsSnapshot()
+    XCTAssertEqual(diagnostics.shadowPromotionEvaluations, 1)
+    XCTAssertEqual(diagnostics.shadowPromotionOpportunities, 1)
+    XCTAssertEqual(diagnostics.shadowPromotionBoundaryRejected, 0)
+    XCTAssertEqual(diagnostics.top1Promotions, 0)
+    XCTAssertEqual(diagnostics.candidateFencesAcquired, 1)
+    XCTAssertEqual(diagnostics.candidateFencesReleased, 1)
+  }
+
+  func testOneSidedConsensusRejectsLowerEligibleCandidateWhenHazkeyTopBoundaryDiffers() throws {
+    let fixture = makeFixture(
+      mozcCandidates: [
+        hybridCandidate("Mozc-Top", count: 2, sourceID: "mozc-top"),
+        hybridCandidate("Lower-Eligible", count: 2, sourceID: "mozc-lower"),
+      ],
+      hazkeyCandidates: [
+        hybridCandidate("Wrong-Boundary", count: 1, sourceID: "hazkey-top"),
+        hybridCandidate("Lower-Eligible", count: 2, sourceID: "hazkey-lower"),
+      ],
+      promotionPolicy: .oneSidedConsensus,
+      shadowPromotionPolicy: .oneSidedConsensus
+    )
+    let context = makeContext(revision: 9, text: "かな")
+
+    fixture.hybrid.prepareSpeculativeConversion(context)
+    fixture.executor.run()
+    fixture.hybrid.lockCandidateOrder(for: context.revision)
+    let output = try fixture.hybrid.segmentCandidates(
+      for: context.input,
+      options: context.options
+    )
+
+    XCTAssertEqual(output.candidates.map(\.text), ["Mozc-Top", "Lower-Eligible"])
+    XCTAssertTrue(output.candidates.allSatisfy { !$0.isLearnable })
+    XCTAssertEqual(fixture.gate.activeSpeculationFenceCount, 0)
+    let diagnostics = fixture.hybrid.diagnosticsSnapshot()
+    XCTAssertEqual(diagnostics.shadowPromotionEvaluations, 1)
+    XCTAssertEqual(diagnostics.shadowPromotionOpportunities, 0)
+    XCTAssertEqual(diagnostics.shadowPromotionBoundaryRejected, 1)
+    XCTAssertEqual(diagnostics.top1Promotions, 0)
+  }
+
+  func testDiagnosticPromotionRoutesLearningToHazkeyAndRetainsFenceUntilCommit() throws {
+    let hazkeyConsensus = ConverterCandidate(
+      text: "Consensus",
+      consumingCount: 2,
+      sourceID: "hazkey-consensus",
+      provenance: .zenzai
+    )
+    let fixture = makeFixture(
+      mozcCandidates: [
+        hybridCandidate("Mozc-Top", count: 2, sourceID: "mozc-top"),
+        hybridCandidate("Consensus", count: 2, sourceID: "mozc-consensus"),
+        hybridCandidate("Mozc-Third", count: 2, sourceID: "mozc-third"),
+      ],
+      hazkeyCandidates: [hazkeyConsensus],
+      promotionPolicy: .oneSidedConsensus
+    )
+    let context = makeContext(revision: 10, text: "かな")
+
+    fixture.hybrid.prepareSpeculativeConversion(context)
+    fixture.executor.run()
+    fixture.hybrid.lockCandidateOrder(for: context.revision)
+    let output = try fixture.hybrid.segmentCandidates(
+      for: context.input,
+      options: context.options
+    )
+
+    let promoted = try XCTUnwrap(output.candidates.first)
+    XCTAssertEqual(
+      output.candidates.map(\.text),
+      ["Consensus", "Mozc-Top", "Mozc-Third"]
+    )
+    XCTAssertEqual(promoted.provenance, .zenzai)
+    XCTAssertTrue(promoted.isLearnable)
+    XCTAssertEqual(fixture.gate.activeSpeculationFenceCount, 1)
+
+    let token = try XCTUnwrap(
+      fixture.hybrid.stageLearning(candidate: promoted, reading: "かな")
+    )
+    fixture.hybrid.setCompletedData(promoted)
+    fixture.hybrid.updateLearningData(promoted)
+    fixture.hybrid.forget(promoted)
+    fixture.hybrid.commitStagedLearning(token)
+    fixture.hybrid.retireCandidateWindow()
+    XCTAssertEqual(
+      fixture.gate.activeSpeculationFenceCount,
+      1,
+      "a dirty Hazkey learning decision must retain the fence"
+    )
+    fixture.hybrid.commitLearning()
+
+    XCTAssertTrue(fixture.mozc.completedSourceIDs.isEmpty)
+    XCTAssertTrue(fixture.mozc.updatedSourceIDs.isEmpty)
+    XCTAssertTrue(fixture.mozc.stagedSourceIDs.isEmpty)
+    XCTAssertTrue(fixture.mozc.forgottenSourceIDs.isEmpty)
+    XCTAssertEqual(fixture.hazkey.completedSourceIDs, ["hazkey-consensus"])
+    XCTAssertEqual(fixture.hazkey.updatedSourceIDs, ["hazkey-consensus"])
+    XCTAssertEqual(fixture.hazkey.stagedSourceIDs, ["hazkey-consensus"])
+    XCTAssertEqual(fixture.hazkey.forgottenSourceIDs, ["hazkey-consensus"])
+    XCTAssertEqual(fixture.hazkey.commitLearningCount, 1)
+    XCTAssertEqual(fixture.gate.activeSpeculationFenceCount, 0)
+    let diagnostics = fixture.hybrid.diagnosticsSnapshot()
+    XCTAssertEqual(diagnostics.top1Promotions, 1)
+    XCTAssertEqual(diagnostics.candidateFencesAcquired, 1)
+    XCTAssertEqual(diagnostics.candidateFencesReleased, 1)
   }
 
   func testHazkeyCompletionAfterOrderLockIsDiscarded() throws {
@@ -1034,6 +1198,8 @@ final class GrimodexSpeculativeHybridTests: XCTestCase {
     hazkeyCandidates: [ConverterCandidate] = [
       hybridCandidate("仮名-Hazkey", count: 2, sourceID: "hazkey-source")
     ],
+    promotionPolicy: HybridPromotionPolicy = .preserveMozcTop1,
+    shadowPromotionPolicy: HybridPromotionPolicy? = nil,
     learningRevisionProvider: @escaping @Sendable () -> UInt64 = { 0 }
   ) -> (
     hybrid: MozcFirstHybridKanaKanjiConverter,
@@ -1051,7 +1217,8 @@ final class GrimodexSpeculativeHybridTests: XCTestCase {
         mozc: mozc,
         hazkey: hazkey,
         executor: executor,
-        promotionPolicy: .preserveMozcTop1,
+        promotionPolicy: promotionPolicy,
+        shadowPromotionPolicy: shadowPromotionPolicy,
         hazkeyExecutionGate: gate,
         learningRevisionProvider: learningRevisionProvider
       ),

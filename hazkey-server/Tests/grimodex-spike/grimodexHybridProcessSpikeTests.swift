@@ -97,6 +97,29 @@ final class GrimodexHybridProcessSpikeTests: XCTestCase {
     }
   }
 
+  func testNonbaselineSurfaceMetricIgnoresOrderingDuplicatesAndCanonicalForm() {
+    XCTAssertFalse(Self.containsNonbaselineSurface(
+      hybridCandidates: ["second", "か\u{3099}", "first", "first"],
+      baselineCandidates: ["first", "が", "second"]
+    ))
+    XCTAssertTrue(Self.containsNonbaselineSurface(
+      hybridCandidates: ["first", "new"],
+      baselineCandidates: ["first", "second"]
+    ))
+  }
+
+  private static func containsNonbaselineSurface(
+    hybridCandidates: [String],
+    baselineCandidates: [String]
+  ) -> Bool {
+    let baselineSurfaces = Set(baselineCandidates.map {
+      $0.precomposedStringWithCanonicalMapping
+    })
+    return hybridCandidates.contains {
+      !baselineSurfaces.contains($0.precomposedStringWithCanonicalMapping)
+    }
+  }
+
   func testMozcFirstHybridProductPathMetrics() throws {
 #if canImport(Glibc)
     let environment = ProcessInfo.processInfo.environment
@@ -217,12 +240,10 @@ final class GrimodexHybridProcessSpikeTests: XCTestCase {
           )
           formalSamples.append(milliseconds(since: formalStarted))
           let hybridCandidates = formal.candidateWindow.items.map(\.text)
-          let baselineSurfaces = Set(baseline.map {
-            $0.precomposedStringWithCanonicalMapping
-          })
-          let containsNonbaselineSurface = hybridCandidates.contains {
-            !baselineSurfaces.contains($0.precomposedStringWithCanonicalMapping)
-          }
+          let containsNonbaselineSurface = Self.containsNonbaselineSurface(
+            hybridCandidates: hybridCandidates,
+            baselineCandidates: baseline
+          )
           windowsWithNonbaselineSurfaceCount += containsNonbaselineSurface ? 1 : 0
           if hybridCandidates.first != baseline.first { top1Changes += 1 }
 

@@ -22,9 +22,12 @@ from typing import Any
 INPUT_SCHEMA_V1 = "hazkey.ab-probe-result.v1"
 INPUT_SCHEMA_V2 = "hazkey.ab-probe-result.v2"
 INPUT_SCHEMA_V3 = "hazkey.ab-probe-result.v3"
+INPUT_SCHEMA_V4 = "hazkey.ab-probe-result.v4"
 OUTPUT_SCHEMA_V1 = "hazkey.ab-probe-summary.v1"
 OUTPUT_SCHEMA_V2 = "hazkey.ab-probe-summary.v2"
 OUTPUT_SCHEMA_V3 = "hazkey.ab-probe-summary.v3"
+OUTPUT_SCHEMA_V4 = "hazkey.ab-probe-summary.v4"
+SEGMENT_CANDIDATES_PATH = "segment_candidates"
 V2_RESOURCE_KIND_BY_CONVERTER = {
     "hazkey": "hazkey_dictionary",
     "mozc": "mozc_runtime_inputs",
@@ -142,10 +145,15 @@ def _require_number(actual: Any, expected: float, context: str) -> None:
 def validate_result(payload: Any, context: str) -> dict[str, Any]:
     result = _object(payload, context)
     schema = result.get("schema")
-    if schema not in (INPUT_SCHEMA_V1, INPUT_SCHEMA_V2, INPUT_SCHEMA_V3):
+    if schema not in (
+        INPUT_SCHEMA_V1,
+        INPUT_SCHEMA_V2,
+        INPUT_SCHEMA_V3,
+        INPUT_SCHEMA_V4,
+    ):
         raise ValueError(
             f"{context}.schema must be {INPUT_SCHEMA_V1}, {INPUT_SCHEMA_V2}, "
-            f"or {INPUT_SCHEMA_V3}"
+            f"{INPUT_SCHEMA_V3}, or {INPUT_SCHEMA_V4}"
         )
 
     case_id = _string(_required(result, "id", context), f"{context}.id")
@@ -202,7 +210,7 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
                 f"{context}.resource.kind must be {expected_resource_kind!r} "
                 f"for converter_backend {converter_backend!r}"
             )
-    if schema == INPUT_SCHEMA_V3:
+    if schema in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4):
         reading = _string(
             _required(result, "reading", context), f"{context}.reading"
         )
@@ -236,11 +244,66 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
         top_k = None
         corpus = None
 
-    candidates = _array(
+    if schema == INPUT_SCHEMA_V4:
+        conversion_path = _string(
+            _required(result, "conversion_path", context),
+            f"{context}.conversion_path",
+        )
+        if conversion_path != SEGMENT_CANDIDATES_PATH:
+            raise ValueError(
+                f"{context}.conversion_path must be "
+                f"{SEGMENT_CANDIDATES_PATH!r}"
+            )
+    else:
+        conversion_path = None
+
+    raw_candidates = _array(
         _required(result, "candidates", context), f"{context}.candidates"
     )
-    for index, candidate in enumerate(candidates):
-        _string(candidate, f"{context}.candidates[{index}]")
+    candidates: list[str] | list[dict[str, Any]]
+    if schema == INPUT_SCHEMA_V4:
+        candidates = []
+        expected_candidate_fields = {"text", "rank", "consuming_count"}
+        for index, raw_candidate in enumerate(raw_candidates):
+            candidate_context = f"{context}.candidates[{index}]"
+            candidate = _object(raw_candidate, candidate_context)
+            actual_candidate_fields = set(candidate)
+            if actual_candidate_fields != expected_candidate_fields:
+                missing = sorted(
+                    expected_candidate_fields - actual_candidate_fields
+                )
+                unexpected = sorted(
+                    actual_candidate_fields - expected_candidate_fields
+                )
+                raise ValueError(
+                    f"{candidate_context} must contain exactly text, rank, and "
+                    f"consuming_count; missing={missing!r}, "
+                    f"unexpected={unexpected!r}"
+                )
+            rank = _positive_int(candidate["rank"], f"{candidate_context}.rank")
+            expected_rank = index + 1
+            if rank != expected_rank:
+                raise ValueError(
+                    f"{candidate_context}.rank must be {expected_rank}, got {rank}"
+                )
+            candidates.append(
+                {
+                    "text": _string(
+                        candidate["text"], f"{candidate_context}.text"
+                    ),
+                    "rank": rank,
+                    "consuming_count": _positive_int(
+                        candidate["consuming_count"],
+                        f"{candidate_context}.consuming_count",
+                    ),
+                }
+            )
+    else:
+        candidates = []
+        for index, candidate in enumerate(raw_candidates):
+            candidates.append(
+                _string(candidate, f"{context}.candidates[{index}]")
+            )
     if top_k is not None and len(candidates) > top_k:
         raise ValueError(
             f"{context}.candidates has {len(candidates)} values; top_k is {top_k}"
@@ -368,6 +431,7 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
             resource["fingerprint"] if schema == INPUT_SCHEMA_V1 else None
         ),
         "converter_backend": converter_backend,
+        "conversion_path": conversion_path,
         "top_k": top_k,
         "corpus": corpus,
         "candidates": candidates,
@@ -424,8 +488,10 @@ def load_run_bytes(data: bytes, path: Path | str) -> dict[str, Any]:
         "warmups",
         "iterations",
     )
-    if first["schema"] == INPUT_SCHEMA_V3:
+    if first["schema"] in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4):
         consistency_fields += ("top_k", "corpus")
+    if first["schema"] == INPUT_SCHEMA_V4:
+        consistency_fields += ("conversion_path",)
     consistency_fields += (
         ("dictionary_path", "dictionary_fingerprint")
         if first["schema"] == INPUT_SCHEMA_V1
@@ -436,7 +502,7 @@ def load_run_bytes(data: bytes, path: Path | str) -> dict[str, Any]:
             if case[field] != first[field]:
                 raise ValueError(f"{path}: inconsistent {field} within run")
     if (
-        first["schema"] == INPUT_SCHEMA_V3
+        first["schema"] in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4)
         and first["corpus"]["cases"] != len(cases)
     ):
         raise ValueError(f"{path}: corpus.cases does not match result count")
@@ -450,6 +516,7 @@ def load_run_bytes(data: bytes, path: Path | str) -> dict[str, Any]:
         "dictionary_path": first["dictionary_path"],
         "dictionary_fingerprint": first["dictionary_fingerprint"],
         "converter_backend": first["converter_backend"],
+        "conversion_path": first["conversion_path"],
         "top_k": first["top_k"],
         "corpus": first["corpus"],
         "warmups": first["warmups"],
@@ -487,8 +554,10 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
             "warmups",
             "iterations",
         )
-        if first["schema"] == INPUT_SCHEMA_V3:
+        if first["schema"] in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4):
             consistency_fields += ("top_k", "corpus")
+        if first["schema"] == INPUT_SCHEMA_V4:
+            consistency_fields += ("conversion_path",)
         consistency_fields += (
             ("dictionary_path", "dictionary_fingerprint")
             if first["schema"] == INPUT_SCHEMA_V1
@@ -513,7 +582,7 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
                     f"{run['path']}: category for case {case_id!r} does not "
                     "match the first run"
                 )
-            if first["schema"] == INPUT_SCHEMA_V3 and (
+            if first["schema"] in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4) and (
                 run["cases"][case_id]["reading"]
                 != expected_readings[case_id]
             ):
@@ -521,7 +590,11 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
                     f"{run['path']}: reading for case {case_id!r} does not "
                     "match the first run"
                 )
-            if first["schema"] in (INPUT_SCHEMA_V2, INPUT_SCHEMA_V3) and (
+            if first["schema"] in (
+                INPUT_SCHEMA_V2,
+                INPUT_SCHEMA_V3,
+                INPUT_SCHEMA_V4,
+            ) and (
                 run["cases"][case_id]["candidates"]
                 != first["cases"][case_id]["candidates"]
             ):
@@ -617,12 +690,17 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
             "source_ref": first["source_ref"],
             "resource": first["resource"],
         }
-        if first["schema"] == INPUT_SCHEMA_V3:
+        if first["schema"] in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4):
             provenance["corpus"] = first["corpus"]
         converter_summary = {"converter_backend": first["converter_backend"]}
-    v3_summary = (
+    corpus_summary = (
         {"top_k": first["top_k"]}
-        if first["schema"] == INPUT_SCHEMA_V3
+        if first["schema"] in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4)
+        else {}
+    )
+    v4_summary = (
+        {"conversion_path": first["conversion_path"]}
+        if first["schema"] == INPUT_SCHEMA_V4
         else {}
     )
     summary = {
@@ -632,13 +710,18 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
             else (
                 OUTPUT_SCHEMA_V2
                 if first["schema"] == INPUT_SCHEMA_V2
-                else OUTPUT_SCHEMA_V3
+                else (
+                    OUTPUT_SCHEMA_V3
+                    if first["schema"] == INPUT_SCHEMA_V3
+                    else OUTPUT_SCHEMA_V4
+                )
             )
         ),
         "backend": first["backend"],
         "backend_version": first["backend_version"],
         **converter_summary,
-        **v3_summary,
+        **corpus_summary,
+        **v4_summary,
         "provenance": provenance,
         "runs": len(runs),
         "cases_per_run": len(expected_ids),

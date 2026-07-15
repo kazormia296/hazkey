@@ -132,7 +132,13 @@ paired ABProbe v3の診断評価には
 `tools/dictionary/evaluate_mozc_hybrid_spike.py`を使用します。評価出力は
 `diagnostic_only=true`かつ`new_holdout_required=true`で、既知corpusを正式な採用判定へ
 再利用しないようfail-closedに検証します。`runtime_h0_top1`は実装既定のTop-1固定規則、
-`top1.hybrid`は採用されていない診断H1 one-sided-consensus規則です。
+`top1.hybrid`は採用されていない診断H1 one-sided-consensus規則です。ABProbe v3は候補surface
+だけを記録し文節の`consuming_count`を持たないため、評価schema v2は
+`runtime_boundary_parity_established=false`と`runtime_apply_eligible=false`を明示します。
+H1はproductionの候補順を変えず、境界込みのshadow counterだけで観測します。
+structured diagnosticsの`shadow_promotion_evaluations`、
+`shadow_promotion_opportunities`、`shadow_promotion_boundary_rejected`は、H0の候補順・
+origin・learning routeを変更せずにH1を観測します。
 
 ```sh
 python3 tools/dictionary/evaluate_mozc_hybrid_spike.py \
@@ -141,6 +147,13 @@ python3 tools/dictionary/evaluate_mozc_hybrid_spike.py \
   --mozc-results /path/to/mozc-ab-probe-v3.jsonl \
   --output /tmp/mozc-hybrid-quality.json
 ```
+
+文節境界の診断ではABProbeへ`--result-schema v4`を明示します。v4は通常の全文
+`candidates`ではなく実runtimeと同じ`segmentCandidates`経路を呼び、各候補へ
+`text`、1始まりの`rank`、composition element単位の`consuming_count`を記録します。
+paired evaluatorはMozc Top-1と同じ境界のHazkey候補だけをマージします。一方、既存corpusの
+正解は全文でv4候補は先頭文節なので、v4のTop-1、rescue/regression、oracleは比較不能として
+fail-closedになります。順位変更の判定には文節正解ラベル付きの新規holdoutが必要です。
 
 実server経路の初回Mozc表示、Space、stale破棄、PSS/RSS、候補ジャンプはopt-in
 `GrimodexHybridProcessSpikeTests`で測定します。待ち時間はカンマ区切りで複数指定し、

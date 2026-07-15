@@ -170,6 +170,9 @@ struct MozcFirstHybridDiagnostics: Equatable, Sendable {
     var boundaryMismatch = 0
     var learningRevisionMismatch = 0
     var top1Promotions = 0
+    var shadowPromotionEvaluations = 0
+    var shadowPromotionOpportunities = 0
+    var shadowPromotionBoundaryRejected = 0
     var candidateFencesAcquired = 0
     var candidateFencesReleased = 0
     var realtimeRequestCount = 0
@@ -195,6 +198,9 @@ struct MozcFirstHybridDiagnostics: Equatable, Sendable {
         boundaryMismatch += other.boundaryMismatch
         learningRevisionMismatch += other.learningRevisionMismatch
         top1Promotions += other.top1Promotions
+        shadowPromotionEvaluations += other.shadowPromotionEvaluations
+        shadowPromotionOpportunities += other.shadowPromotionOpportunities
+        shadowPromotionBoundaryRejected += other.shadowPromotionBoundaryRejected
         candidateFencesAcquired += other.candidateFencesAcquired
         candidateFencesReleased += other.candidateFencesReleased
         realtimeRequestCount += other.realtimeRequestCount
@@ -228,6 +234,9 @@ struct MozcFirstHybridDiagnostics: Equatable, Sendable {
             "boundary_mismatch=\(boundaryMismatch)",
             "learning_revision_mismatch=\(learningRevisionMismatch)",
             "top1_promotions=\(top1Promotions)",
+            "shadow_promotion_evaluations=\(shadowPromotionEvaluations)",
+            "shadow_promotion_opportunities=\(shadowPromotionOpportunities)",
+            "shadow_promotion_boundary_rejected=\(shadowPromotionBoundaryRejected)",
             "candidate_fences_acquired=\(candidateFencesAcquired)",
             "candidate_fences_released=\(candidateFencesReleased)",
             "realtime_requests=\(realtimeRequestCount)",
@@ -261,6 +270,12 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
         case hazkey
     }
 
+    private enum PromotionDecision: Sendable {
+        case keepMozc
+        case promoteHazkey
+        case boundaryRejected
+    }
+
     private struct CandidateRoute: Sendable {
         let backend: Backend
         let original: ConverterCandidate
@@ -292,6 +307,7 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
     private let hazkey: any KanaKanjiConverting
     private let executor: any SpeculativeWorkExecuting
     private let promotionPolicy: HybridPromotionPolicy
+    private let shadowPromotionPolicy: HybridPromotionPolicy?
     private let hazkeyExecutionGate: HazkeyConverterExecutionGate
     private let learningRevisionProvider: @Sendable () -> UInt64
     private let stateLock = NSLock()
@@ -317,6 +333,7 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
         hazkey: any KanaKanjiConverting,
         executor: any SpeculativeWorkExecuting = SerialSpeculativeWorkExecutor.shared,
         promotionPolicy: HybridPromotionPolicy = .preserveMozcTop1,
+        shadowPromotionPolicy: HybridPromotionPolicy? = nil,
         hazkeyExecutionGate: HazkeyConverterExecutionGate = HazkeyConverterExecutionGate(),
         learningRevisionProvider: @escaping @Sendable () -> UInt64 = { 0 }
     ) {
@@ -324,6 +341,7 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
         self.hazkey = hazkey
         self.executor = executor
         self.promotionPolicy = promotionPolicy
+        self.shadowPromotionPolicy = shadowPromotionPolicy
         self.hazkeyExecutionGate = hazkeyExecutionGate
         self.learningRevisionProvider = learningRevisionProvider
     }
@@ -879,6 +897,21 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
             )
         }
 
+        let activePromotionDecision = Self.promotionDecision(
+            policy: promotionPolicy,
+            primary: primary.candidates,
+            secondary: secondary.candidates
+        )
+        if let shadowPromotionPolicy {
+            recordShadowPromotionDecision(
+                Self.promotionDecision(
+                    policy: shadowPromotionPolicy,
+                    primary: primary.candidates,
+                    secondary: secondary.candidates
+                )
+            )
+        }
+
         let boundary = primaryFirst.consumingCount
         let eligibleSecondary = secondary.candidates.filter {
             $0.consumingCount == boundary
@@ -891,10 +924,11 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
             return route(primary, backend: .mozc)
         }
 
-        let promote = shouldPromote(
-            primary: primary.candidates,
-            secondary: eligibleSecondary
-        )
+        let promote: Bool = if case .promoteHazkey = activePromotionDecision {
+            true
+        } else {
+            false
+        }
         var ordered: [(Backend, ConverterCandidate)] = []
         if promote, let secondaryFirst = eligibleSecondary.first {
             ordered.append((.hazkey, secondaryFirst))
@@ -939,24 +973,49 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
         )
     }
 
-    private func shouldPromote(
+    private static func promotionDecision(
+        policy: HybridPromotionPolicy,
         primary: [ConverterCandidate],
         secondary: [ConverterCandidate]
-    ) -> Bool {
-        guard promotionPolicy == .oneSidedConsensus,
+    ) -> PromotionDecision {
+        guard policy == .oneSidedConsensus,
               let primaryFirst = primary.first,
               let secondaryFirst = secondary.first else {
-            return false
+            return .keepMozc
         }
-        let secondaryKey = deduplicationKey(secondaryFirst)
+
+        let boundary = primaryFirst.consumingCount
+        guard secondaryFirst.consumingCount == boundary else {
+            return .boundaryRejected
+        }
+
+        let secondaryKey = normalizedSurfaceKey(secondaryFirst)
         let secondaryAppearsBelowPrimary = primary.dropFirst().contains {
-            deduplicationKey($0) == secondaryKey
+            $0.consumingCount == boundary
+                && normalizedSurfaceKey($0) == secondaryKey
         }
-        let primaryKey = deduplicationKey(primaryFirst)
+        let primaryKey = normalizedSurfaceKey(primaryFirst)
         let primaryAbsentFromSecondary = !secondary.contains {
-            deduplicationKey($0) == primaryKey
+            $0.consumingCount == boundary
+                && normalizedSurfaceKey($0) == primaryKey
         }
         return secondaryAppearsBelowPrimary && primaryAbsentFromSecondary
+            ? .promoteHazkey
+            : .keepMozc
+    }
+
+    private func recordShadowPromotionDecision(_ decision: PromotionDecision) {
+        withStateLock {
+            diagnostics.shadowPromotionEvaluations += 1
+            switch decision {
+            case .keepMozc:
+                break
+            case .promoteHazkey:
+                diagnostics.shadowPromotionOpportunities += 1
+            case .boundaryRejected:
+                diagnostics.shadowPromotionBoundaryRejected += 1
+            }
+        }
     }
 
     private func route(
@@ -1158,7 +1217,11 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
     }
 
     private func deduplicationKey(_ candidate: ConverterCandidate) -> String {
-        "\(candidate.consumingCount):\(candidate.text.precomposedStringWithCanonicalMapping)"
+        "\(candidate.consumingCount):\(Self.normalizedSurfaceKey(candidate))"
+    }
+
+    private static func normalizedSurfaceKey(_ candidate: ConverterCandidate) -> String {
+        candidate.text.precomposedStringWithCanonicalMapping
     }
 
 }

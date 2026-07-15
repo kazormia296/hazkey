@@ -107,6 +107,31 @@ def make_v3_result(
     return result
 
 
+def make_v4_result(
+    case_id: str,
+    samples: list[float | int],
+    *,
+    candidates: list[tuple[str, int]] | None = None,
+    conversion_path: str = "segment_candidates",
+    **kwargs: object,
+) -> dict[str, object]:
+    result = make_v3_result(case_id, samples, **kwargs)
+    result["schema"] = "hazkey.ab-probe-result.v4"
+    result["conversion_path"] = conversion_path
+    candidate_values = candidates or [(f"candidate-{case_id}", 1)]
+    result["candidates"] = [
+        {
+            "text": text,
+            "rank": index,
+            "consuming_count": consuming_count,
+        }
+        for index, (text, consuming_count) in enumerate(
+            candidate_values, start=1
+        )
+    ]
+    return result
+
+
 def write_run(path: Path, results: list[dict[str, object]]) -> None:
     path.write_text(
         "".join(json.dumps(result) + "\n" for result in results),
@@ -302,6 +327,122 @@ class ABProbeSummaryTests(unittest.TestCase):
                 },
             },
         )
+
+    def test_summarize_supports_v4_ranked_boundary_candidates(self) -> None:
+        first = make_v4_result(
+            "one",
+            [1, 2],
+            reading="よみいち",
+            corpus_cases=2,
+            candidates=[("候補一", 3), ("候補二", 2)],
+        )
+        second = make_v4_result(
+            "two",
+            [3, 4],
+            reading="よみに",
+            corpus_cases=2,
+            candidates=[("候補三", 4)],
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            first_run = directory / "first.jsonl"
+            second_run = directory / "second.jsonl"
+            write_run(first_run, [first, second])
+            write_run(
+                second_run,
+                [
+                    make_v4_result(
+                        "two",
+                        [5, 6],
+                        reading="よみに",
+                        corpus_cases=2,
+                        candidates=[("候補三", 4)],
+                    ),
+                    make_v4_result(
+                        "one",
+                        [7, 8],
+                        reading="よみいち",
+                        corpus_cases=2,
+                        candidates=[("候補一", 3), ("候補二", 2)],
+                    ),
+                ],
+            )
+            summary = summarize_ab_probe.summarize([first_run, second_run])
+
+        self.assertEqual(summary["schema"], "hazkey.ab-probe-summary.v4")
+        self.assertEqual(summary["top_k"], 5)
+        self.assertEqual(summary["conversion_path"], "segment_candidates")
+        self.assertEqual(
+            summary["provenance"]["corpus"],
+            {"sha256": "sha256:" + "a" * 64, "cases": 2},
+        )
+
+    def test_v4_requires_segment_candidates_conversion_path(self) -> None:
+        missing = make_v4_result("case", [1, 2])
+        del missing["conversion_path"]
+        wrong = make_v4_result(
+            "case", [1, 2], conversion_path="request_candidates"
+        )
+
+        self.assert_v4_scenarios_rejected(
+            {"missing-path": missing, "wrong-path": wrong}
+        )
+
+    def test_v4_rejects_malformed_ranked_boundary_candidates(self) -> None:
+        scenarios: dict[str, dict[str, object]] = {}
+
+        non_object = make_v4_result("case", [1, 2])
+        non_object["candidates"] = ["candidate"]
+        scenarios["non-object"] = non_object
+
+        for field in ("text", "rank", "consuming_count"):
+            missing = make_v4_result("case", [1, 2])
+            del missing["candidates"][0][field]
+            scenarios[f"missing-{field}"] = missing
+
+        extra = make_v4_result("case", [1, 2])
+        extra["candidates"][0]["annotation"] = None
+        scenarios["extra-field"] = extra
+
+        empty_text = make_v4_result("case", [1, 2])
+        empty_text["candidates"][0]["text"] = ""
+        scenarios["empty-text"] = empty_text
+
+        for label, rank in (("zero-rank", 0), ("bool-rank", True), ("gap-rank", 2)):
+            invalid_rank = make_v4_result("case", [1, 2])
+            invalid_rank["candidates"][0]["rank"] = rank
+            scenarios[label] = invalid_rank
+
+        for label, consuming_count in (
+            ("zero-consuming-count", 0),
+            ("bool-consuming-count", True),
+        ):
+            invalid_count = make_v4_result("case", [1, 2])
+            invalid_count["candidates"][0]["consuming_count"] = consuming_count
+            scenarios[label] = invalid_count
+
+        overflow = make_v4_result(
+            "case",
+            [1, 2],
+            top_k=1,
+            candidates=[("one", 1), ("two", 1)],
+        )
+        scenarios["candidate-overflow"] = overflow
+
+        self.assert_v4_scenarios_rejected(scenarios)
+
+    def test_v4_rejects_candidate_boundary_drift_between_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            first = directory / "first.jsonl"
+            second = directory / "second.jsonl"
+            write_run(first, [make_v4_result("case", [1, 2])])
+            changed = make_v4_result("case", [3, 4])
+            changed["candidates"][0]["consuming_count"] = 2
+            write_run(second, [changed])
+
+            with self.assertRaisesRegex(ValueError, "candidates.*do not match"):
+                summarize_ab_probe.summarize([first, second])
 
     def test_load_run_bytes_parses_an_immutable_snapshot(self) -> None:
         payload = make_v3_result("case", [1, 2])
@@ -803,6 +944,18 @@ class ABProbeSummaryTests(unittest.TestCase):
         )
 
     def assert_v3_scenarios_rejected(
+        self, scenarios: dict[str, dict[str, object]]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            for name, payload in scenarios.items():
+                with self.subTest(name=name):
+                    path = directory / f"{name}.jsonl"
+                    write_run(path, [payload])
+                    with self.assertRaises(ValueError):
+                        summarize_ab_probe.summarize([path])
+
+    def assert_v4_scenarios_rejected(
         self, scenarios: dict[str, dict[str, object]]
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

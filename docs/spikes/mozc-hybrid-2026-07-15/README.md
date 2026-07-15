@@ -33,6 +33,13 @@ Input: the paired 1,360-case ABProbe v3 acquisition under
 | Runtime H0 (`preserveMozcTop1`) | 809 / 1360 | 59.49% | 0 | 0 | 0 |
 | Diagnostic H1 (`oneSidedConsensus`) | 808 / 1360 | 59.41% | 2 | 3 | -1 |
 
+H1 considered promotion in 12/1,360 cases: 2 were rescued, 3 regressed,
+and 7 remained incorrect. The input ABProbe v3 records candidate surfaces but
+not their consuming counts. Evaluation schema v2 therefore marks runtime
+boundary parity as unestablished and H1 as ineligible for active runtime use;
+the product path may collect boundary-aware shadow counters while retaining
+H0 output and origin routing.
+
 For the 551 Mozc Top-1 misses:
 
 - Hazkey is Top-1 in 234 cases (42.47%).
@@ -43,6 +50,36 @@ For the 551 Mozc Top-1 misses:
 The theoretical rescue pool is substantial, but the tested expectation-blind
 one-sided-consensus rule is not safe: it regresses more cases than it rescues.
 H0 therefore remains the runtime default.
+
+## Boundary-aware v4 result
+
+An opt-in ABProbe v4 reacquisition used each adapter's `segmentCandidates`
+path and recorded `{text, rank, consuming_count}` for all 1,360 cases. These
+artifacts are local diagnostics under
+`build-grimodex/mozc-hybrid-boundary-v4-20260715`.
+
+| Boundary diagnostic | Cases | Rate |
+|---|---:|---:|
+| Hazkey Top-1 boundary matches Mozc Top-1 | 555 / 1360 | 40.81% |
+| Hazkey Top-1 boundary differs | 805 / 1360 | 59.19% |
+| Boundary-aware H1 promotion opportunity | 6 / 1360 | 0.44% |
+
+All six surface-only opportunities remained boundary-eligible; none was
+removed by the boundary check. They comprise `Docker`, `棚から` versus
+`店から`, half-width versus full-width `4月`, and three occurrences of the
+same half-width versus full-width `2つの` first clause. This is opportunity
+evidence only, not a quality result.
+
+The sealed corpus labels whole compositions while v4 observes the first
+clause. The evaluator therefore reports zero comparable quality cases and
+excludes all 1,360 cases from Top-1, rescue/regression, oracle, and miss-class
+claims. A segment-labeled holdout, or an explicit composition-span contract
+with reviewed target-parity inference, is required before activating H1.
+
+The one-iteration, zero-warmup debug acquisition measured a 194.33 ms Hazkey
+median (1029.81 ms P95) and a 2.74 ms Mozc median (14.08 ms P95). These are
+adapter-path diagnostics, not product UI latency; the process-path measurements
+below remain the relevant first-display and Space timings.
 
 ## Product-path timing and memory samples
 
@@ -57,15 +94,17 @@ with a valid model available; only the profile's Zenzai enable flag differs.
 
 | Prefetch allowance | Mozc first-display median | Space median | Windows with a surface absent from Mozc baseline | Top-1 changes | Candidate jumps |
 |---:|---:|---:|---:|---:|---:|
-| 0 ms | 6.76 ms | 4.47 ms | 0 / 12 | 0 | 0 |
-| 25 ms | 7.03 ms | 5.12 ms | 1 / 12 | 0 | 0 |
-| 100 ms | 6.30 ms | 5.69 ms | 3 / 12 | 0 | 0 |
+| 0 ms | 7.71 ms | 4.92 ms | 0 / 12 | 0 | 0 |
+| 25 ms | 7.45 ms | 5.28 ms | 1 / 12 | 0 | 0 |
+| 100 ms | 8.00 ms | 5.89 ms | 3 / 12 | 0 | 0 |
 
 Measured counters: `prefetch_started=36`, `prefetch_ready=7`,
 `formal_ready_consumed=7`, `formal_deadline_miss=29`,
 `stale_discarded=29`, `late_completion_discarded=29`,
 `hazkey_requests=36`, `merged_requests=4`, `boundary_mismatch=3`, and
-`hazkey_failure=0`. Hazkey totaled 5.4274 s, about 150.8 ms/request.
+`hazkey_failure=0`. The shadow H1 evaluated 7 ready results, found 0 promotion
+opportunities, and rejected 3 boundary-mismatched Hazkey Top-1 results. Hazkey
+totaled 5.1859 s, about 144.1 ms/request.
 
 ### Zenzai enabled
 
@@ -73,15 +112,17 @@ This run enabled the local 69 MiB model and configured GGML backend.
 
 | Prefetch allowance | Mozc first-display median | Space median | Windows with a surface absent from Mozc baseline | Top-1 changes | Candidate jumps |
 |---:|---:|---:|---:|---:|---:|
-| 0 ms | 8.52 ms | 5.15 ms | 0 / 12 | 0 | 0 |
-| 25 ms | 8.36 ms | 5.47 ms | 0 / 12 | 0 | 0 |
-| 100 ms | 5.90 ms | 4.08 ms | 1 / 12 | 0 | 0 |
+| 0 ms | 6.10 ms | 4.51 ms | 0 / 12 | 0 | 0 |
+| 25 ms | 7.53 ms | 5.69 ms | 0 / 12 | 0 | 0 |
+| 100 ms | 7.38 ms | 5.19 ms | 1 / 12 | 0 | 0 |
 
 Measured counters: `prefetch_started=36`, `prefetch_ready=2`,
 `formal_ready_consumed=2`, `formal_deadline_miss=34`,
 `stale_discarded=34`, `late_completion_discarded=34`,
 `hazkey_requests=36`, `merged_requests=1`, `boundary_mismatch=1`, and
-`hazkey_failure=0`. Hazkey totaled 9.4141 s, about 261.5 ms/request.
+`hazkey_failure=0`. The shadow H1 evaluated 2 ready results, found 0 promotion
+opportunities, and rejected 1 boundary-mismatched Hazkey Top-1 result. Hazkey
+totaled 8.9871 s, about 249.6 ms/request.
 
 ### Endpoint memory
 
@@ -89,10 +130,10 @@ These are endpoint snapshots, not peak or simultaneous samples.
 
 | Mode / snapshot | Server RSS / PSS | Helper RSS / PSS | Total PSS |
 |---|---:|---:|---:|
-| Zenzai off / before | 177,420 / 61,075 KiB | 20,400 / 16,500 KiB | 77,575 KiB |
-| Zenzai off / after | 182,488 / 65,984 KiB | 23,328 / 19,428 KiB | 85,412 KiB |
-| Zenzai on / before | 300,648 / 160,159 KiB | 20,280 / 16,471 KiB | 176,630 KiB |
-| Zenzai on / after | 310,112 / 169,559 KiB | 23,184 / 19,375 KiB | 188,934 KiB |
+| Zenzai off / before | 177,532 / 61,159 KiB | 20,392 / 16,503 KiB | 77,662 KiB |
+| Zenzai off / after | 182,608 / 66,075 KiB | 23,336 / 19,447 KiB | 85,522 KiB |
+| Zenzai on / before | 300,772 / 160,312 KiB | 20,316 / 16,411 KiB | 176,723 KiB |
+| Zenzai on / after | 316,728 / 176,204 KiB | 23,240 / 19,335 KiB | 195,539 KiB |
 
 The local reports are `build-grimodex/hybrid-runtime-spike.json` (Zenzai on)
 and `build-grimodex/hybrid-runtime-spike-no-zenzai.json` (Zenzai off).
@@ -123,6 +164,11 @@ captured Mozc baseline. This window-level metric does not identify backend
 provenance or count individual additions. Merely adding later candidates still
 does not improve one-key Top-1, while the tested H1 promotion rule regresses net
 accuracy.
+
+Concretely, the metric increments only when the formal window contains at least
+one NFC-normalized surface absent from the separately captured Mozc baseline.
+Candidate reordering, duplicate surfaces, and canonically equivalent spellings
+alone do not increment it.
 
 The post-spike two-session barrier probe reproduced the shared-gate head-of-line
 risk and added a candidate-learning fence. Once a learnable Hazkey result is

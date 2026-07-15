@@ -39,6 +39,25 @@ enum ABProbeConverterBackend: String, Equatable, Sendable {
     case mozc
 }
 
+enum ABProbeResultSchema: String, Equatable, Sendable {
+    case v3
+    case v4
+
+    var conversionPath: ABProbeConversionPath {
+        switch self {
+        case .v3:
+            .candidates
+        case .v4:
+            .segmentCandidates
+        }
+    }
+}
+
+enum ABProbeConversionPath: String, Equatable, Sendable {
+    case candidates
+    case segmentCandidates = "segment_candidates"
+}
+
 struct ABProbeOptions: Equatable {
     let corpusPath: String
     let dictionaryPath: String?
@@ -49,6 +68,31 @@ struct ABProbeOptions: Equatable {
     let backendName: String
     let converterBackend: ABProbeConverterBackend
     let mozcBundlePath: String?
+    let resultSchema: ABProbeResultSchema
+
+    init(
+        corpusPath: String,
+        dictionaryPath: String?,
+        sourceRef: String,
+        warmups: Int,
+        iterations: Int,
+        topK: Int,
+        backendName: String,
+        converterBackend: ABProbeConverterBackend,
+        mozcBundlePath: String?,
+        resultSchema: ABProbeResultSchema = .v3
+    ) {
+        self.corpusPath = corpusPath
+        self.dictionaryPath = dictionaryPath
+        self.sourceRef = sourceRef
+        self.warmups = warmups
+        self.iterations = iterations
+        self.topK = topK
+        self.backendName = backendName
+        self.converterBackend = converterBackend
+        self.mozcBundlePath = mozcBundlePath
+        self.resultSchema = resultSchema
+    }
 
     static func parse(arguments: [String]) throws -> ABProbeOptions {
         guard let probeIndex = arguments.firstIndex(of: "--ab-probe") else {
@@ -64,6 +108,7 @@ struct ABProbeOptions: Equatable {
         var backendName: String?
         var converterBackend = ABProbeConverterBackend.hazkey
         var mozcBundlePath: String?
+        var resultSchema = ABProbeResultSchema.v3
         var index = arguments.index(after: probeIndex)
 
         func value(after option: String) throws -> String {
@@ -132,6 +177,14 @@ struct ABProbeOptions: Equatable {
                     )
                 }
                 mozcBundlePath = value
+            case "--result-schema":
+                let value = try value(after: option)
+                guard let parsed = ABProbeResultSchema(rawValue: value) else {
+                    throw ABProbeError.invalidArguments(
+                        "--result-schema must be v3 or v4"
+                    )
+                }
+                resultSchema = parsed
             default:
                 throw ABProbeError.invalidArguments("unknown AB probe option: \(option)")
             }
@@ -177,7 +230,8 @@ struct ABProbeOptions: Equatable {
             topK: topK,
             backendName: backendName ?? converterBackend.rawValue,
             converterBackend: converterBackend,
-            mozcBundlePath: mozcBundlePath
+            mozcBundlePath: mozcBundlePath,
+            resultSchema: resultSchema
         )
     }
 }
@@ -1077,6 +1131,103 @@ struct ABProbeResult: Encodable {
     }
 }
 
+struct ABProbeV4Candidate: Encodable, Equatable {
+    let text: String
+    let rank: Int
+    let consumingCount: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case text
+        case rank
+        case consumingCount = "consuming_count"
+    }
+}
+
+enum ABProbeCandidateObservation {
+    static func capture(
+        _ candidates: [ConverterCandidate],
+        topK: Int
+    ) -> [ABProbeV4Candidate] {
+        candidates.prefix(topK).enumerated().map { offset, candidate in
+            ABProbeV4Candidate(
+                text: candidate.text,
+                rank: offset + 1,
+                // Preserve the converter's exact composition-element count;
+                // downstream validation rejects invalid non-positive evidence.
+                consumingCount: candidate.consumingCount
+            )
+        }
+    }
+
+    static func validateStable(
+        reference: [ABProbeV4Candidate],
+        observed: [ABProbeV4Candidate],
+        resultSchema: ABProbeResultSchema = .v4,
+        caseID: String
+    ) throws {
+        let isStable = switch resultSchema {
+        case .v3:
+            reference.map(\.text) == observed.map(\.text)
+        case .v4:
+            reference == observed
+        }
+        guard isStable else {
+            throw ABProbeError.candidateDrift(
+                "candidate output drifted during case \(caseID)"
+            )
+        }
+    }
+}
+
+struct ABProbeResultV4: Encodable {
+    let schema = "hazkey.ab-probe-result.v4"
+    let conversionPath = ABProbeConversionPath.segmentCandidates.rawValue
+    let id: String
+    let reading: String
+    let category: String
+    let backend: String
+    let backendVersion: String
+    let converterBackend: String
+    let sourceRef: String
+    let resource: ABProbeResourceProvenance
+    let topK: Int
+    let corpus: ABProbeCorpusProvenance
+    let candidates: [ABProbeV4Candidate]
+    let measurement: ABProbeMeasurement
+
+    init(v3: ABProbeResult, candidates: [ABProbeV4Candidate]) {
+        id = v3.id
+        reading = v3.reading
+        category = v3.category
+        backend = v3.backend
+        backendVersion = v3.backendVersion
+        converterBackend = v3.converterBackend
+        sourceRef = v3.sourceRef
+        resource = v3.resource
+        topK = v3.topK
+        corpus = v3.corpus
+        self.candidates = candidates
+        measurement = v3.measurement
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schema
+        case conversionPath = "conversion_path"
+        case id
+        case reading
+        case category
+        case backend
+        case backendVersion = "backend_version"
+        case converterBackend = "converter_backend"
+        case sourceRef = "source_ref"
+        case resource
+        case topK = "top_k"
+        case corpus
+        case candidates
+        case measurement
+    }
+}
+
 enum ABProbeCommand {
     static var isRequested: Bool {
         CommandLine.arguments.contains("--ab-probe")
@@ -1192,9 +1343,11 @@ enum ABProbeCommand {
 
             for _ in 0..<options.warmups {
                 adapter.stopComposition()
-                _ = try adapter.candidates(
+                _ = try requestCandidates(
+                    from: adapter,
                     for: composition,
-                    options: conversionOptions
+                    options: conversionOptions,
+                    path: options.resultSchema.conversionPath
                 )
             }
             let diagnosticsBefore = diagnosticsProvider()
@@ -1204,23 +1357,29 @@ enum ABProbeCommand {
             }
 
             var samples: [Double] = []
-            var finalCandidates: [String]?
+            var finalCandidates: [ABProbeV4Candidate]?
             samples.reserveCapacity(options.iterations)
             for _ in 0..<options.iterations {
                 adapter.stopComposition()
                 let started = DispatchTime.now().uptimeNanoseconds
-                let output = try adapter.candidates(
+                let output = try requestCandidates(
+                    from: adapter,
                     for: composition,
-                    options: conversionOptions
+                    options: conversionOptions,
+                    path: options.resultSchema.conversionPath
                 )
                 let finished = DispatchTime.now().uptimeNanoseconds
                 samples.append(Double(finished - started) / 1_000_000)
-                let observed = Array(
-                    output.candidates.prefix(options.topK).map(\.text)
+                let observed = ABProbeCandidateObservation.capture(
+                    output.candidates,
+                    topK: options.topK
                 )
-                if let finalCandidates, finalCandidates != observed {
-                    throw ABProbeError.candidateDrift(
-                        "candidate output drifted during case \(testCase.id)"
+                if let finalCandidates {
+                    try ABProbeCandidateObservation.validateStable(
+                        reference: finalCandidates,
+                        observed: observed,
+                        resultSchema: options.resultSchema,
+                        caseID: testCase.id
                     )
                 }
                 finalCandidates = observed
@@ -1241,7 +1400,8 @@ enum ABProbeCommand {
                 processMemoryKilobytes(processIdentifier: $0)
             }
             adapter.stopComposition()
-            let result = ABProbeResult(
+            let capturedCandidates = finalCandidates ?? []
+            let v3Result = ABProbeResult(
                 id: testCase.id,
                 reading: testCase.reading,
                 category: testCase.category,
@@ -1252,7 +1412,7 @@ enum ABProbeCommand {
                 resource: provenance.resource,
                 topK: options.topK,
                 corpus: corpus.provenance,
-                candidates: finalCandidates ?? [],
+                candidates: capturedCandidates.map(\.text),
                 measurement: ABProbeMeasurement(
                     warmups: options.warmups,
                     iterations: options.iterations,
@@ -1274,7 +1434,15 @@ enum ABProbeCommand {
                     )
                 )
             )
-            var encoded = try encoder.encode(result)
+            var encoded: Data
+            switch options.resultSchema {
+            case .v3:
+                encoded = try encoder.encode(v3Result)
+            case .v4:
+                encoded = try encoder.encode(
+                    ABProbeResultV4(v3: v3Result, candidates: capturedCandidates)
+                )
+            }
             encoded.append(0x0A)
             bufferedJSONLines.append(encoded)
         }
@@ -1295,6 +1463,20 @@ enum ABProbeCommand {
                 try ABProbeMozcRuntimeSnapshot.remove(runtimePath: runtimePath)
                 didRemoveMozcRuntime = true
             }
+        }
+    }
+
+    private static func requestCandidates(
+        from adapter: any KanaKanjiConverting,
+        for composition: CompositionInput,
+        options: ConversionOptions,
+        path: ABProbeConversionPath
+    ) throws -> ConversionOutput {
+        switch path {
+        case .candidates:
+            try adapter.candidates(for: composition, options: options)
+        case .segmentCandidates:
+            try adapter.segmentCandidates(for: composition, options: options)
         }
     }
 

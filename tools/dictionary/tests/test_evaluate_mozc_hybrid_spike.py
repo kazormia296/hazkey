@@ -81,6 +81,39 @@ def make_result(
     }
 
 
+def make_v4_result(
+    case_id: str,
+    reading: str,
+    candidates: list[tuple[str, int]],
+    converter_backend: str,
+    *,
+    corpus_sha256: str,
+    corpus_cases: int,
+    conversion_path: str = "segment_candidates",
+    **kwargs: object,
+) -> dict[str, object]:
+    result = make_result(
+        case_id,
+        reading,
+        [text for text, _ in candidates],
+        converter_backend,
+        corpus_sha256=corpus_sha256,
+        corpus_cases=corpus_cases,
+        **kwargs,
+    )
+    result["schema"] = "hazkey.ab-probe-result.v4"
+    result["conversion_path"] = conversion_path
+    result["candidates"] = [
+        {
+            "text": text,
+            "rank": rank,
+            "consuming_count": consuming_count,
+        }
+        for rank, (text, consuming_count) in enumerate(candidates, start=1)
+    ]
+    return result
+
+
 def write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
     path.write_text(
         "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
@@ -131,6 +164,71 @@ def make_inputs(
     return corpus, hazkey_path, mozc_path, hazkey_records, mozc_records
 
 
+def make_v4_inputs(
+    directory: Path,
+) -> tuple[Path, Path, Path, list[dict[str, object]], list[dict[str, object]]]:
+    cases = (
+        (
+            "boundary-eligible",
+            "よみ1",
+            "H0",
+            [("H0", 2), ("HX", 2)],
+            [("M0", 2), ("H0", 2), ("同", 1), ("同", 2)],
+        ),
+        (
+            "boundary-rejected",
+            "よみ2",
+            "M1",
+            [("H1", 1)],
+            [("M1", 2), ("H1", 2)],
+        ),
+        (
+            "top1-mismatch-only",
+            "よみ3",
+            "M2",
+            [("X", 1), ("eligible", 2)],
+            [("M2", 2)],
+        ),
+    )
+    corpus = directory / "corpus-v4.tsv"
+    corpus.write_text(
+        "id\treading\texpected\tcategory\n"
+        + "".join(
+            f"{case_id}\t{reading}\t{expected}\tsample\n"
+            for case_id, reading, expected, _, _ in cases
+        ),
+        encoding="utf-8",
+    )
+    corpus_sha256 = "sha256:" + hashlib.sha256(corpus.read_bytes()).hexdigest()
+    hazkey_records = [
+        make_v4_result(
+            case_id,
+            reading,
+            hazkey,
+            "hazkey",
+            corpus_sha256=corpus_sha256,
+            corpus_cases=len(cases),
+        )
+        for case_id, reading, _, hazkey, _ in cases
+    ]
+    mozc_records = [
+        make_v4_result(
+            case_id,
+            reading,
+            mozc,
+            "mozc",
+            corpus_sha256=corpus_sha256,
+            corpus_cases=len(cases),
+        )
+        for case_id, reading, _, _, mozc in reversed(cases)
+    ]
+    hazkey_path = directory / "hazkey-v4.jsonl"
+    mozc_path = directory / "mozc-v4.jsonl"
+    write_jsonl(hazkey_path, hazkey_records)
+    write_jsonl(mozc_path, mozc_records)
+    return corpus, hazkey_path, mozc_path, hazkey_records, mozc_records
+
+
 class MozcHybridSpikeEvaluationTests(unittest.TestCase):
     def test_classifies_all_mozc_misses_and_reports_policy_effect(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -139,18 +237,53 @@ class MozcHybridSpikeEvaluationTests(unittest.TestCase):
             report = evaluate_mozc_hybrid_spike.evaluate_paths(corpus, hazkey, mozc)
 
         self.assertEqual(
-            report["schema"], "hazkey.mozc-hybrid-spike-evaluation.v1"
+            report["schema"], "hazkey.mozc-hybrid-spike-evaluation.v2"
         )
         self.assertTrue(report["diagnostic_only"])
         self.assertFalse(report["formal_authorized"])
         self.assertTrue(report["new_holdout_required"])
         self.assertFalse(report["policy"]["uses_expected_labels"])
+        self.assertFalse(report["policy"]["runtime_apply_eligible"])
+        self.assertEqual(report["policy"]["evaluation_scope"], "surface_only")
+        self.assertFalse(
+            report["candidate_evidence"]["consuming_count_available"]
+        )
+        self.assertFalse(
+            report["candidate_evidence"]["boundary_evidence_available"]
+        )
+        self.assertIsNone(report["candidate_evidence"]["conversion_path"])
+        self.assertFalse(
+            report["candidate_evidence"][
+                "runtime_boundary_parity_established"
+            ]
+        )
         self.assertEqual(
             report["runtime_policy"]["id"],
             "mozc-first-preserve-top1-h0",
         )
         self.assertEqual(
             report["policy"]["id"], "mozc-first-one-sided-consensus-v1"
+        )
+        self.assertEqual(
+            report["promotion_opportunities"],
+            {
+                "decision": "promote_hazkey_one_sided_consensus",
+                "scope": "surface_only",
+                "count": 2,
+                "rate": 0.25,
+                "boundary_eligible_count": None,
+                "outcomes": {
+                    "rescued": 1,
+                    "regressed": 1,
+                    "unchanged_correct": 0,
+                    "unchanged_incorrect": 0,
+                },
+                "all_policy_decisions": {
+                    "hazkey_fallback_mozc_empty": 1,
+                    "keep_mozc_top1": 5,
+                    "promote_hazkey_one_sided_consensus": 2,
+                },
+            },
         )
         self.assertEqual(
             report["top1"],
@@ -243,6 +376,165 @@ class MozcHybridSpikeEvaluationTests(unittest.TestCase):
             cases["empty-mozc"]["policy_decision"],
             "hazkey_fallback_mozc_empty",
         )
+
+    def test_v4_filters_by_mozc_top1_boundary_and_reports_opportunities(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            corpus, hazkey, mozc, _, _ = make_v4_inputs(directory)
+            report = evaluate_mozc_hybrid_spike.evaluate_paths(
+                corpus, hazkey, mozc
+            )
+
+        self.assertEqual(
+            report["schema"], "hazkey.mozc-hybrid-spike-evaluation.v2"
+        )
+        self.assertFalse(report["formal_authorized"])
+        self.assertTrue(report["new_holdout_required"])
+        self.assertEqual(
+            report["candidate_evidence"],
+            {
+                "input_schema": "hazkey.ab-probe-result.v4",
+                "observed_fields": ["text", "rank", "consuming_count"],
+                "conversion_path": "segment_candidates",
+                "consuming_count_available": True,
+                "boundary_evidence_available": True,
+                "runtime_boundary_parity_established": True,
+                "whole_target_quality_comparable": False,
+                "limitation": (
+                    "segment_candidates observes first-clause surfaces, while "
+                    "the corpus expected values are whole-composition targets. "
+                    "Boundary evidence is valid, but whole-target quality is "
+                    "not comparable."
+                ),
+            },
+        )
+        self.assertEqual(
+            report["target_comparability"],
+            {
+                "quality_target": "whole_composition",
+                "observed_candidate_scope": "first_clause",
+                "established": False,
+                "comparable_count": 0,
+                "incomparable_count": 3,
+                "required_evidence": (
+                    "a segment-labeled holdout, or an explicit composition-span "
+                    "field with a reviewed target-parity inference"
+                ),
+            },
+        )
+        self.assertFalse(report["policy"]["runtime_apply_eligible"])
+        self.assertEqual(report["policy"]["evaluation_scope"], "boundary_aware")
+        self.assertEqual(
+            report["policy"]["quality_evaluation_scope"],
+            "not_comparable_without_segment_target_parity",
+        )
+        self.assertEqual(
+            report["promotion_opportunities"],
+            {
+                "decision": "promote_hazkey_one_sided_consensus",
+                "scope": "boundary_aware",
+                "count": 1,
+                "rate": 1 / 3,
+                "surface_opportunity_count": 2,
+                "surface_opportunity_rate": 2 / 3,
+                "boundary_eligible_count": 1,
+                "boundary_rejected_count": 1,
+                "boundary_only_opportunity_count": 0,
+                "outcomes": None,
+                "outcome_comparable_count": 0,
+                "outcome_incomparable_count": 1,
+                "surface_outcomes": None,
+                "surface_outcome_comparable_count": 0,
+                "surface_outcome_incomparable_count": 2,
+                "all_policy_decisions": {
+                    "keep_mozc_hazkey_top1_boundary_mismatch": 2,
+                    "promote_hazkey_one_sided_consensus": 1,
+                },
+                "all_surface_policy_decisions": {
+                    "keep_mozc_top1": 1,
+                    "promote_hazkey_one_sided_consensus": 2,
+                },
+            },
+        )
+        self.assertEqual(
+            report["top1"],
+            {
+                "quality_comparable": False,
+                "scope": "whole_target_comparable_only",
+                "cases": 0,
+                "excluded_incomparable_cases": 3,
+                "hazkey": {"hits": None, "rate": None},
+                "mozc": {"hits": None, "rate": None},
+                "hybrid": {"hits": None, "rate": None},
+                "rescued": None,
+                "regressed": None,
+                "net_hits": None,
+                "net_rate": None,
+            },
+        )
+        self.assertIsNone(
+            report["oracle_ceiling"]["candidate_union"]["hits"]
+        )
+        self.assertIsNone(report["mozc_top1_miss_classification"]["total"])
+        self.assertEqual(
+            report["boundary_evidence"],
+            {
+                "conversion_path": "segment_candidates",
+                "actual_hazkey_top1": {
+                    "compared_count": 3,
+                    "matching_count": 1,
+                    "mismatch_count": 2,
+                    "mismatch_rate": 2 / 3,
+                },
+            },
+        )
+
+        cases = {case["id"]: case for case in report["cases"]}
+        eligible = cases["boundary-eligible"]
+        self.assertFalse(eligible["target_comparable"])
+        self.assertIsNone(eligible["top1_outcome"])
+        self.assertEqual(
+            eligible["expected_rank"],
+            {"hazkey": None, "mozc": None, "hybrid": None, "runtime_h0": None},
+        )
+        self.assertEqual(
+            eligible["candidates"]["hybrid"],
+            ["H0", "M0", "同", "同", "HX"],
+        )
+        self.assertEqual(
+            eligible["boundary_evidence"]["eligible_hazkey_candidates"],
+            ["H0", "HX"],
+        )
+        rejected = cases["boundary-rejected"]
+        self.assertEqual(
+            rejected["policy_decision"],
+            "keep_mozc_hazkey_top1_boundary_mismatch",
+        )
+        self.assertEqual(rejected["candidates"]["hybrid"], ["M1", "H1"])
+        self.assertEqual(
+            rejected["boundary_evidence"]["eligible_hazkey_candidates"], []
+        )
+        mismatch_only = cases["top1-mismatch-only"]
+        self.assertEqual(
+            mismatch_only["boundary_evidence"]["eligible_hazkey_candidates"],
+            ["eligible"],
+        )
+        self.assertEqual(
+            mismatch_only["candidates"]["runtime_h0"], ["M2", "eligible"]
+        )
+
+    def test_v4_requires_segment_candidates_conversion_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            corpus, hazkey, mozc, _, mozc_records = make_v4_inputs(directory)
+            for record in mozc_records:
+                record["conversion_path"] = "request_candidates"
+            write_jsonl(mozc, mozc_records)
+
+            with self.assertRaisesRegex(
+                ValueError, "conversion_path must be 'segment_candidates'"
+            ):
+                evaluate_mozc_hybrid_spike.evaluate_paths(corpus, hazkey, mozc)
 
     def test_merge_keeps_mozc_top3_and_deduplicates_unicode_nfc(self) -> None:
         merged, decision = evaluate_mozc_hybrid_spike.merge_candidates(

@@ -369,6 +369,8 @@ final class HazkeySessionRegistry {
             let hybrid = MozcFirstHybridKanaKanjiConverter(
                 mozc: makeMozcConverter(),
                 hazkey: makeLearningHazkeyConverter(),
+                promotionPolicy: .preserveMozcTop1,
+                shadowPromotionPolicy: .oneSidedConsensus,
                 hazkeyExecutionGate: hazkeyExecutionGate,
                 learningRevisionProvider: {
                     [learningRevisionStore = self.learningRevisionStore] in

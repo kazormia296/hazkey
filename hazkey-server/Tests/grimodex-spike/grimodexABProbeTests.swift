@@ -70,6 +70,23 @@ final class GrimodexABProbeTests: XCTestCase {
     )
   }
 
+  func testOptionsResultSchemaDefaultsToV3AndAcceptsV4() throws {
+    let baseArguments = [
+      "hazkey-server", "--ab-probe", "--corpus", "/tmp/corpus.tsv",
+      "--dictionary", "/tmp/dictionary", "--source-ref", "abc123",
+    ]
+
+    let defaultOptions = try ABProbeOptions.parse(arguments: baseArguments)
+    XCTAssertEqual(defaultOptions.resultSchema, .v3)
+    XCTAssertEqual(defaultOptions.resultSchema.conversionPath, .candidates)
+
+    let v4Options = try ABProbeOptions.parse(
+      arguments: baseArguments + ["--result-schema", "v4"]
+    )
+    XCTAssertEqual(v4Options.resultSchema, .v4)
+    XCTAssertEqual(v4Options.resultSchema.conversionPath, .segmentCandidates)
+  }
+
   func testOptionsRejectBackendSpecificArgumentCombinations() {
     let invalidArguments: [([String], ABProbeError)] = [
       (
@@ -128,6 +145,11 @@ final class GrimodexABProbeTests: XCTestCase {
       [
         "hazkey-server", "--ab-probe", "--corpus", "x",
         "--dictionary", "dict", "--source-ref", "ref", "--unknown",
+      ],
+      [
+        "hazkey-server", "--ab-probe", "--corpus", "x",
+        "--dictionary", "dict", "--source-ref", "ref",
+        "--result-schema", "v5",
       ],
     ]
     for arguments in invalidArguments {
@@ -481,6 +503,8 @@ final class GrimodexABProbeTests: XCTestCase {
     XCTAssertEqual(object["top_k"] as? Int, 7)
     XCTAssertEqual(object["converter_backend"] as? String, "hazkey")
     XCTAssertEqual(object["source_ref"] as? String, "abc123")
+    XCTAssertEqual(object["candidates"] as? [String], ["候補"])
+    XCTAssertNil(object["conversion_path"])
     let corpus = try XCTUnwrap(object["corpus"] as? [String: Any])
     XCTAssertEqual(
       corpus["sha256"] as? String,
@@ -499,6 +523,108 @@ final class GrimodexABProbeTests: XCTestCase {
     )
     XCTAssertEqual(diagnostics["process_launch_count"] as? Int, 1)
     XCTAssertEqual(diagnostics["cleanup_failure_count"] as? Int, 0)
+  }
+
+  func testV4ResultUsesStructuredCandidatesAndSegmentConversionPath() throws {
+    let result = ABProbeResultV4(
+      v3: sampleV3Result(candidates: ["第一", "第二"]),
+      candidates: [
+        ABProbeV4Candidate(text: "第一", rank: 1, consumingCount: 4),
+        ABProbeV4Candidate(text: "第二", rank: 2, consumingCount: 2),
+      ]
+    )
+    let object = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(result))
+        as? [String: Any]
+    )
+
+    XCTAssertEqual(object["schema"] as? String, "hazkey.ab-probe-result.v4")
+    XCTAssertEqual(object["conversion_path"] as? String, "segment_candidates")
+    XCTAssertEqual(object["reading"] as? String, "よみ")
+    XCTAssertEqual(object["top_k"] as? Int, 7)
+    XCTAssertEqual(object["converter_backend"] as? String, "hazkey")
+    XCTAssertEqual(object["source_ref"] as? String, "abc123")
+    XCTAssertNotNil(object["corpus"] as? [String: Any])
+    XCTAssertNotNil(object["resource"] as? [String: Any])
+
+    let candidates = try XCTUnwrap(object["candidates"] as? [[String: Any]])
+    XCTAssertEqual(candidates.count, 2)
+    XCTAssertEqual(candidates[0]["text"] as? String, "第一")
+    XCTAssertEqual(candidates[0]["rank"] as? Int, 1)
+    XCTAssertEqual(candidates[0]["consuming_count"] as? Int, 4)
+    XCTAssertEqual(candidates[1]["text"] as? String, "第二")
+    XCTAssertEqual(candidates[1]["rank"] as? Int, 2)
+    XCTAssertEqual(candidates[1]["consuming_count"] as? Int, 2)
+  }
+
+  func testCandidateObservationCapturesRankAndCompositionElementCount() {
+    let observed = ABProbeCandidateObservation.capture(
+      [
+        ConverterCandidate(text: "第一", consumingCount: 4),
+        ConverterCandidate(text: "第二", consumingCount: 2),
+      ],
+      topK: 2
+    )
+
+    XCTAssertEqual(
+      observed,
+      [
+        ABProbeV4Candidate(text: "第一", rank: 1, consumingCount: 4),
+        ABProbeV4Candidate(text: "第二", rank: 2, consumingCount: 2),
+      ]
+    )
+    XCTAssertTrue(observed.allSatisfy { $0.consumingCount > 0 })
+  }
+
+  func testCandidateDriftIncludesTextRankAndConsumingCount() throws {
+    let reference = [
+      ABProbeV4Candidate(text: "候補", rank: 1, consumingCount: 3),
+    ]
+    XCTAssertNoThrow(
+      try ABProbeCandidateObservation.validateStable(
+        reference: reference,
+        observed: reference,
+        caseID: "case"
+      )
+    )
+
+    let drifted = [
+      [ABProbeV4Candidate(text: "別候補", rank: 1, consumingCount: 3)],
+      [ABProbeV4Candidate(text: "候補", rank: 2, consumingCount: 3)],
+      [ABProbeV4Candidate(text: "候補", rank: 1, consumingCount: 2)],
+    ]
+    for observed in drifted {
+      XCTAssertThrowsError(
+        try ABProbeCandidateObservation.validateStable(
+          reference: reference,
+          observed: observed,
+          caseID: "case"
+        )
+      ) {
+        XCTAssertEqual(
+          $0 as? ABProbeError,
+          .candidateDrift("candidate output drifted during case case")
+        )
+      }
+    }
+  }
+
+  func testV3CandidateDriftRetainsSurfaceOnlyCompatibility() throws {
+    let reference = [
+      ABProbeV4Candidate(text: "候補", rank: 1, consumingCount: 3),
+    ]
+    let boundaryOnlyDrift = [
+      ABProbeV4Candidate(text: "候補", rank: 1, consumingCount: 2),
+    ]
+
+    XCTAssertNoThrow(
+      try ABProbeCandidateObservation.validateStable(
+        reference: reference,
+        observed: boundaryOnlyDrift,
+        resultSchema: .v3,
+        caseID: "case"
+      )
+    )
   }
 
   func testJSONOutputIsolationKeepsDebugTextOffStandardOutput() throws {
@@ -636,6 +762,39 @@ final class GrimodexABProbeTests: XCTestCase {
       backendName: "mozc",
       converterBackend: .mozc,
       mozcBundlePath: bundlePath
+    )
+  }
+
+  private func sampleV3Result(candidates: [String]) -> ABProbeResult {
+    ABProbeResult(
+      id: "case",
+      reading: "よみ",
+      category: "sample",
+      backend: "hazkey",
+      backendVersion: "test",
+      converterBackend: "hazkey",
+      sourceRef: "abc123",
+      resource: ABProbeResourceProvenance(
+        kind: "hazkey_dictionary",
+        path: "/canonical/dictionary",
+        fingerprint: "sha256:abcdef"
+      ),
+      topK: 7,
+      corpus: ABProbeCorpusProvenance(
+        sha256: "sha256:" + String(repeating: "1", count: 64),
+        cases: 15
+      ),
+      candidates: candidates,
+      measurement: ABProbeMeasurement(
+        warmups: 0,
+        iterations: 1,
+        latencyMilliseconds: ABProbeLatency.summarize([1]),
+        residentMemory: ABProbeMemory(beforeKiB: 1, afterKiB: 2),
+        backendDiagnostics: ABProbeBackendDiagnosticsResult(
+          processLaunchCount: nil,
+          cleanupFailureCount: nil
+        )
+      )
     )
   }
 
