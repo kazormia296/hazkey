@@ -36,11 +36,70 @@ the evaluation generation self-contained.
 | `homophone-context` | 200 | yes |
 | `long-structural` | 200 | yes |
 | `grimodex-regression` | 220 | yes |
-| `protected` | 100 | no; independent 100/100 must-pass |
+| `protected` | 100 | no; legacy probe is not formal interaction evidence |
 
 Overall Top-1, Top-10, human preference, and `both_bad` rates use only the six
 quality categories: 1,260 cases. The 100 protected cases cannot improve or
-dilute those rates and must pass 100/100 independently.
+dilute those rates. Their old 100/100 requirement is superseded by the product
+interaction suites below.
+
+## Mixed-input protocol correction
+
+The sealed rows and hashes above remain unchanged, but their interaction model
+is not sufficient for a formal decision. `ABProbe` sends every character in a
+row as `.direct`, with empty left and right context, in one composition. For a
+mixed row such as `RUST_LOG=debugでくわしいろぐをだす`, that is closer to
+whole-selection reconversion than ordinary PC romaji input.
+
+Ordinary input normally commits half-width ASCII in alphanumeric mode, returns
+to Japanese mode, and sends only the kana composition to the converter. The
+committed ASCII is left context. Whole mixed strings may instead reach the
+product through selected-text reconversion. F9 and F10 are separate full-width
+and half-width alphabet transforms; they are not candidate-ranking cases.
+
+The formal interaction contract therefore requires three product-path suites:
+
+- `normal-input-context`: committed half-width ASCII as left context and only
+  the kana portion as the active composition.
+- `reconversion`: the selected mixed string plus explicit left/right context
+  and replacement range through Protocol v2.
+- `alphabet-width-f9-f10`: separate F9/F10 transform and commit checks through
+  the Fcitx key path.
+
+Case counts for those suites are `pending_review`; assigning the existing 100
+rows among them without reviewed action metadata would be arbitrary. The old
+protected Top-1 observation is `invalid_for_formal_gate`, not a pass or a fail.
+
+The mismatch is broader than the protected category. A deterministic scan of
+the sealed readings finds ASCII in 565/1,360 rows: technical 239, proper noun
+4, colloquial 2, homophone 0, long 0, Grimodex regression 220, and protected
+100. Of those, 431 have one mechanically separable left literal plus terminal
+kana; the remaining 134 require multiple literal/convert actions or explicit
+reconversion. All 565 still need reviewed scenario kind, action trace,
+left/right context, composition reading, input style, requested transform, and
+expected target before they can count as normal-input evidence.
+
+An ASCII-free diagnostic slice has 795 quality rows. On that slice H0/B0
+Top-1 is 441/441 and Top-10 is 601/451 (delta -150; the recalculated -12-point
+boundary is -95), while B1 is 444/607 (deltas +3/+6). These figures are
+diagnostic only: technical has one ASCII-free row and Grimodex regression has
+none, so the per-category gates cannot be evaluated. B0/B1 remain
+`not_ready:interaction-model-mismatch`; neither the old authorization nor its
+B1 continuation is formal decision evidence. A future authorization requires
+a new policy revision with reviewed interaction check IDs; changing a status
+field to `ready` is insufficient.
+
+The read-only classifier reproduces the scope and migration split:
+
+```bash
+python3 tools/dictionary/audit_mozc_v2_interaction_model.py \
+  --corpus hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v2/\
+sealed-v2-sha256-b4c1351b1b0ef7797349ebf26858db4d0dd69ce1c8bcbfaee88e0f0b644225ed/\
+formal-corpus.tsv
+```
+
+Its output is a classification report only and never authorizes formal
+scoring, B1 evaluation, or adoption.
 
 `homophone-context` may contain context rendered inside the reading itself. A
 case that requires an external left context is not made unconditional by

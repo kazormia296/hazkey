@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Acquire the authorized Mozc v2 B1 objective-quality continuation.
+"""Acquire a policy-ready Mozc v2 B1 objective-quality continuation.
 
 The accepted B0 acquisition remains immutable and is never re-run.  This
 producer authenticates that acquisition from raw evidence, copies its exact H0
@@ -7,7 +7,10 @@ raw baseline plus the fixed runner/runtime/corpus into a private snapshot, runs
 only B1, independently re-scores H0/B1, and publishes a no-replace read-only
 evidence directory.  Its result can only advance B1 to the remaining human,
 performance, and stability gates; it can never authorize product adoption or
-B2 evaluation.
+B2 evaluation.  A policy whose protected or mixed-input protocol is not ready,
+or whose B1 authorization rule is blocked, is rejected before any authorization
+or evidence is consumed.  Evidence acquired under a superseded input protocol
+therefore remains diagnostic-only.
 """
 
 from __future__ import annotations
@@ -38,8 +41,10 @@ else:
     import summarize_ab_probe  # type: ignore[no-redef]
 
 
-ACQUISITION_SCHEMA = "hazkey.mozc-v2-b1-continuation-acquisition.v1"
-OBJECTIVE_SCHEMA = "hazkey.mozc-v2-b1-continuation-objective-quality.v1"
+ACQUISITION_SCHEMA = "hazkey.mozc-v2-b1-diagnostic-acquisition.v1"
+OBJECTIVE_SCHEMA = "hazkey.mozc-v2-b1-diagnostic-objective-quality.v1"
+DIAGNOSTIC_SCOPE = "B1-objective-quality-diagnostic"
+DIAGNOSTIC_MEASUREMENT_VALIDITY = "diagnostic_only:interaction-model-mismatch"
 AUTHORIZATION_SNAPSHOT = "b1-authorization.json"
 MANIFEST_NAME = "acquisition-manifest.json"
 OBJECTIVE_NAME = "objective-quality.json"
@@ -63,6 +68,9 @@ CHILD_ENVIRONMENT = {
     "PATH": os.defpath,
     "TZ": "UTC",
 }
+PENDING_REVIEW_POLICY_PRECONDITION = (
+    "new-policy-revision-with-reviewed-interaction-check-ids"
+)
 
 
 @dataclass(frozen=True)
@@ -90,6 +98,54 @@ class SourceSnapshot:
 
 class EvidencePublicationError(OSError):
     """Evidence was retained because safe automatic removal was not assured."""
+
+
+def _require_formal_acquisition_ready(policy: formal_gate.ParsedPolicy) -> None:
+    blocked: list[str] = []
+    if policy.protected_input_protocol_status != "ready":
+        blocked.append(
+            "protected_input_protocol.status="
+            f"{policy.protected_input_protocol_status}"
+        )
+    if policy.mixed_input_protocol_status != "ready":
+        blocked.append(
+            f"mixed_input_protocol.status={policy.mixed_input_protocol_status}"
+        )
+    if policy.b1_authorization_status != "ready":
+        blocked.append(
+            "b0_early_rejection.authorization_rule.status="
+            f"{policy.b1_authorization_status}"
+        )
+    if not policy.b1_valid_mandatory_check_ids:
+        blocked.append(
+            "b0_early_rejection.authorization_rule.valid_mandatory_check_ids=empty"
+        )
+    promoted_legacy_ids = sorted(
+        set(policy.b1_valid_mandatory_check_ids)
+        & set(policy.b1_diagnostic_objective_check_ids)
+    )
+    if promoted_legacy_ids:
+        blocked.append(
+            "b0_early_rejection.authorization_rule.valid_mandatory_check_ids "
+            "overlap legacy diagnostic_check_ids="
+            f"{promoted_legacy_ids!r}"
+        )
+    if (
+        policy.b1_authorization_validity_precondition
+        == PENDING_REVIEW_POLICY_PRECONDITION
+    ):
+        blocked.append(
+            "b0_early_rejection.authorization_rule.validity_precondition="
+            f"{PENDING_REVIEW_POLICY_PRECONDITION}"
+        )
+    if blocked:
+        details = ", ".join(blocked)
+        raise ValueError(
+            "B1 formal objective acquisition is blocked by policy "
+            f"({details}); prior B1 authorization and evidence are "
+            "superseded diagnostic artifacts and cannot be reused for a "
+            "formal decision"
+        )
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -523,16 +579,18 @@ def _objective_report(
         {
             "id": "protected-top1",
             "actual_hits": protected_hits,
-            "required_hits": policy.gate.protected_required,
-            "passed": protected_hits == policy.gate.protected_required,
+            "required_hits": policy.gate.legacy_protected_required,
+            "passed": protected_hits == policy.gate.legacy_protected_required,
         }
     )
-    if tuple(item["id"] for item in checks) != policy.b1_mandatory_objective_check_ids:
-        raise ValueError("B1 objective check sequence differs from policy")
-    passed = all(item["passed"] for item in checks)
+    if tuple(item["id"] for item in checks) != policy.b1_diagnostic_objective_check_ids:
+        raise ValueError("B1 diagnostic objective check sequence differs from policy")
+    diagnostic_checks_passed = all(item["passed"] for item in checks)
     base = {
         "schema": OBJECTIVE_SCHEMA,
-        "scope": "B1-objective-quality-continuation",
+        "scope": DIAGNOSTIC_SCOPE,
+        "measurement_validity": DIAGNOSTIC_MEASUREMENT_VALIDITY,
+        "formal_decision_eligible": False,
         "formal_evidence_status": "not_ready",
         "formal_adoption_allowed": False,
         "b2_evaluation_authorized": False,
@@ -560,13 +618,15 @@ def _objective_report(
             "category_top1_hits": category_deltas,
         },
         "gates": checks,
-        "passed": passed,
-        "next_step": (
-            "continue-b1-human-performance-stability"
-            if passed
-            else "b1-objective-failed-b2-not-authorized"
-        ),
+        "gate_interpretation": "diagnostic_only",
+        "diagnostic_checks_passed": diagnostic_checks_passed,
+        "passed": False,
+        "next_step": "blocked-pending-reviewed-interaction-protocol",
         "not_evaluated": [
+            "reviewed_mixed_input_quality",
+            "protected_normal_input_context",
+            "protected_reconversion",
+            "protected_f9_f10",
             "human_preference",
             "both_bad",
             "warm_latency_p95",
@@ -864,17 +924,22 @@ def acquire(
     contract: v2_acquisition.FrozenContract = v2_acquisition.FIXED_CONTRACT,
 ) -> dict[str, Any]:
     policy_path = _canonical_input(policy_path, "formal gate policy", directory=False)
-    prior_b0_root = _canonical_input(prior_b0_root, "prior B0 acquisition", directory=True)
-    authorization_path = _canonical_input(authorization_path, "B1 authorization", directory=False)
-    b1_bundle = _canonical_input(b1_bundle, "B1 bundle", directory=True)
-
     policy_bytes, policy_identity = _read_stable_input(policy_path, "formal gate policy")
-    authorization_bytes, authorization_identity = _read_stable_input(
-        authorization_path, "B1 authorization"
-    )
     policy = formal_gate.load_policy(policy_path)
     if _sha256(policy_bytes) != policy.policy_sha256:
         raise ValueError("formal gate policy bytes changed while parsed")
+    _require_formal_acquisition_ready(policy)
+
+    # Authorization and evidence are deliberately not even canonicalized until
+    # the current policy says the corrected interaction protocols are ready.
+    # This prevents a superseded authorization from becoming the authority for
+    # a new formal acquisition merely because its historical bytes still verify.
+    prior_b0_root = _canonical_input(prior_b0_root, "prior B0 acquisition", directory=True)
+    authorization_path = _canonical_input(authorization_path, "B1 authorization", directory=False)
+    b1_bundle = _canonical_input(b1_bundle, "B1 bundle", directory=True)
+    authorization_bytes, authorization_identity = _read_stable_input(
+        authorization_path, "B1 authorization"
+    )
     authorization_integrity = authorizer.verify_b1_authorization(
         policy_path, prior_b0_root, authorization_bytes
     )
@@ -1033,7 +1098,9 @@ def acquire(
         sealed_ref = prior.manifest["sealed_corpus"]
         manifest_base = {
             "schema": ACQUISITION_SCHEMA,
-            "scope": "B1-objective-quality-continuation",
+            "scope": DIAGNOSTIC_SCOPE,
+            "measurement_validity": DIAGNOSTIC_MEASUREMENT_VALIDITY,
+            "formal_decision_eligible": False,
             "formal_evidence_status": "not_ready",
             "formal_adoption_allowed": False,
             "b2_evaluation_authorized": False,
@@ -1081,7 +1148,9 @@ def acquire(
             },
             "host": host,
             "measurement": {
-                "purpose": "objective-quality-only",
+                "purpose": "legacy-objective-quality-diagnostic-only",
+                "objective_schema": OBJECTIVE_SCHEMA,
+                "measurement_validity": DIAGNOSTIC_MEASUREMENT_VALIDITY,
                 "execution_order": ["B1"],
                 "baseline_reused": "H0",
                 "warmups_per_case": WARMUPS,
@@ -1103,6 +1172,12 @@ def acquire(
             },
             "entries": [entry],
             "objective_quality": {
+                "schema": objective["schema"],
+                "scope": objective["scope"],
+                "measurement_validity": objective["measurement_validity"],
+                "formal_decision_eligible": objective[
+                    "formal_decision_eligible"
+                ],
                 "path": OBJECTIVE_NAME,
                 "sha256": _sha256(objective_bytes),
                 "passed": objective["passed"],

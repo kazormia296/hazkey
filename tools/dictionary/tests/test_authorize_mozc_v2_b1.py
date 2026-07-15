@@ -265,24 +265,63 @@ class B1AuthorizationTests(unittest.TestCase):
         manifest["integrity"] = digest(acquisition._canonical_json(base))
         rewrite_json(manifest_path, manifest)
 
-    def test_authorizes_only_the_failed_raw_objective_scope(self) -> None:
+    def test_legacy_protected_failure_is_diagnostic_and_cannot_authorize(self) -> None:
         with self.trusted_contract():
             result = authorizer.evaluate_early_rejection(
                 POLICY_FIXTURE, self.fail_root
             )
-            self.assertTrue(result["authorized"])
+            self.assertFalse(result["authorized"])
             self.assertEqual(result["scope"], "B1-evaluation-only")
             self.assertIs(result["formal_adoption_allowed"], False)
+            self.assertEqual(result["recomputed"]["failed_check_ids"], [])
             self.assertEqual(
-                result["recomputed"]["failed_check_ids"], ["protected-top1"]
+                result["recomputed"]["diagnostic_failed_check_ids"],
+                ["protected-top1"],
             )
+            self.assertFalse(result["recomputed"]["policy_revision_ready"])
             encoded = authorizer.encode_authorization(result)
-            self.assertEqual(
+            with self.assertRaisesRegex(ValueError, "not authorized"):
                 authorizer.verify_b1_authorization(
                     POLICY_FIXTURE, self.fail_root, encoded
-                ),
-                result["integrity"],
+                )
+
+    def test_status_only_ready_cannot_enable_legacy_check_ids(self) -> None:
+        status_only = replace(
+            self.fail_policy,
+            protected_input_protocol_status="ready",
+            mixed_input_protocol_status="ready",
+            b1_authorization_status="ready",
+        )
+        with self.trusted_contract(status_only):
+            result = authorizer.evaluate_early_rejection(
+                POLICY_FIXTURE, self.fail_root
             )
+        self.assertFalse(result["authorized"])
+        self.assertFalse(result["recomputed"]["policy_revision_ready"])
+        self.assertEqual(result["recomputed"]["checks"], [])
+
+    def test_legacy_diagnostic_check_ids_cannot_be_promoted_to_valid(self) -> None:
+        for check_id in ("protected-top1", "quality-top10-delta"):
+            with self.subTest(check_id=check_id):
+                promoted = replace(
+                    self.fail_policy,
+                    protected_input_protocol_status="ready",
+                    mixed_input_protocol_status="ready",
+                    b1_authorization_status="ready",
+                    b1_authorization_validity_precondition=(
+                        "reviewed-interaction-check-set:synthetic-unit-test-v1"
+                    ),
+                    b1_valid_mandatory_check_ids=(check_id,),
+                )
+                with self.trusted_contract(promoted), mock.patch.object(
+                    authorizer, "_capture_evidence"
+                ) as capture_evidence, self.assertRaisesRegex(
+                    ValueError, "overlap legacy diagnostic check IDs"
+                ):
+                    authorizer.evaluate_early_rejection(
+                        POLICY_FIXTURE, self.fail_root
+                    )
+                capture_evidence.assert_not_called()
 
     def test_all_objective_checks_pass_is_valid_but_not_authorized(self) -> None:
         with self.trusted_contract(self.pass_policy):
@@ -417,7 +456,7 @@ class B1AuthorizationTests(unittest.TestCase):
                 POLICY_FIXTURE, self.fail_root
             )
             tampered = dict(authorization)
-            tampered["authorized"] = False
+            tampered["authorized"] = True
             base = {
                 key: value for key, value in tampered.items() if key != "integrity"
             }
@@ -451,7 +490,7 @@ class B1AuthorizationTests(unittest.TestCase):
                             str(authorized_output),
                         ]
                     ),
-                    0,
+                    1,
                 )
             self.assertEqual(authorized_output.stat().st_mode & 0o777, 0o444)
             with self.trusted_contract(), mock.patch(

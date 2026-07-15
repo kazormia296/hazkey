@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import sys
@@ -124,7 +125,7 @@ class B1ContinuationTests(unittest.TestCase):
         changed: list[bytes] = []
         for line in raw.splitlines():
             value = json.loads(line)
-            if value["category"] == "protected":
+            if fail_protected and value["category"] == "protected":
                 value["candidates"] = ["incorrect-protected-surface"]
             changed.append(json.dumps(value, ensure_ascii=False, sort_keys=True).encode())
         return b"\n".join(changed) + b"\n"
@@ -244,7 +245,18 @@ class B1ContinuationTests(unittest.TestCase):
         return probe
 
     def _acquire(self, output: Path, probe=None):
+        # The checked-in policy intentionally has no formal positive path until
+        # reviewed interaction checks exist.  These legacy-path fixtures bypass
+        # only the new policy gate and authorization verdict so the existing
+        # snapshot, TOCTOU, and no-replace machinery remains under test.  The
+        # resulting synthetic report is explicitly diagnostic-only.
         with self.trusted_contract(), mock.patch.object(
+            b1, "_require_formal_acquisition_ready"
+        ), mock.patch.object(
+            authorizer,
+            "verify_b1_authorization",
+            return_value=self.authorization_value["integrity"],
+        ), mock.patch.object(
             v2,
             "_run_probe",
             side_effect=probe or self._b1_probe(),
@@ -265,6 +277,114 @@ class B1ContinuationTests(unittest.TestCase):
         v2._make_tree_removable(path)
         shutil.rmtree(path)
 
+    def test_current_policy_blocks_before_authorization_or_evidence_is_consumed(self) -> None:
+        output = self.root / "must-not-exist"
+        with mock.patch.object(
+            authorizer, "verify_b1_authorization"
+        ) as verify_authorization, mock.patch.object(
+            b1, "_capture_prior"
+        ) as capture_prior, mock.patch.object(
+            v2, "_run_probe"
+        ) as run_probe:
+            with self.assertRaisesRegex(
+                ValueError,
+                (
+                    r"B1 formal objective acquisition is blocked by policy.*"
+                    r"protected_input_protocol\.status=not_ready.*"
+                    r"mixed_input_protocol\.status=not_ready.*"
+                    r"authorization_rule\.status="
+                    r"blocked_pending_mixed_input_protocol_revalidation.*"
+                    r"valid_mandatory_check_ids=empty.*"
+                    r"validity_precondition="
+                    r"new-policy-revision-with-reviewed-interaction-check-ids.*"
+                    r"superseded diagnostic artifacts"
+                ),
+            ):
+                b1.acquire(
+                    policy_path=POLICY_FIXTURE,
+                    prior_b0_root=self.root / "missing-prior",
+                    authorization_path=self.authorization,
+                    b1_bundle=self.root / "missing-b1",
+                    output_directory=output,
+                    contract=self.fixture.contract,
+                )
+        verify_authorization.assert_not_called()
+        capture_prior.assert_not_called()
+        run_probe.assert_not_called()
+        self.assertFalse(output.exists())
+
+    def test_each_protocol_readiness_precondition_is_fail_closed(self) -> None:
+        ready = replace(
+            self.policy,
+            protected_input_protocol_status="ready",
+            mixed_input_protocol_status="ready",
+            b1_authorization_status="ready",
+            b1_authorization_validity_precondition=(
+                "reviewed-interaction-check-set:synthetic-unit-test-v1"
+            ),
+            b1_valid_mandatory_check_ids=(
+                "synthetic-reviewed-interaction-check",
+            ),
+        )
+        cases = (
+            (
+                replace(ready, protected_input_protocol_status="not_ready"),
+                "protected_input_protocol.status=not_ready",
+            ),
+            (
+                replace(ready, mixed_input_protocol_status="not_ready"),
+                "mixed_input_protocol.status=not_ready",
+            ),
+            (
+                replace(
+                    ready,
+                    b1_authorization_status=(
+                        "blocked_pending_mixed_input_protocol_revalidation"
+                    ),
+                ),
+                (
+                    "b0_early_rejection.authorization_rule.status="
+                    "blocked_pending_mixed_input_protocol_revalidation"
+                ),
+            ),
+            (
+                replace(ready, b1_valid_mandatory_check_ids=()),
+                (
+                    "b0_early_rejection.authorization_rule."
+                    "valid_mandatory_check_ids=empty"
+                ),
+            ),
+            (
+                replace(
+                    ready,
+                    b1_authorization_validity_precondition=(
+                        b1.PENDING_REVIEW_POLICY_PRECONDITION
+                    ),
+                ),
+                (
+                    "b0_early_rejection.authorization_rule."
+                    "validity_precondition="
+                    f"{b1.PENDING_REVIEW_POLICY_PRECONDITION}"
+                ),
+            ),
+            (
+                replace(
+                    ready,
+                    b1_valid_mandatory_check_ids=("protected-top1",),
+                ),
+                (
+                    "valid_mandatory_check_ids overlap legacy "
+                    "diagnostic_check_ids=['protected-top1']"
+                ),
+            ),
+        )
+        for policy, reason in cases:
+            with self.subTest(reason=reason):
+                with self.assertRaisesRegex(ValueError, re.escape(reason)):
+                    b1._require_formal_acquisition_ready(policy)
+
+        b1._require_formal_acquisition_ready(ready)
+
     def test_runs_only_b1_reuses_exact_h0_and_publishes_fail_closed_contract(self) -> None:
         output = self.root / "b1-evidence"
         calls: list[str] = []
@@ -277,6 +397,16 @@ class B1ContinuationTests(unittest.TestCase):
         manifest = self._acquire(output, recording)
         self.assertEqual(calls, ["B1"])
         self.assertEqual((output / "H0.jsonl").read_bytes(), (self.prior / "H0.jsonl").read_bytes())
+        self.assertEqual(manifest["schema"], b1.ACQUISITION_SCHEMA)
+        self.assertNotEqual(
+            manifest["schema"],
+            "hazkey.mozc-v2-b1-continuation-acquisition.v1",
+        )
+        self.assertEqual(manifest["scope"], b1.DIAGNOSTIC_SCOPE)
+        self.assertEqual(
+            manifest["measurement_validity"],
+            b1.DIAGNOSTIC_MEASUREMENT_VALIDITY,
+        )
         self.assertFalse(manifest["formal_adoption_allowed"])
         self.assertFalse(manifest["b2_evaluation_authorized"])
         self.assertEqual(manifest["measurement"]["execution_order"], ["B1"])
@@ -302,8 +432,38 @@ class B1ContinuationTests(unittest.TestCase):
             f"inputs/B1/{self.fixture.contract.b1.generation}",
         )
         objective = json.loads((output / b1.OBJECTIVE_NAME).read_text())
-        self.assertTrue(objective["passed"])
-        self.assertEqual(objective["next_step"], "continue-b1-human-performance-stability")
+        self.assertEqual(objective["schema"], b1.OBJECTIVE_SCHEMA)
+        self.assertNotEqual(
+            objective["schema"],
+            "hazkey.mozc-v2-b1-continuation-objective-quality.v1",
+        )
+        self.assertEqual(objective["scope"], b1.DIAGNOSTIC_SCOPE)
+        self.assertFalse(objective["passed"])
+        self.assertTrue(objective["diagnostic_checks_passed"])
+        self.assertFalse(objective["formal_decision_eligible"])
+        self.assertEqual(
+            objective["measurement_validity"],
+            b1.DIAGNOSTIC_MEASUREMENT_VALIDITY,
+        )
+        objective_ref = manifest["objective_quality"]
+        self.assertEqual(objective_ref["schema"], b1.OBJECTIVE_SCHEMA)
+        self.assertEqual(objective_ref["scope"], b1.DIAGNOSTIC_SCOPE)
+        self.assertEqual(
+            objective_ref["measurement_validity"],
+            b1.DIAGNOSTIC_MEASUREMENT_VALIDITY,
+        )
+        self.assertFalse(objective_ref["formal_decision_eligible"])
+        self.assertEqual(
+            manifest["measurement"]["objective_schema"], b1.OBJECTIVE_SCHEMA
+        )
+        self.assertEqual(
+            manifest["measurement"]["measurement_validity"],
+            b1.DIAGNOSTIC_MEASUREMENT_VALIDITY,
+        )
+        self.assertEqual(
+            objective["next_step"],
+            "blocked-pending-reviewed-interaction-protocol",
+        )
         authority = objective["authority"]
         self.assertEqual(authority["policy_sha256"], self.policy.policy_sha256)
         self.assertEqual(

@@ -111,16 +111,22 @@ class FormalV2GateTests(unittest.TestCase):
             gate.TRUSTED_B0_PYTHON_SOURCE_SHA256,
         )
         self.assertEqual(
-            self.policy.b1_mandatory_objective_check_ids,
-            gate.B1_MANDATORY_OBJECTIVE_CHECK_IDS,
+            self.policy.b1_diagnostic_objective_check_ids,
+            gate.B1_DIAGNOSTIC_OBJECTIVE_CHECK_IDS,
         )
+        self.assertEqual(self.policy.b1_valid_mandatory_check_ids, ())
+        self.assertEqual(
+            self.policy.protected_input_required_suite_ids,
+            gate.PROTECTED_INPUT_REQUIRED_SUITE_IDS,
+        )
+        self.assertEqual(self.policy.mixed_input_protocol_status, "not_ready")
         self.assertEqual(self.policy.b1_raw_run_ids, ("H0", "B0"))
         self.assertEqual(
             self.policy.trusted_b0_raw_run_sha256,
             gate.TRUSTED_B0_RAW_RUN_SHA256,
         )
 
-    def test_human_minus_thirty_seven_passes_minus_thirty_eight_fails(self) -> None:
+    def test_human_boundaries_are_diagnostic_until_interactions_are_reviewed(self) -> None:
         passing = self.metrics()
         passing["human"]["by_category"]["technical-mixed"] = {  # type: ignore[index]
             "wins": 0,
@@ -135,24 +141,32 @@ class FormalV2GateTests(unittest.TestCase):
             "ties": 202,
             "both_bad": 0,
         }
-        self.assertTrue(find_check(self.evaluate(passing), "human-net-preference")["passed"])
-        self.assertFalse(find_check(self.evaluate(failing), "human-net-preference")["passed"])
+        passing_check = find_check(self.evaluate(passing), "human-net-preference")
+        failing_check = find_check(self.evaluate(failing), "human-net-preference")
+        self.assertIsNone(passing_check["passed"])
+        self.assertIsNone(failing_check["passed"])
+        self.assertEqual(passing_check["actual"]["net_cases"], -37)
+        self.assertEqual(failing_check["actual"]["net_cases"], -38)
 
     def test_top1_minus_one_hundred_passes_minus_one_hundred_one_fails(self) -> None:
         passing = self.metrics()
         self.set_hits(passing, "candidate", "technical-mixed", top1=140)
         failing = self.metrics()
         self.set_hits(failing, "candidate", "technical-mixed", top1=139)
-        self.assertTrue(find_check(self.evaluate(passing), "top1-delta")["passed"])
-        self.assertFalse(find_check(self.evaluate(failing), "top1-delta")["passed"])
+        self.assertIsNone(find_check(self.evaluate(passing), "top1-delta")["passed"])
+        self.assertIsNone(find_check(self.evaluate(failing), "top1-delta")["passed"])
+        self.assertEqual(find_check(self.evaluate(passing), "top1-delta")["actual"]["delta_hits"], -100)
+        self.assertEqual(find_check(self.evaluate(failing), "top1-delta")["actual"]["delta_hits"], -101)
 
     def test_top10_minus_one_fifty_one_passes_minus_one_fifty_two_fails(self) -> None:
         passing = self.metrics()
         self.set_hits(passing, "candidate", "technical-mixed", top1=89, top10=89)
         failing = self.metrics()
         self.set_hits(failing, "candidate", "technical-mixed", top1=88, top10=88)
-        self.assertTrue(find_check(self.evaluate(passing), "top10-delta")["passed"])
-        self.assertFalse(find_check(self.evaluate(failing), "top10-delta")["passed"])
+        self.assertIsNone(find_check(self.evaluate(passing), "top10-delta")["passed"])
+        self.assertIsNone(find_check(self.evaluate(failing), "top10-delta")["passed"])
+        self.assertEqual(find_check(self.evaluate(passing), "top10-delta")["actual"]["delta_hits"], -151)
+        self.assertEqual(find_check(self.evaluate(failing), "top10-delta")["actual"]["delta_hits"], -152)
 
     def test_each_category_uses_its_exact_integer_boundary(self) -> None:
         for category, cases in gate.QUALITY_CATEGORIES.items():
@@ -173,15 +187,22 @@ class FormalV2GateTests(unittest.TestCase):
                     top1=cases - allowed_loss - 1,
                 )
                 check_id = f"category-top1-delta:{category}"
-                self.assertTrue(find_check(self.evaluate(passing), check_id)["passed"])
-                self.assertFalse(find_check(self.evaluate(failing), check_id)["passed"])
+                passing_check = find_check(self.evaluate(passing), check_id)
+                failing_check = find_check(self.evaluate(failing), check_id)
+                self.assertIsNone(passing_check["passed"])
+                self.assertIsNone(failing_check["passed"])
+                self.assertEqual(passing_check["actual"]["delta_hits"], -allowed_loss)
+                self.assertEqual(failing_check["actual"]["delta_hits"], -allowed_loss - 1)
 
-    def test_protected_one_hundred_passes_ninety_nine_fails(self) -> None:
+    def test_legacy_protected_top1_is_invalid_at_any_observed_value(self) -> None:
         passing = self.metrics()
         failing = self.metrics()
         self.set_hits(failing, "candidate", gate.PROTECTED_CATEGORY, top1=99)
-        self.assertTrue(find_check(self.evaluate(passing), "protected-cases")["passed"])
-        self.assertFalse(find_check(self.evaluate(failing), "protected-cases")["passed"])
+        for metrics, hits in ((passing, 100), (failing, 99)):
+            check = find_check(self.evaluate(metrics), "protected-input-protocol")
+            self.assertIsNone(check["passed"])
+            self.assertEqual(check["actual"]["legacy_abprobe_top1_hits"], hits)
+            self.assertEqual(check["comparison"]["reason"], "interaction-model-mismatch")
 
     def test_protected_is_excluded_from_overall_quality_delta(self) -> None:
         baseline = self.evaluate(self.metrics())
@@ -193,7 +214,42 @@ class FormalV2GateTests(unittest.TestCase):
                 find_check(result, check_id)["actual"],
                 find_check(baseline, check_id)["actual"],
             )
-        self.assertFalse(find_check(result, "protected-cases")["passed"])
+        self.assertIsNone(find_check(result, "protected-input-protocol")["passed"])
+
+    def test_full_string_quality_failures_cannot_claim_formal_failure(self) -> None:
+        for candidate_id in ("B0", "B1"):
+            with self.subTest(candidate_id=candidate_id):
+                metrics = self.metrics(candidate_id)
+                for category in gate.ALL_CATEGORIES:
+                    self.set_hits(
+                        metrics,
+                        "candidate",
+                        category,
+                        top1=0,
+                        top10=0,
+                    )
+                if candidate_id == "B1":
+                    # The normalized API still requires a raw wrapper for B1;
+                    # the check evaluator is the policy classification core.
+                    normalized = gate._normalize_metrics(self.policy, metrics)
+                    checks = gate._evaluate_checks(self.policy.gate, normalized)
+                    self.assertEqual(gate.derive_formal_result(checks), "inconclusive")
+                else:
+                    result = self.evaluate(metrics)
+                    self.assertEqual(result["gate_result"], "inconclusive")
+                    checks = result["checks"]
+                for check_id in (
+                    "top1-delta",
+                    "top10-delta",
+                    "category-top1-delta:technical-mixed",
+                    "category-top1-delta:grimodex-regression",
+                    "protected-input-protocol",
+                ):
+                    self.assertIsNone(
+                        next(item for item in checks if item["id"] == check_id)[
+                            "passed"
+                        ]
+                    )
 
     def test_human_schema_structurally_excludes_protected(self) -> None:
         metrics = self.metrics()
@@ -221,8 +277,10 @@ class FormalV2GateTests(unittest.TestCase):
             "ties": 180,
             "both_bad": 60,
         }
-        self.assertTrue(find_check(self.evaluate(passing), "both-bad")["passed"])
-        self.assertFalse(find_check(self.evaluate(failing), "both-bad")["passed"])
+        self.assertIsNone(find_check(self.evaluate(passing), "both-bad")["passed"])
+        self.assertIsNone(find_check(self.evaluate(failing), "both-bad")["passed"])
+        self.assertEqual(find_check(self.evaluate(passing), "both-bad")["actual"]["diagnostic_cases"], 59)
+        self.assertEqual(find_check(self.evaluate(failing), "both-bad")["actual"]["diagnostic_cases"], 60)
 
     def test_latency_exact_half_passes_any_decimal_over_fails(self) -> None:
         passing = self.metrics()
@@ -295,10 +353,10 @@ class FormalV2GateTests(unittest.TestCase):
         )
 
     def test_formal_result_is_three_state_and_never_authorizes_adoption(self) -> None:
-        passed = self.evaluate(self.metrics())
-        self.assertEqual(passed["gate_result"], "formal_pass")
-        self.assertIs(passed["formal_adoption_allowed"], False)
-        self.assertEqual(passed["formal_evidence_status"], "not_ready")
+        interaction_blocked = self.evaluate(self.metrics())
+        self.assertEqual(interaction_blocked["gate_result"], "inconclusive")
+        self.assertIs(interaction_blocked["formal_adoption_allowed"], False)
+        self.assertEqual(interaction_blocked["formal_evidence_status"], "not_ready")
 
         incomplete_metrics = self.metrics()
         incomplete_metrics["human"] = None
@@ -311,8 +369,22 @@ class FormalV2GateTests(unittest.TestCase):
         failed_metrics = copy.deepcopy(incomplete_metrics)
         self.set_hits(failed_metrics, "candidate", gate.PROTECTED_CATEGORY, top1=99)
         failed = self.evaluate(failed_metrics)
-        self.assertEqual(failed["gate_result"], "formal_fail")
+        self.assertEqual(failed["gate_result"], "inconclusive")
         self.assertTrue(any(item["passed"] is None for item in failed["checks"]))
+
+        observed_performance_failure = self.metrics()
+        observed_performance_failure["warm_latency_p95_ms"] = {
+            "hazkey": "1",
+            "candidate": "0.5001",
+        }
+        observed = self.evaluate(observed_performance_failure)
+        self.assertEqual(
+            observed["gate_result"],
+            "inconclusive",
+        )
+        self.assertFalse(
+            find_check(observed, "warm-latency-p95-ratio")["passed"]
+        )
 
     def test_metrics_category_shape_and_counts_fail_closed(self) -> None:
         mutations = []
@@ -373,10 +445,22 @@ class FormalV2GateTests(unittest.TestCase):
 
         rule_drift = copy.deepcopy(raw)
         rule_drift["b0_early_rejection"]["authorization_rule"][
-            "mandatory_check_ids"
+            "diagnostic_check_ids"
         ].pop()
-        with self.assertRaisesRegex(ValueError, "mandatory_check_ids"):
+        with self.assertRaisesRegex(ValueError, "diagnostic_check_ids"):
             gate.parse_policy(json.dumps(rule_drift).encode())
+
+        status_only_ready = copy.deepcopy(raw)
+        status_only_ready["mixed_input_protocol"]["status"] = "ready"
+        with self.assertRaisesRegex(ValueError, "mixed_input_protocol"):
+            gate.parse_policy(json.dumps(status_only_ready).encode())
+
+        invented_valid_ids = copy.deepcopy(raw)
+        invented_valid_ids["b0_early_rejection"]["authorization_rule"][
+            "valid_mandatory_check_ids"
+        ] = ["quality-top10-delta"]
+        with self.assertRaisesRegex(ValueError, "must be disjoint"):
+            gate.parse_policy(json.dumps(invented_valid_ids).encode())
 
         evidence_drift = copy.deepcopy(raw)
         evidence_drift["b0_early_rejection"]["trusted_acquisition"][
@@ -385,11 +469,98 @@ class FormalV2GateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "raw_run_sha256"):
             gate.parse_policy(json.dumps(evidence_drift).encode())
 
+    def test_new_protocol_contract_rejects_boolean_integer_aliases(self) -> None:
+        raw = json.loads(POLICY_FIXTURE.read_text(encoding="utf-8"))
+        mutations = (
+            (
+                (
+                    "protected_input_protocol",
+                    "legacy_abprobe_full_string_direct",
+                    "formal_eligible",
+                ),
+                0,
+                "must be a boolean",
+            ),
+            (
+                (
+                    "protected_input_protocol",
+                    "superseded_evidence",
+                    "formal_decision_eligible",
+                ),
+                0,
+                "must be a boolean",
+            ),
+            (
+                (
+                    "mixed_input_protocol",
+                    "diagnostic_ascii_free_quality_recalculation",
+                    "B0",
+                    "top10_passed",
+                ),
+                0,
+                "must be a boolean",
+            ),
+            (
+                (
+                    "mixed_input_protocol",
+                    "scope",
+                    "technical-mixed",
+                    "ascii_free",
+                ),
+                True,
+                "must be an integer",
+            ),
+            (
+                (
+                    "mixed_input_protocol",
+                    "scope",
+                    "homophone-context",
+                    "ascii_present",
+                ),
+                False,
+                "must be an integer",
+            ),
+        )
+        for path, replacement, expected_error in mutations:
+            with self.subTest(path=".".join(path), replacement=replacement):
+                mutated = copy.deepcopy(raw)
+                parent = mutated
+                for segment in path[:-1]:
+                    parent = parent[segment]
+                parent[path[-1]] = replacement
+                with self.assertRaisesRegex(ValueError, expected_error):
+                    gate.parse_policy(json.dumps(mutated).encode())
+
+    def test_future_b1_mandatory_ids_are_interaction_only_and_disjoint(self) -> None:
+        diagnostic_ids = gate.B1_DIAGNOSTIC_OBJECTIVE_CHECK_IDS
+        with self.assertRaisesRegex(ValueError, "must be disjoint"):
+            gate._validate_b1_authorization_check_sets(
+                diagnostic_ids,
+                ("quality-top10-delta",),
+                "authorization_rule",
+            )
+        with self.assertRaisesRegex(ValueError, "reviewed interaction evidence"):
+            gate._validate_b1_authorization_check_sets(
+                diagnostic_ids,
+                ("future-quality-check",),
+                "authorization_rule",
+            )
+
+        gate._validate_b1_authorization_check_sets(
+            diagnostic_ids,
+            (
+                "interaction:normal-input-context:left-context-preserved",
+                "interaction:reconversion:selected-string-replaced",
+                "interaction:alphabet-width-f9-f10:width-transform-committed",
+            ),
+            "authorization_rule",
+        )
+
     def test_b1_remains_blocked_with_a_canonical_not_ready_b0_formal_fail(self) -> None:
         b0_metrics = self.metrics("B0")
         self.set_hits(b0_metrics, "candidate", gate.PROTECTED_CATEGORY, top1=99)
         b0_result = self.evaluate(b0_metrics)
-        self.assertEqual(b0_result["gate_result"], "formal_fail")
+        self.assertEqual(b0_result["gate_result"], "inconclusive")
         b0_bytes = gate.encode_result(b0_result)
 
         b1_metrics = self.metrics("B1")

@@ -541,7 +541,7 @@ def _objective(
         category_deltas[category] = delta
         checks.append({"id": f"category-top1-delta:{category}", "actual_delta_hits": delta, "minimum_delta_hits": minimum, "passed": delta >= minimum})
     protected_hits = b0["protected"]["top1_hits"]
-    checks.append({"id": "protected-top1", "actual_hits": protected_hits, "required_hits": policy.gate.protected_required, "passed": protected_hits == policy.gate.protected_required})
+    checks.append({"id": "protected-top1", "actual_hits": protected_hits, "required_hits": policy.gate.legacy_protected_required, "passed": protected_hits == policy.gate.legacy_protected_required})
     passed = all(item["passed"] for item in checks)
     base = {
         "schema": OBJECTIVE_SCHEMA,
@@ -878,6 +878,15 @@ def _evaluate(policy_path: Path, acquisition_root: Path) -> dict[str, Any]:
         raise ValueError("early-rejection authorizer requires adoption to remain fail-closed")
     if policy.b1_authorization_schema != AUTHORIZATION_SCHEMA or policy.b1_authorization_scope != AUTHORIZATION_SCOPE:
         raise ValueError("policy does not bind this authorization schema and scope")
+    promoted_legacy_ids = sorted(
+        set(policy.b1_valid_mandatory_check_ids)
+        & set(policy.b1_diagnostic_objective_check_ids)
+    )
+    if promoted_legacy_ids:
+        raise ValueError(
+            "policy valid mandatory check IDs overlap legacy diagnostic check IDs: "
+            f"{promoted_legacy_ids!r}"
+        )
     snapshot = _capture_evidence(acquisition_root)
     if snapshot.tree_digest != policy.trusted_b0_acquisition_tree_digest:
         raise ValueError("acquisition tree is not the policy-accepted evidence")
@@ -903,12 +912,48 @@ def _evaluate(policy_path: Path, acquisition_root: Path) -> dict[str, Any]:
         "passed": objective["passed"], "next_step": objective["next_step"],
     }:
         raise ValueError("manifest objective binding mismatch")
-    check_ids = tuple(item["id"] for item in checks)
-    if check_ids != policy.b1_mandatory_objective_check_ids:
-        raise ValueError("recomputed objective checks do not match the policy rule")
-    if policy.b1_authorization_decision != "any-mandatory-objective-check-false":
+    checks_by_id = {item["id"]: item for item in checks}
+    if len(checks_by_id) != len(checks):
+        raise ValueError("recomputed objective contains duplicate check IDs")
+    try:
+        diagnostic_checks = [
+            checks_by_id[check_id]
+            for check_id in policy.b1_diagnostic_objective_check_ids
+        ]
+    except KeyError as error:
+        raise ValueError(
+            "recomputed objective does not contain every policy diagnostic check"
+        ) from error
+    if policy.b1_authorization_decision != (
+        "any-valid-mandatory-objective-check-false"
+    ):
         raise ValueError("unsupported policy early-rejection decision")
-    failed_ids = [item["id"] for item in checks if item["passed"] is False]
+    diagnostic_failed_ids = [
+        item["id"] for item in diagnostic_checks if item["passed"] is False
+    ]
+    interaction_protocols_ready = (
+        policy.protected_input_protocol_status == "ready"
+        and policy.mixed_input_protocol_status == "ready"
+        and policy.b1_authorization_status == "ready"
+    )
+    policy_revision_ready = (
+        interaction_protocols_ready
+        and policy.b1_authorization_validity_precondition
+        != "new-policy-revision-with-reviewed-interaction-check-ids"
+        and bool(policy.b1_valid_mandatory_check_ids)
+    )
+    try:
+        valid_checks = [
+            checks_by_id[check_id]
+            for check_id in policy.b1_valid_mandatory_check_ids
+        ]
+    except KeyError as error:
+        raise ValueError(
+            "recomputed objective does not contain every reviewed valid check"
+        ) from error
+    failed_ids = [
+        item["id"] for item in valid_checks if item["passed"] is False
+    ] if policy_revision_ready else []
     authorized = bool(failed_ids)
     manifest_bytes = snapshot.blobs[ACQUISITION_MANIFEST]
     base = {
@@ -939,8 +984,19 @@ def _evaluate(policy_path: Path, acquisition_root: Path) -> dict[str, Any]:
         },
         "recomputed": {
             "objective_integrity": objective["integrity"],
-            "checks": checks,
+            "checks": [
+                item | {"valid_for_authorization": policy_revision_ready}
+                for item in valid_checks
+            ],
+            "diagnostic_checks": [
+                item | {"valid_for_authorization": False}
+                for item in diagnostic_checks
+            ],
+            "diagnostic_failed_check_ids": diagnostic_failed_ids,
             "failed_check_ids": failed_ids,
+            "interaction_protocols_ready": interaction_protocols_ready,
+            "policy_revision_ready": policy_revision_ready,
+            "authorization_status": policy.b1_authorization_status,
         },
     }
     return base | {"integrity": _sha256(_canonical_json(base))}

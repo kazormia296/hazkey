@@ -83,7 +83,16 @@ RUNTIME_RESOURCE_FINGERPRINTS = {
 BLOCKING_ITEMS = (
     "candidate-aware raw acquisition validation",
     "candidate-aware native stability evidence validation",
+    "candidate-aware protected input protocol suite validation",
+    "candidate-aware mixed input protocol metadata validation",
 )
+PROTECTED_INPUT_PROTOCOL_STATUS = "not_ready"
+PROTECTED_INPUT_REQUIRED_SUITE_IDS = (
+    "normal-input-context",
+    "reconversion",
+    "alphabet-width-f9-f10",
+)
+MIXED_INPUT_PROTOCOL_STATUS = "not_ready"
 B1_AUTHORIZATION_SCHEMA = "hazkey.mozc-v2-b1-authorization.v1"
 B1_AUTHORIZATION_SCOPE = "B1-evaluation-only"
 TRUSTED_B0_ACQUISITION_SCHEMA = "hazkey.mozc-v2-objective-acquisition.v1"
@@ -121,8 +130,12 @@ TRUSTED_B0_PYTHON_SOURCE_SHA256 = {
         "sha256:52bb5c42a3e42a3c5df78033d2df168d1219dd8e1cf6ffcbe0269736645b9a5e"
     ),
 }
-B1_AUTHORIZATION_DECISION = "any-mandatory-objective-check-false"
-B1_MANDATORY_OBJECTIVE_CHECK_IDS = (
+B1_AUTHORIZATION_STATUS = "blocked_pending_mixed_input_protocol_revalidation"
+B1_AUTHORIZATION_DECISION = "any-valid-mandatory-objective-check-false"
+B1_AUTHORIZATION_VALIDITY_PRECONDITION = (
+    "new-policy-revision-with-reviewed-interaction-check-ids"
+)
+B1_DIAGNOSTIC_OBJECTIVE_CHECK_IDS = (
     "quality-top1-delta",
     "quality-top10-delta",
     "category-top1-delta:technical-mixed",
@@ -132,6 +145,11 @@ B1_MANDATORY_OBJECTIVE_CHECK_IDS = (
     "category-top1-delta:long-structural",
     "category-top1-delta:grimodex-regression",
     "protected-top1",
+)
+B1_VALID_MANDATORY_OBJECTIVE_CHECK_IDS: tuple[str, ...] = ()
+B1_INTERACTION_CHECK_ID_PATTERN = re.compile(
+    r"interaction:(?:normal-input-context|reconversion|alphabet-width-f9-f10):"
+    r"[a-z0-9]+(?:-[a-z0-9]+)*\Z"
 )
 B1_RAW_RUN_IDS = ("H0", "B0")
 B1_HISTORICAL_TEMPORARY_BASENAME_PATTERN = (
@@ -255,6 +273,66 @@ def _expect(value: Any, expected: Any, context: str) -> None:
         raise ValueError(f"{context} must be {expected!r}, got {value!r}")
 
 
+def _expect_typed_contract(value: Any, expected: Any, context: str) -> None:
+    """Compare a frozen JSON contract without Python's bool/int coercion."""
+
+    if isinstance(expected, dict):
+        payload = _object(value, context)
+        _exact(payload, set(expected), context)
+        for key, expected_value in expected.items():
+            _expect_typed_contract(
+                payload[key], expected_value, f"{context}.{key}"
+            )
+        return
+    if isinstance(expected, list):
+        payload = _array(value, context)
+        if len(payload) != len(expected):
+            raise ValueError(
+                f"{context} must contain {len(expected)} items, "
+                f"got {len(payload)}"
+            )
+        for index, (item, expected_item) in enumerate(zip(payload, expected)):
+            _expect_typed_contract(item, expected_item, f"{context}[{index}]")
+        return
+    if isinstance(expected, bool):
+        _expect(_boolean(value, context), expected, context)
+        return
+    if isinstance(expected, int):
+        _expect(_integer(value, context), expected, context)
+        return
+    if isinstance(expected, str):
+        _expect(_string(value, context), expected, context)
+        return
+    raise TypeError(f"unsupported frozen contract value at {context}")
+
+
+def _validate_b1_authorization_check_sets(
+    diagnostic_ids: tuple[str, ...],
+    valid_ids: tuple[str, ...],
+    context: str,
+) -> None:
+    if len(set(diagnostic_ids)) != len(diagnostic_ids):
+        raise ValueError(f"{context}.diagnostic_check_ids must be unique")
+    if len(set(valid_ids)) != len(valid_ids):
+        raise ValueError(f"{context}.valid_mandatory_check_ids must be unique")
+    overlap = set(diagnostic_ids) & set(valid_ids)
+    if overlap:
+        raise ValueError(
+            f"{context} diagnostic and valid mandatory check IDs must be "
+            f"disjoint; overlap={sorted(overlap)!r}"
+        )
+    invalid = [
+        check_id
+        for check_id in valid_ids
+        if B1_INTERACTION_CHECK_ID_PATTERN.fullmatch(check_id) is None
+    ]
+    if invalid:
+        raise ValueError(
+            f"{context}.valid_mandatory_check_ids must identify reviewed "
+            f"interaction evidence; invalid={invalid!r}"
+        )
+
+
 def _ceil_fraction(numerator: int, denominator: int) -> int:
     if denominator <= 0:
         raise ValueError("ceiling denominator must be positive")
@@ -298,7 +376,7 @@ class GatePolicy:
     minimum_top10_delta_hits: int
     minimum_category_basis_points: int
     minimum_category_delta_hits: dict[str, int]
-    protected_required: int
+    legacy_protected_required: int
     maximum_both_bad: int
     maximum_latency_ratio_basis_points: int
     maximum_pss_ratio_basis_points: int
@@ -320,8 +398,12 @@ class ParsedPolicy:
     formal_evidence_status: str
     formal_adoption_allowed: bool
     blocking_items: tuple[str, ...]
+    protected_input_protocol_status: str
+    protected_input_required_suite_ids: tuple[str, ...]
+    mixed_input_protocol_status: str
     b1_authorization_schema: str
     b1_authorization_scope: str
+    b1_authorization_status: str
     hazkey_dictionary_fingerprint: str
     trusted_b0_acquisition_schema: str
     trusted_b0_acquisition_manifest_sha256: str
@@ -331,7 +413,9 @@ class ParsedPolicy:
     trusted_b0_producer: dict[str, str]
     trusted_b0_python_source_sha256: dict[str, str]
     b1_authorization_decision: str
-    b1_mandatory_objective_check_ids: tuple[str, ...]
+    b1_authorization_validity_precondition: str
+    b1_diagnostic_objective_check_ids: tuple[str, ...]
+    b1_valid_mandatory_check_ids: tuple[str, ...]
     b1_raw_run_ids: tuple[str, ...]
     b1_historical_temporary_basename_pattern: str
     b1_raw_resource_suffixes: dict[str, str]
@@ -347,6 +431,8 @@ def parse_policy(data: bytes, context: str = "formal gate policy") -> ParsedPoli
             "decision_tier",
             "corpus_binding",
             "candidate_artifacts",
+            "protected_input_protocol",
+            "mixed_input_protocol",
             "candidate_sequence",
             "b0_early_rejection",
             "gates",
@@ -405,6 +491,259 @@ def parse_policy(data: bytes, context: str = "formal gate policy") -> ParsedPoli
     _expect(normalized_protected, {"category": PROTECTED_CATEGORY, "cases": PROTECTED_CASES, "included_in_quality": False}, f"{context}.corpus_binding.protected")
     _expect(_boolean(corpus["pilot_v1_counted"], f"{context}.corpus_binding.pilot_v1_counted"), False, f"{context}.corpus_binding.pilot_v1_counted")
 
+    protected_protocol = _object(
+        root["protected_input_protocol"],
+        f"{context}.protected_input_protocol",
+    )
+    _exact(
+        protected_protocol,
+        {
+            "status",
+            "legacy_abprobe_full_string_direct",
+            "required_suites",
+            "completion_rule",
+            "superseded_evidence",
+        },
+        f"{context}.protected_input_protocol",
+    )
+    _expect(
+        protected_protocol["status"],
+        PROTECTED_INPUT_PROTOCOL_STATUS,
+        f"{context}.protected_input_protocol.status",
+    )
+    legacy_probe = _object(
+        protected_protocol["legacy_abprobe_full_string_direct"],
+        f"{context}.protected_input_protocol.legacy_abprobe_full_string_direct",
+    )
+    _expect_typed_contract(
+        legacy_probe,
+        {
+            "corpus_category": PROTECTED_CATEGORY,
+            "cases": PROTECTED_CASES,
+            "classification": "reconversion-like",
+            "input_contract": {
+                "composition": "entire-reading-as-one-composition",
+                "element_input_style": "direct",
+                "left_context": "empty",
+                "right_context": "empty",
+            },
+            "formal_eligible": False,
+            "observed_result_status": "invalid_for_formal_gate",
+        },
+        f"{context}.protected_input_protocol.legacy_abprobe_full_string_direct",
+    )
+    required_suites = _array(
+        protected_protocol["required_suites"],
+        f"{context}.protected_input_protocol.required_suites",
+    )
+    expected_suites = [
+        {
+            "id": "normal-input-context",
+            "cases": "pending_review",
+            "evaluator_path": "fcitx-protocol-v2-product",
+            "input_contract": (
+                "committed-halfwidth-ascii-left-context-and-kana-only-composition"
+            ),
+        },
+        {
+            "id": "reconversion",
+            "cases": "pending_review",
+            "evaluator_path": "fcitx-selection-protocol-v2-product",
+            "input_contract": "selected-mixed-string-with-left-and-right-context",
+        },
+        {
+            "id": "alphabet-width-f9-f10",
+            "cases": "pending_review",
+            "evaluator_path": "fcitx-keymap-protocol-v2-product",
+            "input_contract": (
+                "separate-f9-fullwidth-and-f10-halfwidth-transform-and-commit"
+            ),
+        },
+    ]
+    _expect_typed_contract(
+        required_suites,
+        expected_suites,
+        f"{context}.protected_input_protocol.required_suites",
+    )
+    _expect(
+        protected_protocol["completion_rule"],
+        "all-required-suites-reviewed-and-passed",
+        f"{context}.protected_input_protocol.completion_rule",
+    )
+    superseded = _object(
+        protected_protocol["superseded_evidence"],
+        f"{context}.protected_input_protocol.superseded_evidence",
+    )
+    _expect_typed_contract(
+        superseded,
+        {
+            "reason": (
+                "legacy-protected-cases-used-a-full-string-direct-probe-instead-"
+                "of-the-required-product-input-protocols"
+            ),
+            "old_policy_sha256": (
+                "sha256:b9779203041feb414bd6992ea6f787f4f8a9e7fb196b7de88101b71a9ab2e998"
+            ),
+            "authorization": {
+                "document_sha256": (
+                    "sha256:eb2e552c5ec792c187c205fb7e1ab86df6b4e6717eb5eae218a0cee5b8c71171"
+                ),
+                "integrity": (
+                    "sha256:161020ccf6eff5931fb13069c06f40973a4b1aad8ea92c1b239a679736e7a6be"
+                ),
+            },
+            "b1_acquisition": {
+                "manifest_sha256": (
+                    "sha256:9ddfe68857e50600ba7b43d9d16fc2ec8d04a645ce3d2ca7f3b9ee204ffd0fa1"
+                ),
+                "manifest_integrity": (
+                    "sha256:cba2da23f2bdcec674fd7f672cea3599e2e316687d4bb5feb322ff7077437f3b"
+                ),
+                "objective_sha256": (
+                    "sha256:62187c3f6f82919abd23ed4212ccc2d14d36c652586cbf94ccf4432f7d9255e2"
+                ),
+                "objective_integrity": (
+                    "sha256:152be2100e463f87654edcdc8de68c466aa333099830db65605d2b977a8719b3"
+                ),
+                "raw_b1_sha256": (
+                    "sha256:b21cbe0b0ac760abd620c4fe3cfa866d990976eaec83b564a5663bf315078d61"
+                ),
+                "current_interpretation": (
+                    "not_ready:interaction-model-mismatch"
+                ),
+            },
+            "formal_decision_eligible": False,
+        },
+        f"{context}.protected_input_protocol.superseded_evidence",
+    )
+
+    mixed_protocol = _object(
+        root["mixed_input_protocol"],
+        f"{context}.mixed_input_protocol",
+    )
+    _expect_typed_contract(
+        mixed_protocol,
+        {
+            "status": MIXED_INPUT_PROTOCOL_STATUS,
+            "ascii_scan_contract": (
+                "reading-contains-any-code-point-u0000-through-u007f"
+            ),
+            "scope": {
+                "technical-mixed": {
+                    "cases": QUALITY_CATEGORIES["technical-mixed"],
+                    "ascii_present": 239,
+                    "ascii_free": 1,
+                },
+                "proper-noun": {
+                    "cases": QUALITY_CATEGORIES["proper-noun"],
+                    "ascii_present": 4,
+                    "ascii_free": 196,
+                },
+                "colloquial": {
+                    "cases": QUALITY_CATEGORIES["colloquial"],
+                    "ascii_present": 2,
+                    "ascii_free": 198,
+                },
+                "homophone-context": {
+                    "cases": QUALITY_CATEGORIES["homophone-context"],
+                    "ascii_present": 0,
+                    "ascii_free": 200,
+                },
+                "long-structural": {
+                    "cases": QUALITY_CATEGORIES["long-structural"],
+                    "ascii_present": 0,
+                    "ascii_free": 200,
+                },
+                "grimodex-regression": {
+                    "cases": QUALITY_CATEGORIES["grimodex-regression"],
+                    "ascii_present": 220,
+                    "ascii_free": 0,
+                },
+                "protected": {
+                    "cases": PROTECTED_CASES,
+                    "ascii_present": 100,
+                    "ascii_free": 0,
+                },
+            },
+            "totals": {
+                "cases": TOTAL_CASES,
+                "ascii_present": 565,
+                "ascii_free": 795,
+                "quality_ascii_present": 465,
+                "quality_ascii_free": 795,
+            },
+            "interaction_shape_audit": {
+                "single-left-context-plus-terminal-kana": {
+                    "cases": 431,
+                    "by_category": {
+                        "technical-mixed": 213,
+                        "proper-noun": 0,
+                        "colloquial": 1,
+                        "homophone-context": 0,
+                        "long-structural": 0,
+                        "grimodex-regression": 117,
+                        "protected": 100,
+                    },
+                },
+                "multiple-literals-or-explicit-reconversion-required": {
+                    "cases": 134,
+                    "by_category": {
+                        "technical-mixed": 26,
+                        "proper-noun": 4,
+                        "colloquial": 1,
+                        "homophone-context": 0,
+                        "long-structural": 0,
+                        "grimodex-regression": 103,
+                        "protected": 0,
+                    },
+                },
+            },
+            "ascii_present_interaction_metadata": "absent",
+            "required_metadata": [
+                "scenario-kind",
+                "action-trace",
+                "committed-left-context",
+                "right-context",
+                "composition-reading",
+                "input-style",
+                "requested-transform",
+                "expected-target",
+            ],
+            "formal_quality_use_rule": (
+                "ascii-mixed-rows-require-reviewed-interaction-metadata-before-"
+                "normal-input-use"
+            ),
+            "diagnostic_ascii_free_quality_recalculation": {
+                "status": "diagnostic_only",
+                "cases": 795,
+                "top10_minimum_delta_hits": -95,
+                "H0": {"top1_hits": 441, "top10_hits": 601},
+                "B0": {
+                    "top1_hits": 441,
+                    "top10_hits": 451,
+                    "top1_delta_hits": 0,
+                    "top10_delta_hits": -150,
+                    "top10_passed": False,
+                },
+                "B1": {
+                    "top1_hits": 444,
+                    "top10_hits": 607,
+                    "top1_delta_hits": 3,
+                    "top10_delta_hits": 6,
+                },
+                "formal_decision_eligible": False,
+                "current_interpretation": (
+                    "not_ready:interaction-model-mismatch"
+                ),
+                "unevaluable_category_gates": {
+                    "technical-mixed_ascii_free_cases": 1,
+                    "grimodex-regression_ascii_free_cases": 0,
+                },
+            },
+        },
+        f"{context}.mixed_input_protocol",
+    )
+
     artifacts = _object(root["candidate_artifacts"], f"{context}.candidate_artifacts")
     _exact(artifacts, {"source", "eligible_candidate_ids", "runtime_resource_fingerprints"}, f"{context}.candidate_artifacts")
     _expect(artifacts["source"], "corpus_binding.source_policy.artifact_freezes", f"{context}.candidate_artifacts.source")
@@ -462,12 +801,20 @@ def parse_policy(data: bytes, context: str = "formal gate policy") -> ParsedPoli
     _exact(
         rule,
         {
+            "status",
             "decision",
-            "mandatory_check_ids",
+            "validity_precondition",
+            "diagnostic_check_ids",
+            "valid_mandatory_check_ids",
             "raw_run_ids",
             "historical_resource_paths",
         },
         f"{context}.b0_early_rejection.authorization_rule",
+    )
+    _expect(
+        rule["status"],
+        B1_AUTHORIZATION_STATUS,
+        f"{context}.b0_early_rejection.authorization_rule.status",
     )
     _expect(
         rule["decision"],
@@ -475,9 +822,53 @@ def parse_policy(data: bytes, context: str = "formal gate policy") -> ParsedPoli
         f"{context}.b0_early_rejection.authorization_rule.decision",
     )
     _expect(
-        rule["mandatory_check_ids"],
-        list(B1_MANDATORY_OBJECTIVE_CHECK_IDS),
-        f"{context}.b0_early_rejection.authorization_rule.mandatory_check_ids",
+        rule["validity_precondition"],
+        B1_AUTHORIZATION_VALIDITY_PRECONDITION,
+        f"{context}.b0_early_rejection.authorization_rule.validity_precondition",
+    )
+    diagnostic_ids = tuple(
+        _string(
+            value,
+            f"{context}.b0_early_rejection.authorization_rule."
+            f"diagnostic_check_ids[{index}]",
+        )
+        for index, value in enumerate(
+            _array(
+                rule["diagnostic_check_ids"],
+                f"{context}.b0_early_rejection.authorization_rule."
+                "diagnostic_check_ids",
+            )
+        )
+    )
+    valid_mandatory_ids = tuple(
+        _string(
+            value,
+            f"{context}.b0_early_rejection.authorization_rule."
+            f"valid_mandatory_check_ids[{index}]",
+        )
+        for index, value in enumerate(
+            _array(
+                rule["valid_mandatory_check_ids"],
+                f"{context}.b0_early_rejection.authorization_rule."
+                "valid_mandatory_check_ids",
+            )
+        )
+    )
+    _validate_b1_authorization_check_sets(
+        diagnostic_ids,
+        valid_mandatory_ids,
+        f"{context}.b0_early_rejection.authorization_rule",
+    )
+    _expect(
+        list(diagnostic_ids),
+        list(B1_DIAGNOSTIC_OBJECTIVE_CHECK_IDS),
+        f"{context}.b0_early_rejection.authorization_rule.diagnostic_check_ids",
+    )
+    _expect(
+        list(valid_mandatory_ids),
+        list(B1_VALID_MANDATORY_OBJECTIVE_CHECK_IDS),
+        f"{context}.b0_early_rejection.authorization_rule."
+        "valid_mandatory_check_ids",
     )
     _expect(
         rule["raw_run_ids"],
@@ -679,8 +1070,18 @@ def parse_policy(data: bytes, context: str = "formal gate policy") -> ParsedPoli
         _expect(_ceil_fraction(-1000 * cases, 10_000), CATEGORY_MINIMUM_DELTA_HITS[category], f"{context}.gates.per_category_top1 integer boundary {category}")
 
     protected_gate = _object(gates["protected"], f"{context}.gates.protected")
-    _exact(protected_gate, {"category", "total_cases", "required_top1_hits"}, f"{context}.gates.protected")
-    _expect(protected_gate, {"category": PROTECTED_CATEGORY, "total_cases": PROTECTED_CASES, "required_top1_hits": PROTECTED_CASES}, f"{context}.gates.protected")
+    _expect_typed_contract(
+        protected_gate,
+        {
+            "category": PROTECTED_CATEGORY,
+            "total_cases": PROTECTED_CASES,
+            "legacy_required_top1_hits": PROTECTED_CASES,
+            "formal_eligible": False,
+            "observed_result_status": "invalid_for_formal_gate",
+            "replacement_suite_status": PROTECTED_INPUT_PROTOCOL_STATUS,
+        },
+        f"{context}.gates.protected",
+    )
     both_bad = _object(gates["both_bad"], f"{context}.gates.both_bad")
     _exact(both_bad, {"scope", "maximum_cases"}, f"{context}.gates.both_bad")
     _expect(both_bad, {"scope": "quality_categories", "maximum_cases": 59}, f"{context}.gates.both_bad")
@@ -721,7 +1122,7 @@ def parse_policy(data: bytes, context: str = "formal gate policy") -> ParsedPoli
         minimum_top10_delta_hits=-151,
         minimum_category_basis_points=-1000,
         minimum_category_delta_hits=dict(CATEGORY_MINIMUM_DELTA_HITS),
-        protected_required=PROTECTED_CASES,
+        legacy_protected_required=PROTECTED_CASES,
         maximum_both_bad=59,
         maximum_latency_ratio_basis_points=5000,
         maximum_pss_ratio_basis_points=12500,
@@ -741,8 +1142,12 @@ def parse_policy(data: bytes, context: str = "formal gate policy") -> ParsedPoli
         formal_evidence_status=FORMAL_EVIDENCE_STATUS,
         formal_adoption_allowed=FORMAL_ADOPTION_ALLOWED,
         blocking_items=BLOCKING_ITEMS,
+        protected_input_protocol_status=PROTECTED_INPUT_PROTOCOL_STATUS,
+        protected_input_required_suite_ids=PROTECTED_INPUT_REQUIRED_SUITE_IDS,
+        mixed_input_protocol_status=MIXED_INPUT_PROTOCOL_STATUS,
         b1_authorization_schema=B1_AUTHORIZATION_SCHEMA,
         b1_authorization_scope=B1_AUTHORIZATION_SCOPE,
+        b1_authorization_status=B1_AUTHORIZATION_STATUS,
         hazkey_dictionary_fingerprint=HAZKEY_DICTIONARY_FINGERPRINT,
         trusted_b0_acquisition_schema=TRUSTED_B0_ACQUISITION_SCHEMA,
         trusted_b0_acquisition_manifest_sha256=(
@@ -756,7 +1161,11 @@ def parse_policy(data: bytes, context: str = "formal gate policy") -> ParsedPoli
         trusted_b0_producer=dict(TRUSTED_B0_PRODUCER),
         trusted_b0_python_source_sha256=dict(TRUSTED_B0_PYTHON_SOURCE_SHA256),
         b1_authorization_decision=B1_AUTHORIZATION_DECISION,
-        b1_mandatory_objective_check_ids=B1_MANDATORY_OBJECTIVE_CHECK_IDS,
+        b1_authorization_validity_precondition=(
+            B1_AUTHORIZATION_VALIDITY_PRECONDITION
+        ),
+        b1_diagnostic_objective_check_ids=diagnostic_ids,
+        b1_valid_mandatory_check_ids=valid_mandatory_ids,
         b1_raw_run_ids=B1_RAW_RUN_IDS,
         b1_historical_temporary_basename_pattern=(
             B1_HISTORICAL_TEMPORARY_BASENAME_PATTERN
@@ -916,21 +1325,23 @@ def _check(check_id: str, passed: bool | None, actual: Any, comparison: Any, lim
     return {"id": check_id, "passed": passed, "actual": actual, "comparison": comparison, "limit": limit}
 
 
-def _delta_check(check_id: str, baseline: int, candidate: int, cases: int, minimum_basis_points: int, minimum_hits: int) -> dict[str, Any]:
-    delta = candidate - baseline
-    left = delta * 10_000
-    right = minimum_basis_points * cases
-    return _check(
-        check_id,
-        left >= right and delta >= minimum_hits,
-        {"hazkey_hits": baseline, "candidate_hits": candidate, "delta_hits": delta, "cases": cases},
-        {"left": left, "operator": ">=", "right": right},
-        {"minimum_basis_points": minimum_basis_points, "minimum_delta_hits": minimum_hits},
-    )
-
-
 def _not_run(check_id: str, limit: Any) -> dict[str, Any]:
     return _check(check_id, None, None, {"status": "not_run"}, limit)
+
+
+def _invalid_interaction_check(
+    check_id: str, actual: Any, limit: Any
+) -> dict[str, Any]:
+    return _check(
+        check_id,
+        None,
+        actual,
+        {
+            "status": "invalid",
+            "reason": "interaction-model-mismatch",
+        },
+        limit,
+    )
 
 
 def _evaluate_checks(gate: GatePolicy, metrics: dict[str, Any]) -> list[dict[str, Any]]:
@@ -945,7 +1356,24 @@ def _evaluate_checks(gate: GatePolicy, metrics: dict[str, Any]) -> list[dict[str
         net = wins - losses
         left = net * 10_000
         right = gate.minimum_human_basis_points * gate.quality_cases
-        checks.append(_check("human-net-preference", left >= right and net >= gate.minimum_human_net_cases, {"wins": wins, "losses": losses, "net_cases": net, "cases": gate.quality_cases}, {"left": left, "operator": ">=", "right": right}, {"minimum_basis_points": gate.minimum_human_basis_points, "minimum_net_cases": gate.minimum_human_net_cases}))
+        checks.append(_invalid_interaction_check(
+            "human-net-preference",
+            {
+                "wins": wins,
+                "losses": losses,
+                "net_cases": net,
+                "cases": gate.quality_cases,
+                "diagnostic_comparison": {
+                    "left": left,
+                    "operator": ">=",
+                    "right": right,
+                },
+            },
+            {
+                "minimum_basis_points": gate.minimum_human_basis_points,
+                "minimum_net_cases": gate.minimum_human_net_cases,
+            },
+        ))
 
     quality = metrics["quality"]
     totals: dict[str, dict[str, int]] = {}
@@ -955,19 +1383,76 @@ def _evaluate_checks(gate: GatePolicy, metrics: dict[str, Any]) -> list[dict[str
             "top1_hits": sum(categories[category]["top1_hits"] for category in gate.quality_categories),
             "top10_hits": sum(categories[category]["top10_hits"] for category in gate.quality_categories),
         }
-    checks.append(_delta_check("top1-delta", totals["hazkey"]["top1_hits"], totals["candidate"]["top1_hits"], gate.quality_cases, gate.minimum_top1_basis_points, gate.minimum_top1_delta_hits))
-    checks.append(_delta_check("top10-delta", totals["hazkey"]["top10_hits"], totals["candidate"]["top10_hits"], gate.quality_cases, gate.minimum_top10_basis_points, gate.minimum_top10_delta_hits))
+    for check_id, metric, basis_points, minimum_hits in (
+        ("top1-delta", "top1_hits", gate.minimum_top1_basis_points, gate.minimum_top1_delta_hits),
+        ("top10-delta", "top10_hits", gate.minimum_top10_basis_points, gate.minimum_top10_delta_hits),
+    ):
+        baseline = totals["hazkey"][metric]
+        candidate = totals["candidate"][metric]
+        delta = candidate - baseline
+        checks.append(_invalid_interaction_check(
+            check_id,
+            {
+                "hazkey_hits": baseline,
+                "candidate_hits": candidate,
+                "delta_hits": delta,
+                "cases": gate.quality_cases,
+                "diagnostic_comparison": {
+                    "left": delta * 10_000,
+                    "operator": ">=",
+                    "right": basis_points * gate.quality_cases,
+                },
+            },
+            {
+                "minimum_basis_points": basis_points,
+                "minimum_delta_hits": minimum_hits,
+            },
+        ))
     for category, cases in gate.quality_categories.items():
-        checks.append(_delta_check(f"category-top1-delta:{category}", quality["hazkey"]["categories"][category]["top1_hits"], quality["candidate"]["categories"][category]["top1_hits"], cases, gate.minimum_category_basis_points, gate.minimum_category_delta_hits[category]))
+        baseline = quality["hazkey"]["categories"][category]["top1_hits"]
+        candidate = quality["candidate"]["categories"][category]["top1_hits"]
+        delta = candidate - baseline
+        checks.append(_invalid_interaction_check(
+            f"category-top1-delta:{category}",
+            {
+                "hazkey_hits": baseline,
+                "candidate_hits": candidate,
+                "delta_hits": delta,
+                "cases": cases,
+                "diagnostic_comparison": {
+                    "left": delta * 10_000,
+                    "operator": ">=",
+                    "right": gate.minimum_category_basis_points * cases,
+                },
+            },
+            {
+                "minimum_basis_points": gate.minimum_category_basis_points,
+                "minimum_delta_hits": gate.minimum_category_delta_hits[category],
+            },
+        ))
 
     protected_hits = quality["candidate"]["categories"][PROTECTED_CATEGORY]["top1_hits"]
-    checks.append(_check("protected-cases", protected_hits == gate.protected_required, protected_hits, {"operator": "=="}, gate.protected_required))
+    checks.append(_invalid_interaction_check(
+        "protected-input-protocol",
+        {
+            "legacy_abprobe_top1_hits": protected_hits,
+            "legacy_cases": PROTECTED_CASES,
+        },
+        {
+            "status": PROTECTED_INPUT_PROTOCOL_STATUS,
+            "required_suite_ids": list(PROTECTED_INPUT_REQUIRED_SUITE_IDS),
+        },
+    ))
 
     if human is None:
         checks.append(_not_run("both-bad", gate.maximum_both_bad))
     else:
         both_bad = sum(item["both_bad"] for item in human["by_category"].values())
-        checks.append(_check("both-bad", both_bad <= gate.maximum_both_bad, both_bad, {"operator": "<="}, gate.maximum_both_bad))
+        checks.append(_invalid_interaction_check(
+            "both-bad",
+            {"diagnostic_cases": both_bad},
+            gate.maximum_both_bad,
+        ))
 
     latency = metrics["warm_latency_p95_ms"]
     if latency is None:
@@ -1025,12 +1510,22 @@ def encode_result(result: dict[str, Any]) -> bytes:
 
 def _result_base(policy: ParsedPolicy, metrics: dict[str, Any], checks: list[dict[str, Any]], prior_sha256: str | None) -> dict[str, Any]:
     candidate_id = metrics["candidate_id"]
+    derived_result = derive_formal_result(checks)
+    if (
+        policy.protected_input_protocol_status != "ready"
+        or policy.mixed_input_protocol_status != "ready"
+    ):
+        # Performance and stability observations remain visible in `checks`,
+        # but no normalized payload may become a formal pass or fail while the
+        # evaluated text does not model the product interaction that produced
+        # it.
+        derived_result = "inconclusive"
     return {
         "schema": RESULT_SCHEMA,
         "decision_tier": DECISION_TIER,
         "formal_evidence_status": policy.formal_evidence_status,
         "formal_adoption_allowed": policy.formal_adoption_allowed,
-        "gate_result": derive_formal_result(checks),
+        "gate_result": derived_result,
         "policy_id": policy.policy_id,
         "policy_sha256": policy.policy_sha256,
         "candidate_id": candidate_id,

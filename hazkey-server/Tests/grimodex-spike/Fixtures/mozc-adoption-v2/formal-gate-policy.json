@@ -45,6 +45,174 @@
       "B1": "sha256:65f3f341f491c1deec1182743c4923db3c7ad6f2609cb50cfde9c0a6b8e3adaa"
     }
   },
+  "protected_input_protocol": {
+    "status": "not_ready",
+    "legacy_abprobe_full_string_direct": {
+      "corpus_category": "protected",
+      "cases": 100,
+      "classification": "reconversion-like",
+      "input_contract": {
+        "composition": "entire-reading-as-one-composition",
+        "element_input_style": "direct",
+        "left_context": "empty",
+        "right_context": "empty"
+      },
+      "formal_eligible": false,
+      "observed_result_status": "invalid_for_formal_gate"
+    },
+    "required_suites": [
+      {
+        "id": "normal-input-context",
+        "cases": "pending_review",
+        "evaluator_path": "fcitx-protocol-v2-product",
+        "input_contract": "committed-halfwidth-ascii-left-context-and-kana-only-composition"
+      },
+      {
+        "id": "reconversion",
+        "cases": "pending_review",
+        "evaluator_path": "fcitx-selection-protocol-v2-product",
+        "input_contract": "selected-mixed-string-with-left-and-right-context"
+      },
+      {
+        "id": "alphabet-width-f9-f10",
+        "cases": "pending_review",
+        "evaluator_path": "fcitx-keymap-protocol-v2-product",
+        "input_contract": "separate-f9-fullwidth-and-f10-halfwidth-transform-and-commit"
+      }
+    ],
+    "completion_rule": "all-required-suites-reviewed-and-passed",
+    "superseded_evidence": {
+      "reason": "legacy-protected-cases-used-a-full-string-direct-probe-instead-of-the-required-product-input-protocols",
+      "old_policy_sha256": "sha256:b9779203041feb414bd6992ea6f787f4f8a9e7fb196b7de88101b71a9ab2e998",
+      "authorization": {
+        "document_sha256": "sha256:eb2e552c5ec792c187c205fb7e1ab86df6b4e6717eb5eae218a0cee5b8c71171",
+        "integrity": "sha256:161020ccf6eff5931fb13069c06f40973a4b1aad8ea92c1b239a679736e7a6be"
+      },
+      "b1_acquisition": {
+        "manifest_sha256": "sha256:9ddfe68857e50600ba7b43d9d16fc2ec8d04a645ce3d2ca7f3b9ee204ffd0fa1",
+        "manifest_integrity": "sha256:cba2da23f2bdcec674fd7f672cea3599e2e316687d4bb5feb322ff7077437f3b",
+        "objective_sha256": "sha256:62187c3f6f82919abd23ed4212ccc2d14d36c652586cbf94ccf4432f7d9255e2",
+        "objective_integrity": "sha256:152be2100e463f87654edcdc8de68c466aa333099830db65605d2b977a8719b3",
+        "raw_b1_sha256": "sha256:b21cbe0b0ac760abd620c4fe3cfa866d990976eaec83b564a5663bf315078d61",
+        "current_interpretation": "not_ready:interaction-model-mismatch"
+      },
+      "formal_decision_eligible": false
+    }
+  },
+  "mixed_input_protocol": {
+    "status": "not_ready",
+    "ascii_scan_contract": "reading-contains-any-code-point-u0000-through-u007f",
+    "scope": {
+      "technical-mixed": {
+        "cases": 240,
+        "ascii_present": 239,
+        "ascii_free": 1
+      },
+      "proper-noun": {
+        "cases": 200,
+        "ascii_present": 4,
+        "ascii_free": 196
+      },
+      "colloquial": {
+        "cases": 200,
+        "ascii_present": 2,
+        "ascii_free": 198
+      },
+      "homophone-context": {
+        "cases": 200,
+        "ascii_present": 0,
+        "ascii_free": 200
+      },
+      "long-structural": {
+        "cases": 200,
+        "ascii_present": 0,
+        "ascii_free": 200
+      },
+      "grimodex-regression": {
+        "cases": 220,
+        "ascii_present": 220,
+        "ascii_free": 0
+      },
+      "protected": {
+        "cases": 100,
+        "ascii_present": 100,
+        "ascii_free": 0
+      }
+    },
+    "totals": {
+      "cases": 1360,
+      "ascii_present": 565,
+      "ascii_free": 795,
+      "quality_ascii_present": 465,
+      "quality_ascii_free": 795
+    },
+    "interaction_shape_audit": {
+      "single-left-context-plus-terminal-kana": {
+        "cases": 431,
+        "by_category": {
+          "technical-mixed": 213,
+          "proper-noun": 0,
+          "colloquial": 1,
+          "homophone-context": 0,
+          "long-structural": 0,
+          "grimodex-regression": 117,
+          "protected": 100
+        }
+      },
+      "multiple-literals-or-explicit-reconversion-required": {
+        "cases": 134,
+        "by_category": {
+          "technical-mixed": 26,
+          "proper-noun": 4,
+          "colloquial": 1,
+          "homophone-context": 0,
+          "long-structural": 0,
+          "grimodex-regression": 103,
+          "protected": 0
+        }
+      }
+    },
+    "ascii_present_interaction_metadata": "absent",
+    "required_metadata": [
+      "scenario-kind",
+      "action-trace",
+      "committed-left-context",
+      "right-context",
+      "composition-reading",
+      "input-style",
+      "requested-transform",
+      "expected-target"
+    ],
+    "formal_quality_use_rule": "ascii-mixed-rows-require-reviewed-interaction-metadata-before-normal-input-use",
+    "diagnostic_ascii_free_quality_recalculation": {
+      "status": "diagnostic_only",
+      "cases": 795,
+      "top10_minimum_delta_hits": -95,
+      "H0": {
+        "top1_hits": 441,
+        "top10_hits": 601
+      },
+      "B0": {
+        "top1_hits": 441,
+        "top10_hits": 451,
+        "top1_delta_hits": 0,
+        "top10_delta_hits": -150,
+        "top10_passed": false
+      },
+      "B1": {
+        "top1_hits": 444,
+        "top10_hits": 607,
+        "top1_delta_hits": 3,
+        "top10_delta_hits": 6
+      },
+      "formal_decision_eligible": false,
+      "current_interpretation": "not_ready:interaction-model-mismatch",
+      "unevaluable_category_gates": {
+        "technical-mixed_ascii_free_cases": 1,
+        "grimodex-regression_ascii_free_cases": 0
+      }
+    }
+  },
   "candidate_sequence": {
     "evaluate_first": "B0",
     "evaluate_B1_only_if_B0_result": "verified_raw_early_formal_fail",
@@ -66,8 +234,10 @@
     "authorization_scope": "B1-evaluation-only",
     "hazkey_dictionary_fingerprint": "sha256:cee9210b8dc92a30e8b4e600c416db70a51fed1199f6b4c3659aba821ef4024c",
     "authorization_rule": {
-      "decision": "any-mandatory-objective-check-false",
-      "mandatory_check_ids": [
+      "status": "blocked_pending_mixed_input_protocol_revalidation",
+      "decision": "any-valid-mandatory-objective-check-false",
+      "validity_precondition": "new-policy-revision-with-reviewed-interaction-check-ids",
+      "diagnostic_check_ids": [
         "quality-top1-delta",
         "quality-top10-delta",
         "category-top1-delta:technical-mixed",
@@ -78,6 +248,7 @@
         "category-top1-delta:grimodex-regression",
         "protected-top1"
       ],
+      "valid_mandatory_check_ids": [],
       "raw_run_ids": [
         "H0",
         "B0"
@@ -151,7 +322,10 @@
     "protected": {
       "category": "protected",
       "total_cases": 100,
-      "required_top1_hits": 100
+      "legacy_required_top1_hits": 100,
+      "formal_eligible": false,
+      "observed_result_status": "invalid_for_formal_gate",
+      "replacement_suite_status": "not_ready"
     },
     "both_bad": {
       "scope": "quality_categories",
@@ -184,7 +358,9 @@
     "formal_adoption_allowed": false,
     "blocking_items": [
       "candidate-aware raw acquisition validation",
-      "candidate-aware native stability evidence validation"
+      "candidate-aware native stability evidence validation",
+      "candidate-aware protected input protocol suite validation",
+      "candidate-aware mixed input protocol metadata validation"
     ]
   }
 }
