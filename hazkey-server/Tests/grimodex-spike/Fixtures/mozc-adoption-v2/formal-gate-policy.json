@@ -1,0 +1,132 @@
+{
+  "schema": "hazkey.mozc-adoption-formal-gate-policy.v2",
+  "policy_id": "mozc-adoption-v2-formal-gate",
+  "decision_tier": "formal",
+  "corpus_binding": {
+    "generation": "sealed-v2-sha256-b4c1351b1b0ef7797349ebf26858db4d0dd69ce1c8bcbfaee88e0f0b644225ed",
+    "manifest": {
+      "schema": "hazkey.frozen-conversion-corpus-manifest.v2",
+      "path": "sealed-v2-sha256-b4c1351b1b0ef7797349ebf26858db4d0dd69ce1c8bcbfaee88e0f0b644225ed/manifest.json",
+      "sha256": "sha256:3ccefa5552d1c0d851b07cc1ed8f65983dd7db019d9250509f2467af7bfd1c02"
+    },
+    "aggregate": {
+      "path": "sealed-v2-sha256-b4c1351b1b0ef7797349ebf26858db4d0dd69ce1c8bcbfaee88e0f0b644225ed/formal-corpus.tsv",
+      "sha256": "sha256:cdb2a017b4548f6f77ec3d466f84ec09268a74adb5e876e224e01069f128c8ae",
+      "total_cases": 1360,
+      "quality_cases": 1260
+    },
+    "source_policy": {
+      "path": "sealed-v2-sha256-b4c1351b1b0ef7797349ebf26858db4d0dd69ce1c8bcbfaee88e0f0b644225ed/corpus-policy.json",
+      "sha256": "sha256:7b0a8e8ddcc9f8d2bfffd7dac6f365d7d5b1cf4ff42b92ba9fc4c99fce7f9220"
+    },
+    "quality_categories": {
+      "technical-mixed": 240,
+      "proper-noun": 200,
+      "colloquial": 200,
+      "homophone-context": 200,
+      "long-structural": 200,
+      "grimodex-regression": 220
+    },
+    "protected": {
+      "category": "protected",
+      "cases": 100,
+      "included_in_quality": false
+    },
+    "pilot_v1_counted": false
+  },
+  "candidate_artifacts": {
+    "source": "corpus_binding.source_policy.artifact_freezes",
+    "eligible_candidate_ids": [
+      "B0",
+      "B1"
+    ],
+    "runtime_resource_fingerprints": {
+      "B0": "sha256:2ba2cccb3c7489def988b63b0f0fd2cd96469521569c4807b63c80d2b50d3063",
+      "B1": "sha256:65f3f341f491c1deec1182743c4923db3c7ad6f2609cb50cfde9c0a6b8e3adaa"
+    }
+  },
+  "candidate_sequence": {
+    "evaluate_first": "B0",
+    "evaluate_B1_only_if_B0_result": "formal_fail",
+    "B1_prior_result_binding": [
+      "policy_sha256",
+      "corpus_manifest_sha256",
+      "corpus_sha256",
+      "result_integrity"
+    ],
+    "B2_eligible": false,
+    "post_disclosure_new_candidate_policy": "new_holdout_required"
+  },
+  "gates": {
+    "human_net_preference": {
+      "scope": "quality_categories",
+      "comparison_backend": "hazkey",
+      "denominator_cases": 1260,
+      "minimum_basis_points": -300,
+      "minimum_net_cases": -37
+    },
+    "top1": {
+      "scope": "quality_categories",
+      "comparison_backend": "hazkey",
+      "minimum_delta_basis_points": -800,
+      "minimum_delta_hits": -100
+    },
+    "top10": {
+      "scope": "quality_categories",
+      "comparison_backend": "hazkey",
+      "minimum_delta_basis_points": -1200,
+      "minimum_delta_hits": -151
+    },
+    "per_category_top1": {
+      "scope": "quality_categories",
+      "comparison_backend": "hazkey",
+      "minimum_delta_basis_points": -1000,
+      "minimum_delta_hits": {
+        "technical-mixed": -24,
+        "proper-noun": -20,
+        "colloquial": -20,
+        "homophone-context": -20,
+        "long-structural": -20,
+        "grimodex-regression": -22
+      }
+    },
+    "protected": {
+      "category": "protected",
+      "total_cases": 100,
+      "required_top1_hits": 100
+    },
+    "both_bad": {
+      "scope": "quality_categories",
+      "maximum_cases": 59
+    },
+    "warm_latency_p95": {
+      "comparison_backend": "hazkey",
+      "maximum_ratio_basis_points": 5000
+    },
+    "pss": {
+      "comparison_backend": "hazkey",
+      "maximum_ratio_basis_points": 12500
+    },
+    "long_running_stability": {
+      "required_result": "all_pass",
+      "required_check_ids": [
+        "adapter-soak-150k",
+        "protocol-v2-steady-1500",
+        "protocol-v2-recovery",
+        "fcitx-long-soak-150k",
+        "fcitx-lifecycle-3x100"
+      ]
+    }
+  },
+  "api_contract": {
+    "normalized_metrics_schema": "hazkey.mozc-adoption-formal-gate-metrics.v2",
+    "result_schema": "hazkey.mozc-adoption-formal-gate-result.v2",
+    "formal_evidence_status": "not_ready",
+    "precomputed_metrics_are_formal_evidence": false,
+    "formal_adoption_allowed": false,
+    "blocking_items": [
+      "candidate-aware raw acquisition validation",
+      "candidate-aware native stability evidence validation"
+    ]
+  }
+}
