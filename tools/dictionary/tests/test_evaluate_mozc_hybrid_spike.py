@@ -725,6 +725,7 @@ class MozcHybridSpikeEvaluationTests(unittest.TestCase):
         )
         self.assertNotIn("top1", report)
         diagnostic = report["diagnostic_target_comparable"]
+        self.assertNotIn("quality_decomposition", diagnostic)
         self.assertEqual(
             diagnostic["category_scope"],
             {
@@ -743,6 +744,7 @@ class MozcHybridSpikeEvaluationTests(unittest.TestCase):
         )
 
         formal = report["formal_quality"]
+        self.assertNotIn("quality_decomposition", formal)
         self.assertFalse(formal["formal_authorized"])
         self.assertEqual(
             formal["case_scope"],
@@ -904,6 +906,174 @@ class MozcHybridSpikeEvaluationTests(unittest.TestCase):
                 "probe runs",
             ):
                 evaluate_mozc_hybrid_spike.evaluate_paths(corpus, hazkey, mozc)
+
+    def test_v5_reviewed_first_segment_targets_score_prefixes_without_output_selection(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            corpus_path, hazkey_path, mozc_path, _, _ = make_v5_inputs(directory)
+            corpus_bytes = corpus_path.read_bytes()
+            hazkey_bytes = hazkey_path.read_bytes()
+            mozc_bytes = mozc_path.read_bytes()
+            corpus = evaluate_mozc_hybrid_spike.load_corpus_bytes(
+                corpus_bytes, str(corpus_path)
+            )
+            hazkey_run = evaluate_mozc_hybrid_spike.load_run_bytes(
+                hazkey_bytes, hazkey_path
+            )
+            mozc_run = evaluate_mozc_hybrid_spike.load_run_bytes(
+                mozc_bytes, mozc_path
+            )
+            targets = {
+                row["id"]: {
+                    "span": {
+                        "start": 0,
+                        "count": mozc_run["cases"][row["id"]][
+                            "composition_span"
+                        ]["count"],
+                        "unit": "composition_element",
+                    },
+                    "surfaces": row["expected"].split("|"),
+                }
+                for row in corpus
+            }
+            report = evaluate_mozc_hybrid_spike.evaluate_runs(
+                corpus,
+                hazkey_run,
+                mozc_run,
+                corpus_sha256=(
+                    "sha256:" + hashlib.sha256(corpus_bytes).hexdigest()
+                ),
+                corpus_bytes=corpus_bytes,
+                hazkey_bytes=hazkey_bytes,
+                mozc_bytes=mozc_bytes,
+                reviewed_first_segment_targets=targets,
+                formal_quality_categories=["proper-noun"],
+                formal_quality_category_policy_id="reviewed-test-categories-v1",
+            )
+            directional_targets = deepcopy(targets)
+            directional_targets["whole-span-regression"]["span"]["count"] = 1
+            directional_report = evaluate_mozc_hybrid_spike.evaluate_runs(
+                corpus,
+                hazkey_run,
+                mozc_run,
+                corpus_sha256=(
+                    "sha256:" + hashlib.sha256(corpus_bytes).hexdigest()
+                ),
+                corpus_bytes=corpus_bytes,
+                hazkey_bytes=hazkey_bytes,
+                mozc_bytes=mozc_bytes,
+                reviewed_first_segment_targets=directional_targets,
+                formal_quality_categories=["proper-noun"],
+            )
+            first_id = corpus[0]["id"]
+            for invalid_surface, message in (
+                ("e\u0301", "NFC-normalized"),
+                ("bad\ufeffsurface", "control characters"),
+            ):
+                with self.subTest(invalid_surface=invalid_surface):
+                    invalid_targets = deepcopy(targets)
+                    invalid_targets[first_id]["surfaces"] = [invalid_surface]
+                    with self.assertRaisesRegex(ValueError, message):
+                        evaluate_mozc_hybrid_spike.evaluate_runs(
+                            corpus,
+                            hazkey_run,
+                            mozc_run,
+                            corpus_sha256=(
+                                "sha256:"
+                                + hashlib.sha256(corpus_bytes).hexdigest()
+                            ),
+                            corpus_bytes=corpus_bytes,
+                            hazkey_bytes=hazkey_bytes,
+                            mozc_bytes=mozc_bytes,
+                            reviewed_first_segment_targets=invalid_targets,
+                            formal_quality_categories=["proper-noun"],
+                        )
+
+        self.assertEqual(
+            report["target_comparability"]["quality_target"],
+            "first_reviewed_segment",
+        )
+        self.assertEqual(report["target_comparability"]["comparable_count"], 6)
+        self.assertEqual(report["target_comparability"]["incomparable_count"], 0)
+        self.assertEqual(
+            report["target_comparability"]["selection_basis"],
+            "corpus_label_not_backend_output",
+        )
+        self.assertFalse(report["target_comparability"]["selection_biased"])
+        self.assertEqual(
+            report["promotion_opportunities"]["outcome_incomparable_count"], 0
+        )
+        cases = {case["id"]: case for case in report["cases"]}
+        partial = cases["partial-span-excluded"]
+        self.assertTrue(partial["target_comparable"])
+        self.assertFalse(
+            partial["boundary_evidence"][
+                "reviewed_target_boundary_matches_mozc"
+            ]
+        )
+        self.assertEqual(
+            partial["expected_rank"],
+            {
+                "hazkey": None,
+                "mozc": None,
+                "hybrid": None,
+                "runtime_h0": None,
+                "width_guarded_hybrid": None,
+            },
+        )
+        self.assertEqual(report["formal_quality"]["top1"]["cases"], 5)
+        self.assertIn(
+            "quality_decomposition", report["diagnostic_target_comparable"]
+        )
+        self.assertIn("quality_decomposition", report["formal_quality"])
+        directional_case = {
+            case["id"]: case for case in directional_report["cases"]
+        }["whole-span-regression"]
+        self.assertEqual(
+            directional_case["top1_quality"]["systems"]["mozc"]["top1"][
+                "boundary"
+            ]["classification"],
+            "ends_after_reviewed_boundary",
+        )
+        under_segmentation = directional_report[
+            "diagnostic_target_comparable"
+        ]["quality_decomposition"]["systems"]["mozc"]["top1"]["boundary"][
+            "ends_after_reviewed_boundary"
+        ]
+        self.assertEqual(under_segmentation["segmentation"], "under_segmentation")
+        self.assertGreaterEqual(under_segmentation["count"], 1)
+        self.assertGreater(under_segmentation["element_delta"]["absolute_sum"], 0)
+        self.assertEqual(
+            report["formal_quality"]["category_policy"]["included_categories"],
+            ["proper-noun"],
+        )
+
+    def test_conditioned_surface_accuracy_is_undefined_without_boundary_hits(
+        self,
+    ) -> None:
+        evidence = evaluate_mozc_hybrid_spike._structured_candidate_quality(
+            [{"text": "wrong", "rank": 1, "consuming_count": 1}],
+            ["expected"],
+            2,
+        )
+        view = evaluate_mozc_hybrid_spike._quality_decomposition_system_view(
+            [{"top1_quality": {"systems": {"mozc": evidence}}}],
+            "mozc",
+        )
+
+        self.assertEqual(view["top1"]["boundary"]["hits"], 0)
+        self.assertIsNone(
+            view["top1"]["raw_exact_surface_given_boundary_correct"][
+                "accuracy"
+            ]
+        )
+        self.assertIsNone(
+            view["top_k"]["raw_exact_surface_given_boundary_correct"][
+                "accuracy"
+            ]
+        )
 
     def test_v4_requires_segment_candidates_conversion_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

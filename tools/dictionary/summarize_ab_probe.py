@@ -506,7 +506,7 @@ def load_run_bytes(data: bytes, path: Path | str) -> dict[str, Any]:
         raise ValueError(f"{path}: invalid UTF-8: {error.reason}") from error
 
     cases: dict[str, dict[str, Any]] = {}
-    for line_number, line in enumerate(contents.splitlines(), 1):
+    for line_number, line in enumerate(contents.split("\n"), 1):
         if not line.strip():
             continue
         context = f"{path}:{line_number}"

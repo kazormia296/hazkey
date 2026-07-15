@@ -136,6 +136,90 @@ v5取得のアダプター診断値は、Hazkeyが中央値16.73 ms・P95 73.08 
 ランタイム既定値はH0のままとし、昇格を有効化する前に、規則を固定してから取得した未公開の
 文節ラベル付きholdoutが必要である。
 
+## 未見・文節ラベル付きholdout経路の実装スパイク
+
+既知1,360件から新しい採否スコアを作るのではなく、H0/H1/H2を固定した後に人手で作成・レビューする
+未見holdout用の入出力経路を追加した。この段階では実holdoutケースを作成しておらず、品質値も
+取得していない。production既定値は引き続きH0である。
+
+正本`cases.jsonl`は、ケースID、品質カテゴリ、重複確認用family ID、明示的なcomposition element列、
+レビュー済み先頭文節targetを持つ。各elementは`{text,input_style:"direct"}`で表し、targetは
+`composition_element`単位の`{start:0,count}`と、許容するNFC表層の集合を持つ。文字数やSwiftの
+`Character`数から入力境界を推定しないため、複数scalarから成る1 graphemeも1個の明示elementとして
+ABProbeへ渡せる。
+
+封印ビルダーは、独立したauthor/reviewer、正本のexact-byte SHA-256、blind収集attestation、カテゴリ別
+件数、H2昇格機会の事前下限、次の実装・成果物identityを承認ファイルへ要求する。
+
+- H0/H1/H2 policy ID
+- product source revision
+- holdout専用評価器と共有H0/H1/H2評価器のSHA-256
+- ABProbe実行ファイルのSHA-256
+- Hazkey/Mozc両resourceのfingerprintとMozc prepared generation
+- Top-K、warm-up、iteration、learning無効
+
+承認済み正本から、ラベルを含まない`probe-input.jsonl`と、`segment-labels.jsonl`を決定論的に分離し、
+正本・承認・両派生ファイル・manifestを単一のcontent-addressed generationへ封印する。ファイルは0444、
+generationは0555とし、公開前後のexact bytes、inode、link数、ファイル集合を検証する。ABProbeは既存TSV
+との互換性を維持しつつ、このlabel-free JSONL schemaを自動判別し、明示element列をそのまま
+`CompositionInput`へ渡してv5の`composition_span.count`を記録する。
+
+評価器は、Hazkey/Mozc両runのケース順、probe SHA、source revision、取得パラメータ、resource identity、
+Mozc generation、2個の評価器source SHAを封印時の値と照合する。holdout専用経路では、ABProbe v5
+各行のroot、resource、corpus、候補、composition span、measurementとその子objectについて、未知fieldと
+重複JSON keyを拒否する。品質判定では、候補の生の表層文字列と、
+レビュー済みNFCラベルを完全一致で比較し、さらに`consuming_count`がレビュー済み文節長と一致することを
+要求する。幅正規化はH2の昇格抑制規則だけに使い、正解判定には使わない。Mozcの文節境界が誤っている
+ケースも除外せず誤りとして数えるため、全ケースが同じレビュー済み分母に入る。
+
+この完全一致は製品上のEnd-to-End主指標だが、失敗原因を分けるため、同じ分母を次の軸でも集計する。
+
+1. 文節精度: Top-1の`consuming_count`がレビュー済み文節長と一致する割合
+2. 条件付き変換精度: 文節が正しいケースに限定した、生のTop-1表層の正解率
+3. End-to-End精度: 文節長と表層の両方が正しい割合
+
+Top-Kについても、正しい境界を持つ候補の有無と、その中に正解表層があるEnd-to-End hitを分ける。
+
+境界誤りは、レビュー済み境界より前で切る場合と後まで消費する場合に分け、件数とelement差を記録する。
+Hazkey/MozcのTop-1境界は「両方正しい」「Mozcだけ正しい」「Hazkeyだけ正しい」「両方誤り」の4群に
+分類する。特に「Mozc境界誤り・Hazkey境界正解」について、境界切替の候補件数と、Hazkey表層まで正しく
+実際にEnd-to-End救済できる件数を分ける。
+
+現在のH1/H2は、Mozc候補がある場合、Mozc Top-1と同じ`consuming_count`のHazkey候補だけを昇格対象に
+する。このためH1/H2の文節精度は原則H0と同じであり、「Mozcだけ境界を外し、Hazkeyは正しい」ケースを
+救えない。H0からの改善・悪化は境界起因と同一境界内の表層起因に分解して記録し、Hazkeyの境界優位が
+確認できた場合に限り、H2とは別の保守的な境界切替規則を検討する。
+
+ただし、現在のgeneration内ではlabel-free probeと正解ラベルが論理的に分離されているだけで、別権限・
+別mountなどによる物理的なバックエンド隔離はまだない。また、既存v2 corpusおよび補助テスト群との
+重複screenも未実装であり、ABProbe v5結果自身は実行ファイルのSHA-256を保持しない。Python評価器の
+source file SHAは照合するが、すでにloadされたcode objectがそのsourceから生成されたことも証明できない。
+この4点を機械可読blockerとして残す。承認済みケースについて`human_collection_attested=true`、
+`new_holdout_required=false`にはなるが、評価結果は常に`formal_authorized=false`かつ
+`decision.status=inconclusive`である。事前に固定したH2昇格機会の下限を満たさない場合も結果全体を
+破棄せず、追加blockerを記録してH0を維持する。H2機会数は、manifestで固定した品質カテゴリかつ
+target比較可能なケースだけで判定し、`protected`など診断専用カテゴリでは下限を満たしたことにしない。
+
+封印は次のように行う。
+
+```sh
+python3 tools/dictionary/build_mozc_hybrid_segment_holdout_v1.py \
+  --cases /path/to/reviewed/cases.jsonl \
+  --approval /path/to/reviewed/approval.json \
+  --output-root /path/to/sealed-holdouts
+```
+
+出力generationの`probe-input.jsonl`だけを、承認時に固定した同一の`source-ref`、Top-K、warm-up、
+iterationでHazkey/MozcそれぞれのABProbe v5へ入力する。取得後の評価は次のとおりである。
+
+```sh
+python3 tools/dictionary/evaluate_mozc_hybrid_segment_holdout.py \
+  --generation /path/to/sealed-holdouts/sealed-segment-holdout-v1-sha256-... \
+  --hazkey-results /path/to/hazkey-ab-probe-v5.jsonl \
+  --mozc-results /path/to/mozc-ab-probe-v5.jsonl \
+  --output /path/to/segment-holdout-evaluation.json
+```
+
 ## 製品経路の時間・メモリ測定
 
 明示的に有効化したプロセス測定で、実際のデバッグserver、固定Mozc helper/data、Unix socket、

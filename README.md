@@ -175,6 +175,29 @@ python3 tools/dictionary/evaluate_mozc_hybrid_spike.py \
   --output /tmp/mozc-hybrid-composition-span.json
 ```
 
+未見の文節ラベル付きholdoutは、正本と独立review approvalからlabel-free ABProbe入力を
+content-addressed generationへ封印し、取得後に専用評価器でH0/H1/H2を比較します。
+ABProbeへ渡すのはgeneration内の`probe-input.jsonl`だけです。現在は重複screen、バックエンドからの
+物理的なラベル隔離、v5結果へのABProbe executable identity束縛、Pythonのload済みcode identity証明が
+未実装なので、専用評価器は
+全件の品質集計を残しつつ常に`inconclusive`とし、production H0を維持します。
+品質は文節Top-1精度、文節正解時の条件付き表層Top-1精度、両方を要求するEnd-to-End精度へ分解し、
+製品上の主指標にはEnd-to-Endを使います。H1/H2はMozc Top-1と同じ境界のHazkey候補だけを扱うため、
+Hazkeyだけが正しい境界を返すケースは別の救済可能量として集計します。
+
+```sh
+python3 tools/dictionary/build_mozc_hybrid_segment_holdout_v1.py \
+  --cases /path/to/reviewed/cases.jsonl \
+  --approval /path/to/reviewed/approval.json \
+  --output-root /path/to/sealed-holdouts
+
+python3 tools/dictionary/evaluate_mozc_hybrid_segment_holdout.py \
+  --generation /path/to/sealed-holdouts/sealed-segment-holdout-v1-sha256-... \
+  --hazkey-results /path/to/hazkey-ab-probe-v5.jsonl \
+  --mozc-results /path/to/mozc-ab-probe-v5.jsonl \
+  --output /tmp/mozc-hybrid-segment-holdout.json
+```
+
 実server経路の初回Mozc表示、Space、stale破棄、PSS/RSS、候補ジャンプはopt-in
 `GrimodexHybridProcessSpikeTests`で測定します。待ち時間はカンマ区切りで複数指定し、
 単一の固定sleepを一般化しません。メモリ値はbefore/afterのendpoint snapshotであり、

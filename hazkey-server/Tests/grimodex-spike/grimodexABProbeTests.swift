@@ -184,6 +184,14 @@ final class GrimodexABProbeTests: XCTestCase {
     )
 
     try Data(
+      "{metadata\tid\treading\tcategory\nvalue\tcase\tよみ\tsample\n".utf8
+    ).write(to: corpus)
+    XCTAssertEqual(
+      try ABProbeCorpus.load(path: corpus.path),
+      [ABProbeCorpusCase(id: "case", reading: "よみ", category: "sample")]
+    )
+
+    try Data(
       ("id\treading\texpected\tcategory\n"
         + "case\tよみ\t読み\tsample\n"
         + "case\tべつ\t別\tsample\n").utf8
@@ -218,6 +226,215 @@ final class GrimodexABProbeTests: XCTestCase {
       "sha256:0e2730fa123c3051c89fa00f4cd9c81d83b5593f7e04419e41ec76ca279423b1"
     )
     XCTAssertEqual(snapshot.provenance.cases, 1)
+  }
+
+  func testSegmentProbeJSONLPreservesExplicitElementsAndV5SpanCount() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString,
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let corpus = directory.appendingPathComponent("segment-probe.jsonl")
+    let bytes = Data(
+      (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","category":"sample","elements":[{"text":"きょう","input_style":"direct"},{"text":"🇯🇵","input_style":"direct"}]}"#
+        + "\n").utf8
+    )
+    try bytes.write(to: corpus)
+
+    let snapshot = try ABProbeCorpus.loadSnapshot(path: corpus.path)
+    let testCase = try XCTUnwrap(snapshot.cases.first)
+    let expectedElements = [
+      CompositionElement(text: "きょう", inputStyle: .direct),
+      CompositionElement(text: "🇯🇵", inputStyle: .direct),
+    ]
+
+    XCTAssertEqual(snapshot.cases.count, 1)
+    XCTAssertEqual(testCase.id, "case")
+    XCTAssertEqual(testCase.category, "sample")
+    XCTAssertEqual(testCase.reading, "きょう🇯🇵")
+    XCTAssertEqual(testCase.elements, expectedElements)
+    XCTAssertEqual(testCase.elements[1].text.unicodeScalars.count, 2)
+    XCTAssertEqual(testCase.composition.elements, expectedElements)
+    XCTAssertEqual(testCase.composition.cursor, expectedElements.count)
+    XCTAssertEqual(testCase.composition.leftContext, "")
+    XCTAssertEqual(
+      ABProbeCompositionSpan.entireComposition(testCase.composition),
+      ABProbeCompositionSpan(
+        start: 0,
+        count: 2,
+        unit: "composition_element"
+      )
+    )
+    XCTAssertEqual(snapshot.provenance.sha256, "sha256:" + digest(bytes))
+    XCTAssertEqual(snapshot.provenance.cases, 1)
+  }
+
+  func testSegmentProbeJSONLRejectsNonExactOrUnsafeRecords() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString,
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let corpus = directory.appendingPathComponent("segment-probe.jsonl")
+    let valid = #"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","category":"sample","elements":[{"text":"よみ","input_style":"direct"}]}"#
+    let second = #"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case-2","category":"sample","elements":[{"text":"べつ","input_style":"direct"}]}"#
+    let decomposed = "は\u{3099}"
+    var withBOM = Data([0xEF, 0xBB, 0xBF])
+    withBOM.append(Data((valid + "\n").utf8))
+    let invalidInputs: [(String, Data)] = [
+      ("BOM", withBOM),
+      ("CRLF", Data((valid + "\r\n").utf8)),
+      ("empty line", Data((valid + "\n\n" + second + "\n").utf8)),
+      (
+        "unknown root field",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","category":"sample","elements":[{"text":"よみ","input_style":"direct"}],"expected":"読み"}"#
+            + "\n").utf8
+        )
+      ),
+      (
+        "unknown element field",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","category":"sample","elements":[{"text":"よみ","input_style":"direct","count":1}]}"#
+            + "\n").utf8
+        )
+      ),
+      (
+        "duplicate root key",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","id":"case-2","category":"sample","elements":[{"text":"よみ","input_style":"direct"}]}"#
+            + "\n").utf8
+        )
+      ),
+      (
+        "duplicate element key",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","category":"sample","elements":[{"text":"よみ","text":"べつ","input_style":"direct"}]}"#
+            + "\n").utf8
+        )
+      ),
+      (
+        "escaped duplicate root key",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","\u0069d":"case-2","category":"sample","elements":[{"text":"よみ","input_style":"direct"}]}"#
+            + "\n").utf8
+        )
+      ),
+      (
+        "empty id",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"","category":"sample","elements":[{"text":"よみ","input_style":"direct"}]}"#
+            + "\n").utf8
+        )
+      ),
+      (
+        "empty category",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","category":"","elements":[{"text":"よみ","input_style":"direct"}]}"#
+            + "\n").utf8
+        )
+      ),
+      (
+        "empty element text",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","category":"sample","elements":[{"text":"","input_style":"direct"}]}"#
+            + "\n").utf8
+        )
+      ),
+      (
+        "non-NFC element text",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","category":"sample","elements":[{"text":"\#(decomposed)","input_style":"direct"}]}"#
+            + "\n").utf8
+        )
+      ),
+      (
+        "control character",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","category":"sample","elements":[{"text":"\u0001","input_style":"direct"}]}"#
+            + "\n").utf8
+        )
+      ),
+      (
+        "non-direct input style",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","category":"sample","elements":[{"text":"よみ","input_style":"mapped"}]}"#
+            + "\n").utf8
+        )
+      ),
+      (
+        "duplicate id",
+        Data((valid + "\n" + valid + "\n").utf8)
+      ),
+      (
+        "empty elements",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","category":"sample","elements":[]}"#
+            + "\n").utf8
+        )
+      ),
+      (
+        "wrong schema",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v2","id":"case","category":"sample","elements":[{"text":"よみ","input_style":"direct"}]}"#
+            + "\n").utf8
+        )
+      ),
+      (
+        "missing root field",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","elements":[{"text":"よみ","input_style":"direct"}]}"#
+            + "\n").utf8
+        )
+      ),
+      ("non-object root", Data("[]\n".utf8)),
+      (
+        "non-object element",
+        Data(
+          (#"{"schema":"hazkey.mozc-hybrid-segment-probe-input.v1","id":"case","category":"sample","elements":["よみ"]}"#
+            + "\n").utf8
+        )
+      ),
+    ]
+
+    for (name, data) in invalidInputs {
+      try data.write(to: corpus, options: .atomic)
+      XCTAssertThrowsError(try ABProbeCorpus.load(path: corpus.path), name) {
+        guard let error = $0 as? ABProbeError,
+              case .invalidCorpus = error
+        else {
+          XCTFail("\(name): expected invalidCorpus, got \($0)")
+          return
+        }
+      }
+    }
+  }
+
+  func testJSONDuplicateKeyValidatorTraversesNestedObjectsAndArrays() throws {
+    let valid = Data(
+      #"{"items":[{"id":1,"payload":{"value":true}},{"id":2,"payload":{"value":false}}],"metadata":{"count":2,"tags":["a",{"name":"b"}]}}"#.utf8
+    )
+    XCTAssertNoThrow(try ABProbeJSONDuplicateKeyValidator.validate(valid))
+
+    let escapedNestedDuplicate = Data(
+      #"{"items":[{"payload":{"value":true,"v\u0061lue":false}}]}"#.utf8
+    )
+    XCTAssertThrowsError(
+      try ABProbeJSONDuplicateKeyValidator.validate(escapedNestedDuplicate)
+    ) {
+      XCTAssertEqual(
+        $0 as? ABProbeJSONKeyValidationError,
+        .duplicateKey
+      )
+    }
   }
 
   func testLatencySummaryUsesMedianAndNearestRankP95() {

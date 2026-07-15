@@ -410,6 +410,98 @@ def _structured_expected_rank(
     return None
 
 
+def _validate_reviewed_first_segment_targets(
+    targets: dict[str, dict[str, Any]],
+    corpus: list[dict[str, str]],
+    mozc_run: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Validate expectation-only first-segment labels against ABProbe v5 spans."""
+
+    corpus_ids = {row["id"] for row in corpus}
+    target_ids = set(targets)
+    if target_ids != corpus_ids:
+        raise ValueError(
+            "reviewed first-segment target set does not match the corpus; "
+            f"missing={sorted(corpus_ids - target_ids)!r}, "
+            f"unexpected={sorted(target_ids - corpus_ids)!r}"
+        )
+
+    validated: dict[str, dict[str, Any]] = {}
+    for row in corpus:
+        case_id = row["id"]
+        context = f"reviewed first-segment target for {case_id!r}"
+        target = targets[case_id]
+        if not isinstance(target, dict):
+            raise ValueError(f"{context} must be an object")
+        expected_target_fields = {"span", "surfaces"}
+        actual_target_fields = set(target)
+        if actual_target_fields != expected_target_fields:
+            raise ValueError(
+                f"{context} must contain exactly span and surfaces; "
+                f"missing={sorted(expected_target_fields - actual_target_fields)!r}, "
+                f"unexpected={sorted(actual_target_fields - expected_target_fields)!r}"
+            )
+
+        span = target["span"]
+        if not isinstance(span, dict):
+            raise ValueError(f"{context}.span must be an object")
+        expected_span_fields = {"start", "count", "unit"}
+        actual_span_fields = set(span)
+        if actual_span_fields != expected_span_fields:
+            raise ValueError(
+                f"{context}.span must contain exactly start, count, and unit; "
+                f"missing={sorted(expected_span_fields - actual_span_fields)!r}, "
+                f"unexpected={sorted(actual_span_fields - expected_span_fields)!r}"
+            )
+        start = span["start"]
+        count = span["count"]
+        unit = span["unit"]
+        if isinstance(start, bool) or not isinstance(start, int) or start < 0:
+            raise ValueError(f"{context}.span.start must be a non-negative integer")
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ValueError(f"{context}.span.count must be a positive integer")
+        if unit != "composition_element":
+            raise ValueError(
+                f"{context}.span.unit must be 'composition_element'"
+            )
+
+        composition_span = mozc_run["cases"][case_id]["composition_span"]
+        if start != composition_span["start"]:
+            raise ValueError(
+                f"{context}.span.start must equal composition_span.start"
+            )
+        if start + count > composition_span["start"] + composition_span["count"]:
+            raise ValueError(f"{context}.span exceeds composition_span")
+
+        surfaces = target["surfaces"]
+        if (
+            not isinstance(surfaces, list)
+            or not surfaces
+            or any(not isinstance(surface, str) or not surface for surface in surfaces)
+        ):
+            raise ValueError(
+                f"{context}.surfaces must be a non-empty array of non-empty strings"
+            )
+        if len(surfaces) != len(set(surfaces)):
+            raise ValueError(f"{context}.surfaces must not contain duplicates")
+        for surface in surfaces:
+            if surface != normalized_surface(surface):
+                raise ValueError(f"{context}.surfaces must be NFC-normalized")
+            if any(
+                unicodedata.category(character) == "Cc"
+                or character == "\ufeff"
+                for character in surface
+            ):
+                raise ValueError(
+                    f"{context}.surfaces must not contain control characters"
+                )
+        validated[case_id] = {
+            "span": {"start": start, "count": count, "unit": unit},
+            "surfaces": list(surfaces),
+        }
+    return validated
+
+
 def _whole_span_target_count(
     input_schema: str,
     mozc_records: list[dict[str, Any]],
@@ -445,12 +537,374 @@ def classify_mozc_top1_miss(
     return BOTH_ABSENT
 
 
+QUALITY_DECOMPOSITION_SYSTEMS = (
+    "hazkey",
+    "mozc",
+    "runtime_h0",
+    "h1_hybrid",
+    "h2_width_guarded",
+)
+
+
+def _structured_candidate_quality(
+    candidates: list[dict[str, Any]],
+    expected_surfaces: list[str],
+    expected_consuming_count: int,
+) -> dict[str, Any]:
+    """Describe raw-exact Top-1 and Top-K quality against a reviewed segment."""
+
+    top1 = candidates[0] if candidates else None
+    predicted_count = top1["consuming_count"] if top1 is not None else None
+    if predicted_count is None:
+        boundary_classification = "missing_candidate"
+        element_delta = None
+    else:
+        element_delta = predicted_count - expected_consuming_count
+        if element_delta == 0:
+            boundary_classification = "matches_reviewed_boundary"
+        elif element_delta < 0:
+            boundary_classification = "ends_before_reviewed_boundary"
+        else:
+            boundary_classification = "ends_after_reviewed_boundary"
+    boundary_correct = element_delta == 0
+    surface_correct = bool(
+        top1 is not None and top1["text"] in expected_surfaces
+    )
+    end_to_end_correct = boundary_correct and surface_correct
+    top_k_boundary_correct = any(
+        candidate["consuming_count"] == expected_consuming_count
+        for candidate in candidates
+    )
+    top_k_end_to_end_correct = any(
+        candidate["consuming_count"] == expected_consuming_count
+        and candidate["text"] in expected_surfaces
+        for candidate in candidates
+    )
+    return {
+        "top1": {
+            "candidate_present": top1 is not None,
+            "surface": top1["text"] if top1 is not None else None,
+            "predicted_consuming_count": predicted_count,
+            "boundary": {
+                "correct": boundary_correct,
+                "classification": boundary_classification,
+                "element_delta": element_delta,
+            },
+            "raw_exact_surface_correct": surface_correct,
+            "end_to_end_correct": end_to_end_correct,
+        },
+        "top_k": {
+            "candidate_count": len(candidates),
+            "boundary_correct": top_k_boundary_correct,
+            "raw_exact_surface_with_correct_boundary": (
+                top_k_end_to_end_correct
+            ),
+            "end_to_end_correct": top_k_end_to_end_correct,
+        },
+    }
+
+
+def _element_delta_summary(values: list[int]) -> dict[str, Any]:
+    absolute_values = [abs(value) for value in values]
+    return {
+        "definition": (
+            "predicted_consuming_count - reviewed_consuming_count"
+        ),
+        "sum": sum(values),
+        "absolute_sum": sum(absolute_values),
+        "mean_absolute": (
+            sum(absolute_values) / len(absolute_values)
+            if absolute_values
+            else None
+        ),
+        "minimum": min(values) if values else None,
+        "maximum": max(values) if values else None,
+    }
+
+
+def _quality_decomposition_system_view(
+    comparable_cases: list[dict[str, Any]], system: str
+) -> dict[str, Any]:
+    evidence = [case["top1_quality"]["systems"][system] for case in comparable_cases]
+    total = len(evidence)
+    top1 = [item["top1"] for item in evidence]
+    boundary_hits = sum(item["boundary"]["correct"] for item in top1)
+    end_to_end_hits = sum(item["end_to_end_correct"] for item in top1)
+    missing = sum(not item["candidate_present"] for item in top1)
+    before_deltas = [
+        item["boundary"]["element_delta"]
+        for item in top1
+        if item["boundary"]["classification"]
+        == "ends_before_reviewed_boundary"
+    ]
+    after_deltas = [
+        item["boundary"]["element_delta"]
+        for item in top1
+        if item["boundary"]["classification"]
+        == "ends_after_reviewed_boundary"
+    ]
+    if boundary_hits + missing + len(before_deltas) + len(after_deltas) != total:
+        raise AssertionError("Top-1 boundary decomposition is not exhaustive")
+
+    top_k = [item["top_k"] for item in evidence]
+    top_k_boundary_hits = sum(item["boundary_correct"] for item in top_k)
+    top_k_end_to_end_hits = sum(item["end_to_end_correct"] for item in top_k)
+    return {
+        "top1": {
+            "boundary": {
+                "cases": total,
+                "hits": boundary_hits,
+                "misses": total - boundary_hits,
+                "accuracy": _rate(boundary_hits, total),
+                "missing_candidate": missing,
+                "ends_before_reviewed_boundary": {
+                    "segmentation": "over_segmentation",
+                    "count": len(before_deltas),
+                    "element_delta": _element_delta_summary(before_deltas),
+                },
+                "ends_after_reviewed_boundary": {
+                    "segmentation": "under_segmentation",
+                    "count": len(after_deltas),
+                    "element_delta": _element_delta_summary(after_deltas),
+                },
+            },
+            "raw_exact_surface_given_boundary_correct": {
+                "diagnostic_conditioned_metric": True,
+                "cases": boundary_hits,
+                "hits": end_to_end_hits,
+                "accuracy": (
+                    _rate(end_to_end_hits, boundary_hits)
+                    if boundary_hits
+                    else None
+                ),
+            },
+            "end_to_end": {
+                "primary_product_metric": True,
+                "cases": total,
+                "hits": end_to_end_hits,
+                "accuracy": _rate(end_to_end_hits, total),
+            },
+        },
+        "top_k": {
+            "match_semantics": "any_candidate_in_observed_top_k",
+            "boundary": {
+                "cases": total,
+                "hits": top_k_boundary_hits,
+                "misses": total - top_k_boundary_hits,
+                "accuracy": _rate(top_k_boundary_hits, total),
+                "missing_candidate_list": sum(
+                    item["candidate_count"] == 0 for item in top_k
+                ),
+            },
+            "raw_exact_surface_given_boundary_correct": {
+                "diagnostic_conditioned_metric": True,
+                "cases": top_k_boundary_hits,
+                "hits": top_k_end_to_end_hits,
+                "accuracy": (
+                    _rate(top_k_end_to_end_hits, top_k_boundary_hits)
+                    if top_k_boundary_hits
+                    else None
+                ),
+            },
+            "end_to_end": {
+                "secondary_candidate_coverage_metric": True,
+                "cases": total,
+                "hits": top_k_end_to_end_hits,
+                "accuracy": _rate(top_k_end_to_end_hits, total),
+            },
+        },
+    }
+
+
+def _policy_delta_from_h0(
+    comparable_cases: list[dict[str, Any]], policy_system: str
+) -> dict[str, Any]:
+    rescued = {"boundary_caused": 0, "surface_within_same_boundary": 0}
+    regressed = {"boundary_caused": 0, "surface_within_same_boundary": 0}
+    boundary_changes = 0
+    for case in comparable_cases:
+        systems = case["top1_quality"]["systems"]
+        h0 = systems["runtime_h0"]["top1"]
+        policy = systems[policy_system]["top1"]
+        if (
+            h0["predicted_consuming_count"]
+            != policy["predicted_consuming_count"]
+        ):
+            boundary_changes += 1
+        if h0["end_to_end_correct"] == policy["end_to_end_correct"]:
+            continue
+        outcome = rescued if policy["end_to_end_correct"] else regressed
+        if h0["boundary"]["correct"] != policy["boundary"]["correct"]:
+            outcome["boundary_caused"] += 1
+        elif h0["boundary"]["correct"] and policy["boundary"]["correct"]:
+            outcome["surface_within_same_boundary"] += 1
+        else:
+            raise AssertionError(
+                "E2E policy delta cannot be classified as boundary or surface"
+            )
+    if boundary_changes != 0:
+        raise AssertionError(
+            f"{policy_system} changed Top-1 consuming_count relative to H0"
+        )
+    return {
+        "comparison": "end_to_end_top1_vs_runtime_h0",
+        "rescues": {"total": sum(rescued.values()), **rescued},
+        "regressions": {"total": sum(regressed.values()), **regressed},
+        "top1_boundary_changes": {
+            "count": boundary_changes,
+            "verified_zero": True,
+            "invariant": (
+                "When Mozc is nonempty, H0/H1/H2 admit Hazkey candidates only "
+                "at Mozc Top-1 consuming_count; Mozc-empty fallback is identical."
+            ),
+        },
+    }
+
+
+def _build_quality_decomposition(
+    comparable_cases: list[dict[str, Any]],
+) -> dict[str, Any]:
+    systems = {
+        system: _quality_decomposition_system_view(comparable_cases, system)
+        for system in QUALITY_DECOMPOSITION_SYSTEMS
+    }
+    boundary_groups: Counter[str] = Counter(
+        {name: 0 for name in ("both_correct", "mozc_only", "hazkey_only", "neither")}
+    )
+    boundary_switch_opportunities = 0
+    actual_rescueable = 0
+    mozc_missing_hazkey_boundary_correct = 0
+    mozc_present_cases = 0
+    boundary_changes_from_mozc = {
+        "runtime_h0": 0,
+        "h1_hybrid": 0,
+        "h2_width_guarded": 0,
+    }
+    for case in comparable_cases:
+        system_evidence = case["top1_quality"]["systems"]
+        hazkey_boundary = system_evidence["hazkey"]["top1"]["boundary"]["correct"]
+        mozc_boundary = system_evidence["mozc"]["top1"]["boundary"]["correct"]
+        if hazkey_boundary and mozc_boundary:
+            group = "both_correct"
+        elif mozc_boundary:
+            group = "mozc_only"
+        elif hazkey_boundary:
+            group = "hazkey_only"
+        else:
+            group = "neither"
+        boundary_groups[group] += 1
+        if group == "hazkey_only":
+            if system_evidence["mozc"]["top1"]["candidate_present"]:
+                boundary_switch_opportunities += 1
+                if system_evidence["hazkey"]["top1"][
+                    "end_to_end_correct"
+                ]:
+                    actual_rescueable += 1
+            else:
+                mozc_missing_hazkey_boundary_correct += 1
+        mozc_top1 = system_evidence["mozc"]["top1"]
+        if mozc_top1["candidate_present"]:
+            mozc_present_cases += 1
+            mozc_count = mozc_top1["predicted_consuming_count"]
+            for system in boundary_changes_from_mozc:
+                if system_evidence[system]["top1"][
+                    "predicted_consuming_count"
+                ] != mozc_count:
+                    boundary_changes_from_mozc[system] += 1
+    if sum(boundary_groups.values()) != len(comparable_cases):
+        raise AssertionError("Hazkey/Mozc boundary groups are not exhaustive")
+    if any(boundary_changes_from_mozc.values()):
+        raise AssertionError(
+            "H0/H1/H2 changed Top-1 consuming_count while Mozc was nonempty"
+        )
+
+    for case in comparable_cases:
+        ranks = case["expected_rank"]
+        expected_system_ranks = {
+            "hazkey": ranks["hazkey"],
+            "mozc": ranks["mozc"],
+            "runtime_h0": ranks["runtime_h0"],
+            "h1_hybrid": ranks["hybrid"],
+            "h2_width_guarded": ranks["width_guarded_hybrid"],
+        }
+        for system, rank in expected_system_ranks.items():
+            observed = case["top1_quality"]["systems"][system]["top1"][
+                "end_to_end_correct"
+            ]
+            if observed != (rank == 1):
+                raise AssertionError(
+                    f"{system} E2E Top-1 disagrees with existing expected_rank"
+                )
+
+    return {
+        "metric_contract": {
+            "primary_product_metric": "end_to_end_top1",
+            "surface_metric_role": "diagnostic_conditioned_on_boundary_correct",
+            "surface_match": "raw_exact",
+            "boundary_match": "reviewed_composition_element_count",
+            "missing_candidate_is_boundary_miss": True,
+            "element_delta": (
+                "predicted_consuming_count - reviewed_consuming_count"
+            ),
+        },
+        "cases": len(comparable_cases),
+        "systems": systems,
+        "hazkey_mozc_top1_boundary_comparison": {
+            "exhaustive": True,
+            "disjoint": True,
+            "groups": dict(boundary_groups),
+            "boundary_switch_opportunity": {
+                "definition": (
+                    "Mozc Top-1 is present with a wrong boundary and Hazkey "
+                    "Top-1 has the reviewed boundary"
+                ),
+                "count": boundary_switch_opportunities,
+            },
+            "actual_top1_rescueable": {
+                "definition": (
+                    "Mozc Top-1 is present with a wrong boundary while Hazkey "
+                    "boundary and raw-exact surface are both correct"
+                ),
+                "count": actual_rescueable,
+            },
+            "mozc_top1_missing_hazkey_boundary_correct": {
+                "definition": (
+                    "Mozc has no Top-1 candidate and Hazkey Top-1 has the "
+                    "reviewed boundary; H0 already uses Hazkey fallback"
+                ),
+                "count": mozc_missing_hazkey_boundary_correct,
+            },
+        },
+        "policy_delta_vs_runtime_h0": {
+            "h1_hybrid": _policy_delta_from_h0(
+                comparable_cases, "h1_hybrid"
+            ),
+            "h2_width_guarded": _policy_delta_from_h0(
+                comparable_cases, "h2_width_guarded"
+            ),
+        },
+        "boundary_preservation_invariant": {
+            "scope": "cases_with_mozc_top1",
+            "eligible_cases": mozc_present_cases,
+            "expected_changed_count": 0,
+            "observed_changed_count": boundary_changes_from_mozc,
+            "established": True,
+            "reason": (
+                "H0/H1/H2 admit Hazkey candidates only at Mozc Top-1 "
+                "consuming_count when Mozc is nonempty."
+            ),
+        },
+    }
+
+
 def _build_v5_quality_view(
     comparable_cases: list[dict[str, Any]],
     *,
     aggregation_scope: str,
     formal_quality_categories_only: bool,
     excluded_target_incomparable_cases: int,
+    target_scope: str = "explicit_whole_composition_span",
+    include_quality_decomposition: bool = False,
 ) -> dict[str, Any]:
     """Aggregate an explicitly labeled v5 diagnostic or formal-category view."""
 
@@ -502,14 +956,14 @@ def _build_v5_quality_view(
         "aggregation_scope": aggregation_scope,
         "formal_quality_categories_only": formal_quality_categories_only,
         "target_comparable": total > 0,
-        "scope": "explicit_whole_composition_span",
+        "scope": target_scope,
         "excluded_target_incomparable_cases": excluded_target_incomparable_cases,
     }
     below_both = miss_counts[BELOW_TOP1_BOTH]
     below_hazkey_only = miss_counts[BELOW_TOP1_HAZKEY_ONLY]
     below_mozc_only = miss_counts[BELOW_TOP1_MOZC_ONLY]
     below_total = below_both + below_hazkey_only + below_mozc_only
-    return {
+    result = {
         "top1": {
             **metadata,
             "cases": total,
@@ -561,7 +1015,10 @@ def _build_v5_quality_view(
         "mozc_top1_miss_classification": {
             **metadata,
             "scope": (
-                "exact expected surface and composition span within observed top_k"
+                "exact expected surface and reviewed first-segment span within "
+                "observed top_k"
+                if target_scope == "reviewed_first_segment"
+                else "exact expected surface and composition span within observed top_k"
             ),
             "exhaustive": True,
             "disjoint": True,
@@ -587,6 +1044,11 @@ def _build_v5_quality_view(
             },
         },
     }
+    if include_quality_decomposition:
+        result["quality_decomposition"] = _build_quality_decomposition(
+            comparable_cases
+        )
+    return result
 
 
 def _validate_inputs(
@@ -705,6 +1167,13 @@ def evaluate_runs(
     mozc_bytes: bytes,
     hazkey_context: str = "hazkey_results",
     mozc_context: str = "mozc_results",
+    reviewed_first_segment_targets: dict[str, dict[str, Any]] | None = None,
+    formal_quality_categories: Iterable[str] | None = None,
+    formal_quality_category_policy_id: str | None = None,
+    reviewed_target_metadata: dict[str, Any] | None = None,
+    additional_input_metadata: dict[str, Any] | None = None,
+    report_schema: str = OUTPUT_SCHEMA,
+    new_holdout_required: bool = True,
 ) -> dict[str, Any]:
     actual_corpus_sha256 = _sha256_bytes(corpus_bytes)
     if corpus_sha256 != actual_corpus_sha256:
@@ -720,6 +1189,58 @@ def evaluate_runs(
     top_k = hazkey_run["top_k"]
     input_schema = hazkey_run["schema"]
     boundary_aware = input_schema in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5)
+    reviewed_target_mode = reviewed_first_segment_targets is not None
+    if reviewed_target_mode and input_schema != INPUT_SCHEMA_V5:
+        raise ValueError("reviewed first-segment targets require ABProbe v5 inputs")
+    reviewed_targets = (
+        _validate_reviewed_first_segment_targets(
+            reviewed_first_segment_targets,
+            corpus,
+            mozc_run,
+        )
+        if reviewed_first_segment_targets is not None
+        else None
+    )
+    if formal_quality_categories is None:
+        selected_formal_quality_categories = FORMAL_V2_QUALITY_CATEGORIES
+    else:
+        selected_formal_quality_categories = tuple(formal_quality_categories)
+        if (
+            not selected_formal_quality_categories
+            or any(
+                not isinstance(category, str) or not category
+                for category in selected_formal_quality_categories
+            )
+            or len(selected_formal_quality_categories)
+            != len(set(selected_formal_quality_categories))
+        ):
+            raise ValueError(
+                "formal_quality_categories must contain unique non-empty strings"
+            )
+    selected_formal_quality_category_policy_id = (
+        FORMAL_V2_QUALITY_CATEGORY_POLICY_ID
+        if formal_quality_category_policy_id is None
+        else formal_quality_category_policy_id
+    )
+    if (
+        not isinstance(selected_formal_quality_category_policy_id, str)
+        or not selected_formal_quality_category_policy_id
+    ):
+        raise ValueError("formal_quality_category_policy_id must not be empty")
+    if additional_input_metadata is not None:
+        if not isinstance(additional_input_metadata, dict):
+            raise ValueError("additional_input_metadata must be an object")
+        reserved_input_fields = {"corpus", "hazkey", "mozc"}
+        overlap = reserved_input_fields & set(additional_input_metadata)
+        if overlap:
+            raise ValueError(
+                "additional_input_metadata uses reserved fields: "
+                f"{sorted(overlap)!r}"
+            )
+    if reviewed_target_metadata is not None and not isinstance(
+        reviewed_target_metadata, dict
+    ):
+        raise ValueError("reviewed_target_metadata must be an object")
     cases: list[dict[str, Any]] = []
     miss_counts: Counter[str] = Counter({name: 0 for name in MISS_CLASSES})
     hazkey_hits = 0
@@ -766,7 +1287,14 @@ def evaluate_runs(
 
     for row in corpus:
         case_id = row["id"]
-        expected = row["expected"].split("|")
+        reviewed_target = (
+            reviewed_targets[case_id] if reviewed_targets is not None else None
+        )
+        expected = (
+            reviewed_target["surfaces"]
+            if reviewed_target is not None
+            else row["expected"].split("|")
+        )
         hazkey_records = hazkey_run["cases"][case_id]["candidates"][:top_k]
         mozc_records = mozc_run["cases"][case_id]["candidates"][:top_k]
         hazkey = _candidate_texts(hazkey_records, input_schema)
@@ -812,6 +1340,8 @@ def evaluate_runs(
             expected_consuming_count = _whole_span_target_count(
                 input_schema, mozc_records, composition_span
             )
+            if reviewed_target is not None:
+                expected_consuming_count = reviewed_target["span"]["count"]
             if hazkey_records and mozc_records:
                 actual_hazkey_top1_boundary_compared += 1
                 boundary_mismatch = (
@@ -975,12 +1505,50 @@ def evaluate_runs(
         ):
             boundary_only_opportunities += 1
 
+        top1_quality = None
+        if reviewed_target is not None:
+            if expected_consuming_count is None:
+                raise AssertionError(
+                    "reviewed target is missing its consuming-count contract"
+                )
+            system_records = {
+                "hazkey": hazkey_records,
+                "mozc": mozc_records,
+                "runtime_h0": runtime_h0_records,
+                "h1_hybrid": hybrid_records,
+                "h2_width_guarded": guarded_records,
+            }
+            top1_quality = {
+                "reviewed": {
+                    "surfaces": list(expected),
+                    "consuming_count": expected_consuming_count,
+                    "boundary_unit": "composition_element",
+                    "surface_match": "raw_exact",
+                },
+                "systems": {
+                    system: _structured_candidate_quality(
+                        records, expected, expected_consuming_count
+                    )
+                    for system, records in system_records.items()
+                },
+            }
+
         cases.append(
             {
                 "id": case_id,
                 "reading": row["reading"],
                 "category": row["category"],
                 "expected": expected,
+                **(
+                    {"reviewed_first_segment_target": reviewed_target}
+                    if reviewed_target is not None
+                    else {}
+                ),
+                **(
+                    {"top1_quality": top1_quality}
+                    if top1_quality is not None
+                    else {}
+                ),
                 "expected_rank": {
                     "hazkey": hazkey_rank,
                     "mozc": mozc_rank,
@@ -1057,7 +1625,24 @@ def evaluate_runs(
                             **(
                                 {
                                     "composition_span": composition_span,
-                                    "whole_span_target_parity": target_comparable,
+                                    **(
+                                        {
+                                            "reviewed_first_segment_span": (
+                                                reviewed_target["span"]
+                                            ),
+                                            "reviewed_target_boundary_matches_mozc": (
+                                                bool(mozc_records)
+                                                and mozc_records[0]["consuming_count"]
+                                                == reviewed_target["span"]["count"]
+                                            ),
+                                        }
+                                        if reviewed_target is not None
+                                        else {
+                                            "whole_span_target_parity": (
+                                                target_comparable
+                                            )
+                                        }
+                                    ),
                                 }
                                 if input_schema == INPUT_SCHEMA_V5
                                 else {}
@@ -1147,18 +1732,35 @@ def evaluate_runs(
             "consuming_count_available": True,
             "boundary_evidence_available": True,
             "runtime_boundary_parity_established": True,
-            "whole_target_quality_comparable": quality_comparable_cases == total,
+            "whole_target_quality_comparable": (
+                False
+                if reviewed_target_mode
+                else quality_comparable_cases == total
+            ),
             **(
                 {
-                    "whole_target_quality_comparable_count": (
-                        quality_comparable_cases
+                    **(
+                        {
+                            "reviewed_first_segment_target_count": (
+                                quality_comparable_cases
+                            )
+                        }
+                        if reviewed_target_mode
+                        else {
+                            "whole_target_quality_comparable_count": (
+                                quality_comparable_cases
+                            )
+                        }
                     )
                 }
                 if input_schema == INPUT_SCHEMA_V5
                 else {}
             ),
             "limitation": (
-                "Only cases whose explicit composition span is fully consumed by "
+                "Reviewed labels establish exact first-segment targets, but ABProbe "
+                "v5 does not observe the labeled tail segments."
+                if reviewed_target_mode
+                else "Only cases whose explicit composition span is fully consumed by "
                 "Mozc Top-1 are comparable to whole-composition targets; all other "
                 "cases remain excluded."
                 if input_schema == INPUT_SCHEMA_V5
@@ -1272,9 +1874,24 @@ def evaluate_runs(
                 {
                     "explicit_composition_span": {
                         "unit": "composition_element",
-                        "whole_span_comparable_count": quality_comparable_cases,
-                        "whole_span_comparable_rate": _rate(
-                            quality_comparable_cases, total
+                        **(
+                            {
+                                "reviewed_first_segment_comparable_count": (
+                                    quality_comparable_cases
+                                ),
+                                "reviewed_first_segment_comparable_rate": _rate(
+                                    quality_comparable_cases, total
+                                ),
+                            }
+                            if reviewed_target_mode
+                            else {
+                                "whole_span_comparable_count": (
+                                    quality_comparable_cases
+                                ),
+                                "whole_span_comparable_rate": _rate(
+                                    quality_comparable_cases, total
+                                ),
+                            }
                         ),
                     }
                 }
@@ -1283,26 +1900,52 @@ def evaluate_runs(
             ),
         }
         target_comparability = {
-            "quality_target": "whole_composition",
+            "quality_target": (
+                "first_reviewed_segment"
+                if reviewed_target_mode
+                else "whole_composition"
+            ),
             "observed_candidate_scope": "first_clause",
             "established": quality_comparable_cases == total,
             "comparable_count": quality_comparable_cases,
             "incomparable_count": target_incomparable_cases,
             **(
                 {
-                    "comparison_basis": "explicit_whole_composition_span",
-                    "partial_parity_established": quality_comparable_cases > 0,
-                    "selection_basis": (
-                        "mozc_top1_consumes_explicit_whole_span"
+                    **(
+                        {
+                            "comparison_basis": "reviewed_segment_label",
+                            "partial_parity_established": (
+                                quality_comparable_cases > 0
+                            ),
+                            "selection_basis": "corpus_label_not_backend_output",
+                            "selection_biased": False,
+                            **(
+                                {"reviewed_target_metadata": reviewed_target_metadata}
+                                if reviewed_target_metadata is not None
+                                else {}
+                            ),
+                        }
+                        if reviewed_target_mode
+                        else {
+                            "comparison_basis": "explicit_whole_composition_span",
+                            "partial_parity_established": (
+                                quality_comparable_cases > 0
+                            ),
+                            "selection_basis": (
+                                "mozc_top1_consumes_explicit_whole_span"
+                            ),
+                            "selection_biased": True,
+                            "absolute_backend_accuracy_generalizable": False,
+                        }
                     ),
-                    "selection_biased": True,
-                    "absolute_backend_accuracy_generalizable": False,
                 }
                 if input_schema == INPUT_SCHEMA_V5
                 else {}
             ),
             "required_evidence": (
-                (
+                None
+                if reviewed_target_mode
+                else (
                     None
                     if target_incomparable_cases == 0
                     else (
@@ -1319,7 +1962,9 @@ def evaluate_runs(
             ),
         }
         evaluation_scope = (
-            "boundary_aware_explicit_span"
+            "boundary_aware_reviewed_first_segment"
+            if reviewed_target_mode
+            else "boundary_aware_explicit_span"
             if input_schema == INPUT_SCHEMA_V5
             else "boundary_aware"
         )
@@ -1565,7 +2210,7 @@ def evaluate_runs(
 
     if input_schema == INPUT_SCHEMA_V5:
         diagnostic_cases = [case for case in cases if case["target_comparable"]]
-        formal_category_set = set(FORMAL_V2_QUALITY_CATEGORIES)
+        formal_category_set = set(selected_formal_quality_categories)
         formal_corpus_cases = [
             case for case in cases if case["category"] in formal_category_set
         ]
@@ -1595,14 +2240,22 @@ def evaluate_runs(
                 aggregation_scope="all_target_comparable_categories",
                 formal_quality_categories_only=False,
                 excluded_target_incomparable_cases=target_incomparable_cases,
+                target_scope=(
+                    "reviewed_first_segment"
+                    if reviewed_target_mode
+                    else "explicit_whole_composition_span"
+                ),
+                include_quality_decomposition=reviewed_target_mode,
             ),
         }
         formal_quality = {
             "diagnostic_only": True,
             "formal_authorized": False,
             "category_policy": {
-                "id": FORMAL_V2_QUALITY_CATEGORY_POLICY_ID,
-                "included_categories": list(FORMAL_V2_QUALITY_CATEGORIES),
+                "id": selected_formal_quality_category_policy_id,
+                "included_categories": list(
+                    selected_formal_quality_categories
+                ),
                 "excluded_categories_observed": sorted(
                     {
                         case["category"]
@@ -1625,11 +2278,21 @@ def evaluate_runs(
             },
             **_build_v5_quality_view(
                 formal_comparable_cases,
-                aggregation_scope="formal_v2_quality_categories",
+                aggregation_scope=(
+                    "reviewed_holdout_quality_categories"
+                    if reviewed_target_mode
+                    else "formal_v2_quality_categories"
+                ),
                 formal_quality_categories_only=True,
                 excluded_target_incomparable_cases=(
                     len(formal_corpus_cases) - len(formal_comparable_cases)
                 ),
+                target_scope=(
+                    "reviewed_first_segment"
+                    if reviewed_target_mode
+                    else "explicit_whole_composition_span"
+                ),
+                include_quality_decomposition=reviewed_target_mode,
             ),
         }
     else:
@@ -1637,10 +2300,10 @@ def evaluate_runs(
         formal_quality = None
 
     return {
-        "schema": OUTPUT_SCHEMA,
+        "schema": report_schema,
         "diagnostic_only": True,
         "formal_authorized": False,
-        "new_holdout_required": True,
+        "new_holdout_required": new_holdout_required,
         "rank_scope": "observed_top_k",
         "top_k": top_k,
         "candidate_evidence": candidate_evidence,
@@ -1655,7 +2318,9 @@ def evaluate_runs(
             "uses_expected_labels": False,
             "evaluation_scope": evaluation_scope,
             "quality_evaluation_scope": (
-                "explicit_whole_composition_span_subset"
+                "reviewed_first_segment"
+                if reviewed_target_mode
+                else "explicit_whole_composition_span_subset"
                 if input_schema == INPUT_SCHEMA_V5
                 else (
                     "not_comparable_without_segment_target_parity"
@@ -1671,8 +2336,11 @@ def evaluate_runs(
                 "Acquire paired candidates with consuming counts on a new reviewed holdout.",
                 "Verify runtime boundary, provenance, learning, and candidate-order parity.",
                 (
-                    "Acquire segment-labeled targets or an explicit composition-span "
-                    "field with reviewed target-parity inference."
+                    "Retain the reviewed first-segment labels and their sealed "
+                    "identity."
+                    if reviewed_target_mode
+                    else "Acquire segment-labeled targets or an explicit "
+                    "composition-span field with reviewed target-parity inference."
                     if boundary_aware
                     else "Retain whole-composition target parity."
                 ),
@@ -1755,6 +2423,7 @@ def evaluate_runs(
             },
             "hazkey": _input_metadata(hazkey_bytes, hazkey_run),
             "mozc": _input_metadata(mozc_bytes, mozc_run),
+            **(additional_input_metadata or {}),
         },
         **(
             {

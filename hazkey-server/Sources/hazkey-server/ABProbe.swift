@@ -241,6 +241,31 @@ struct ABProbeCorpusCase: Equatable {
     let id: String
     let reading: String
     let category: String
+    let elements: [CompositionElement]
+
+    init(id: String, reading: String, category: String) {
+        self.id = id
+        self.reading = reading
+        self.category = category
+        self.elements = reading.map {
+            CompositionElement(text: String($0), inputStyle: .direct)
+        }
+    }
+
+    init(id: String, category: String, elements: [CompositionElement]) {
+        self.id = id
+        self.reading = elements.map(\.text).joined()
+        self.category = category
+        self.elements = elements
+    }
+
+    var composition: CompositionInput {
+        CompositionInput(
+            elements: elements,
+            cursor: elements.count,
+            leftContext: ""
+        )
+    }
 }
 
 struct ABProbeCorpusProvenance: Encodable, Equatable {
@@ -253,7 +278,256 @@ struct ABProbeCorpusSnapshot: Equatable {
     let provenance: ABProbeCorpusProvenance
 }
 
+enum ABProbeJSONKeyValidationError: Error, Equatable {
+    case invalidJSON
+    case duplicateKey
+}
+
+enum ABProbeJSONDuplicateKeyValidator {
+    static func validate(_ data: Data) throws {
+        var parser = Parser(bytes: Array(data))
+        try parser.parseDocument()
+    }
+
+    private struct Parser {
+        private let bytes: [UInt8]
+        private var index = 0
+
+        init(bytes: [UInt8]) {
+            self.bytes = bytes
+        }
+
+        mutating func parseDocument() throws {
+            skipWhitespace()
+            try parseValue(depth: 0)
+            skipWhitespace()
+            guard index == bytes.count else {
+                throw ABProbeJSONKeyValidationError.invalidJSON
+            }
+        }
+
+        private mutating func parseValue(depth: Int) throws {
+            skipWhitespace()
+            guard index < bytes.count else {
+                throw ABProbeJSONKeyValidationError.invalidJSON
+            }
+            switch bytes[index] {
+            case 0x7B: // {
+                guard depth < 512 else {
+                    throw ABProbeJSONKeyValidationError.invalidJSON
+                }
+                try parseObject(depth: depth + 1)
+            case 0x5B: // [
+                guard depth < 512 else {
+                    throw ABProbeJSONKeyValidationError.invalidJSON
+                }
+                try parseArray(depth: depth + 1)
+            case 0x22: // "
+                _ = try parseString()
+            case 0x74: // true
+                try parseLiteral([0x74, 0x72, 0x75, 0x65])
+            case 0x66: // false
+                try parseLiteral([0x66, 0x61, 0x6C, 0x73, 0x65])
+            case 0x6E: // null
+                try parseLiteral([0x6E, 0x75, 0x6C, 0x6C])
+            case 0x2D, 0x30...0x39: // - or digit
+                try parseNumber()
+            default:
+                throw ABProbeJSONKeyValidationError.invalidJSON
+            }
+        }
+
+        private mutating func parseObject(depth: Int) throws {
+            guard consume(0x7B) else {
+                throw ABProbeJSONKeyValidationError.invalidJSON
+            }
+            skipWhitespace()
+            if consume(0x7D) {
+                return
+            }
+
+            var keys = Set<Data>()
+            while true {
+                skipWhitespace()
+                guard index < bytes.count, bytes[index] == 0x22 else {
+                    throw ABProbeJSONKeyValidationError.invalidJSON
+                }
+                let key = try parseString()
+                guard keys.insert(Data(key.utf8)).inserted else {
+                    throw ABProbeJSONKeyValidationError.duplicateKey
+                }
+                skipWhitespace()
+                guard consume(0x3A) else {
+                    throw ABProbeJSONKeyValidationError.invalidJSON
+                }
+                try parseValue(depth: depth)
+                skipWhitespace()
+                if consume(0x7D) {
+                    return
+                }
+                guard consume(0x2C) else {
+                    throw ABProbeJSONKeyValidationError.invalidJSON
+                }
+            }
+        }
+
+        private mutating func parseArray(depth: Int) throws {
+            guard consume(0x5B) else {
+                throw ABProbeJSONKeyValidationError.invalidJSON
+            }
+            skipWhitespace()
+            if consume(0x5D) {
+                return
+            }
+
+            while true {
+                try parseValue(depth: depth)
+                skipWhitespace()
+                if consume(0x5D) {
+                    return
+                }
+                guard consume(0x2C) else {
+                    throw ABProbeJSONKeyValidationError.invalidJSON
+                }
+            }
+        }
+
+        private mutating func parseString() throws -> String {
+            guard consume(0x22) else {
+                throw ABProbeJSONKeyValidationError.invalidJSON
+            }
+            let start = index - 1
+            while index < bytes.count {
+                let byte = bytes[index]
+                if byte == 0x22 {
+                    index += 1
+                    return try decodeStringToken(bytes[start..<index])
+                }
+                if byte == 0x5C {
+                    index += 1
+                    guard index < bytes.count else {
+                        throw ABProbeJSONKeyValidationError.invalidJSON
+                    }
+                    let escaped = bytes[index]
+                    index += 1
+                    if escaped == 0x75 {
+                        guard index + 4 <= bytes.count,
+                              bytes[index..<(index + 4)].allSatisfy(isHexDigit)
+                        else {
+                            throw ABProbeJSONKeyValidationError.invalidJSON
+                        }
+                        index += 4
+                    } else if ![
+                        0x22, 0x5C, 0x2F, 0x62, 0x66, 0x6E, 0x72, 0x74,
+                    ].contains(escaped) {
+                        throw ABProbeJSONKeyValidationError.invalidJSON
+                    }
+                } else {
+                    guard byte >= 0x20 else {
+                        throw ABProbeJSONKeyValidationError.invalidJSON
+                    }
+                    index += 1
+                }
+            }
+            throw ABProbeJSONKeyValidationError.invalidJSON
+        }
+
+        private func decodeStringToken(_ token: ArraySlice<UInt8>) throws -> String {
+            do {
+                return try JSONDecoder().decode(String.self, from: Data(token))
+            } catch {
+                throw ABProbeJSONKeyValidationError.invalidJSON
+            }
+        }
+
+        private mutating func parseLiteral(_ literal: [UInt8]) throws {
+            guard index + literal.count <= bytes.count,
+                  bytes[index..<(index + literal.count)].elementsEqual(literal)
+            else {
+                throw ABProbeJSONKeyValidationError.invalidJSON
+            }
+            index += literal.count
+        }
+
+        private mutating func parseNumber() throws {
+            _ = consume(0x2D)
+            guard index < bytes.count else {
+                throw ABProbeJSONKeyValidationError.invalidJSON
+            }
+            if consume(0x30) {
+                if index < bytes.count, isDigit(bytes[index]) {
+                    throw ABProbeJSONKeyValidationError.invalidJSON
+                }
+            } else {
+                guard index < bytes.count, (0x31...0x39).contains(bytes[index]) else {
+                    throw ABProbeJSONKeyValidationError.invalidJSON
+                }
+                index += 1
+                while index < bytes.count, isDigit(bytes[index]) {
+                    index += 1
+                }
+            }
+
+            if consume(0x2E) {
+                guard index < bytes.count, isDigit(bytes[index]) else {
+                    throw ABProbeJSONKeyValidationError.invalidJSON
+                }
+                while index < bytes.count, isDigit(bytes[index]) {
+                    index += 1
+                }
+            }
+
+            if consume(0x65) || consume(0x45) {
+                if !consume(0x2B) {
+                    _ = consume(0x2D)
+                }
+                guard index < bytes.count, isDigit(bytes[index]) else {
+                    throw ABProbeJSONKeyValidationError.invalidJSON
+                }
+                while index < bytes.count, isDigit(bytes[index]) {
+                    index += 1
+                }
+            }
+        }
+
+        private mutating func skipWhitespace() {
+            while index < bytes.count,
+                  [0x20, 0x09, 0x0A, 0x0D].contains(bytes[index])
+            {
+                index += 1
+            }
+        }
+
+        private mutating func consume(_ byte: UInt8) -> Bool {
+            guard index < bytes.count, bytes[index] == byte else {
+                return false
+            }
+            index += 1
+            return true
+        }
+
+        private func isDigit(_ byte: UInt8) -> Bool {
+            (0x30...0x39).contains(byte)
+        }
+
+        private func isHexDigit(_ byte: UInt8) -> Bool {
+            (0x30...0x39).contains(byte)
+                || (0x41...0x46).contains(byte)
+                || (0x61...0x66).contains(byte)
+        }
+    }
+}
+
 enum ABProbeCorpus {
+    private static let segmentProbeInputSchema =
+        "hazkey.mozc-hybrid-segment-probe-input.v1"
+    private static let segmentProbeRootFields: Set<String> = [
+        "schema", "id", "category", "elements",
+    ]
+    private static let segmentProbeElementFields: Set<String> = [
+        "text", "input_style",
+    ]
+
     static func load(path: String) throws -> [ABProbeCorpusCase] {
         try loadSnapshot(path: path).cases
     }
@@ -268,6 +542,59 @@ enum ABProbeCorpus {
         guard let contents = String(data: data, encoding: .utf8) else {
             throw ABProbeError.invalidCorpus("\(path): corpus is not valid UTF-8")
         }
+        let cases: [ABProbeCorpusCase]
+        if hasTSVHeader(contents) {
+            cases = try loadTSV(contents: contents, path: path)
+        } else if looksLikeJSONLines(contents) {
+            cases = try loadSegmentProbeJSONLines(
+                data: data,
+                contents: contents,
+                path: path
+            )
+        } else {
+            cases = try loadTSV(contents: contents, path: path)
+        }
+        var hasher = ABProbeSHA256()
+        hasher.update(data)
+        let digest = hasher.finalize().map {
+            String(format: "%02x", $0)
+        }.joined()
+        return ABProbeCorpusSnapshot(
+            cases: cases,
+            provenance: ABProbeCorpusProvenance(
+                sha256: "sha256:" + digest,
+                cases: cases.count
+            )
+        )
+    }
+
+    private static func looksLikeJSONLines(_ contents: String) -> Bool {
+        guard let first = contents.first(where: {
+            !$0.isWhitespace && $0 != "\u{FEFF}"
+        }) else {
+            return false
+        }
+        return first == "{" || first == "["
+    }
+
+    private static func hasTSVHeader(_ contents: String) -> Bool {
+        guard let rawHeader = contents.split(
+            omittingEmptySubsequences: false,
+            whereSeparator: \.isNewline
+        ).first else {
+            return false
+        }
+        let fields = Set(
+            rawHeader.split(separator: "\t", omittingEmptySubsequences: false)
+                .map(String.init)
+        )
+        return fields.isSuperset(of: ["id", "reading", "category"])
+    }
+
+    private static func loadTSV(
+        contents: String,
+        path: String
+    ) throws -> [ABProbeCorpusCase] {
         let lines = contents.split(
             omittingEmptySubsequences: false,
             whereSeparator: \.isNewline
@@ -318,18 +645,144 @@ enum ABProbeCorpus {
         guard !result.isEmpty else {
             throw ABProbeError.invalidCorpus("\(path): corpus has no cases")
         }
-        var hasher = ABProbeSHA256()
-        hasher.update(data)
-        let digest = hasher.finalize().map {
-            String(format: "%02x", $0)
-        }.joined()
-        return ABProbeCorpusSnapshot(
-            cases: result,
-            provenance: ABProbeCorpusProvenance(
-                sha256: "sha256:" + digest,
-                cases: result.count
+        return result
+    }
+
+    private static func loadSegmentProbeJSONLines(
+        data: Data,
+        contents: String,
+        path: String
+    ) throws -> [ABProbeCorpusCase] {
+        if data.range(of: Data([0xEF, 0xBB, 0xBF])) != nil {
+            throw ABProbeError.invalidCorpus("\(path): JSONL corpus must not contain a BOM")
+        }
+        if data.contains(0x0D) {
+            throw ABProbeError.invalidCorpus("\(path): JSONL corpus must use LF line endings")
+        }
+
+        var lines = contents.split(separator: "\n", omittingEmptySubsequences: false)
+        if contents.hasSuffix("\n") {
+            lines.removeLast()
+        }
+        guard !lines.isEmpty else {
+            throw ABProbeError.invalidCorpus("\(path): corpus is empty")
+        }
+
+        var seen = Set<String>()
+        var result: [ABProbeCorpusCase] = []
+        result.reserveCapacity(lines.count)
+        for (offset, rawLine) in lines.enumerated() {
+            let lineNumber = offset + 1
+            guard !rawLine.isEmpty else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): JSONL corpus contains an empty line"
+                )
+            }
+            let object: Any
+            do {
+                let lineData = Data(rawLine.utf8)
+                try ABProbeJSONDuplicateKeyValidator.validate(lineData)
+                object = try JSONSerialization.jsonObject(with: lineData)
+            } catch ABProbeJSONKeyValidationError.duplicateKey {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): duplicate JSON object key"
+                )
+            } catch {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): invalid JSON object"
+                )
+            }
+            guard let record = object as? [String: Any],
+                  Set(record.keys) == segmentProbeRootFields
+            else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): JSONL record fields do not match the exact schema"
+                )
+            }
+            guard record["schema"] as? String == segmentProbeInputSchema,
+                  let id = record["id"] as? String,
+                  let category = record["category"] as? String,
+                  let rawElements = record["elements"] as? [Any]
+            else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): JSONL record has invalid field types or schema"
+                )
+            }
+            try validateSegmentProbeText(id, field: "id", path: path, line: lineNumber)
+            try validateSegmentProbeText(
+                category,
+                field: "category",
+                path: path,
+                line: lineNumber
             )
-        )
+            guard !rawElements.isEmpty else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): elements must not be empty"
+                )
+            }
+
+            var elements: [CompositionElement] = []
+            elements.reserveCapacity(rawElements.count)
+            for (elementOffset, rawElement) in rawElements.enumerated() {
+                let elementNumber = elementOffset + 1
+                guard let element = rawElement as? [String: Any],
+                      Set(element.keys) == segmentProbeElementFields,
+                      let text = element["text"] as? String,
+                      let inputStyle = element["input_style"] as? String
+                else {
+                    throw ABProbeError.invalidCorpus(
+                        "\(path):\(lineNumber): element \(elementNumber) does not match the exact schema"
+                    )
+                }
+                try validateSegmentProbeText(
+                    text,
+                    field: "elements[\(elementOffset)].text",
+                    path: path,
+                    line: lineNumber
+                )
+                guard inputStyle == "direct" else {
+                    throw ABProbeError.invalidCorpus(
+                        "\(path):\(lineNumber): element \(elementNumber) input_style must be direct"
+                    )
+                }
+                elements.append(CompositionElement(text: text, inputStyle: .direct))
+            }
+            guard seen.insert(id).inserted else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): duplicate id \(id)"
+                )
+            }
+            result.append(
+                ABProbeCorpusCase(id: id, category: category, elements: elements)
+            )
+        }
+        return result
+    }
+
+    private static func validateSegmentProbeText(
+        _ value: String,
+        field: String,
+        path: String,
+        line: Int
+    ) throws {
+        guard !value.isEmpty else {
+            throw ABProbeError.invalidCorpus(
+                "\(path):\(line): \(field) must not be empty"
+            )
+        }
+        let normalized = value.precomposedStringWithCanonicalMapping
+        guard value.utf8.elementsEqual(normalized.utf8) else {
+            throw ABProbeError.invalidCorpus(
+                "\(path):\(line): \(field) must be NFC"
+            )
+        }
+        guard !value.unicodeScalars.contains(where: {
+            CharacterSet.controlCharacters.contains($0) || $0.value == 0xFEFF
+        }) else {
+            throw ABProbeError.invalidCorpus(
+                "\(path):\(line): \(field) must not contain control characters"
+            )
+        }
     }
 }
 
@@ -1403,14 +1856,7 @@ enum ABProbeCommand {
         bufferedJSONLines.reserveCapacity(corpus.cases.count)
 
         for testCase in corpus.cases {
-            let elements = testCase.reading.map {
-                CompositionElement(text: String($0), inputStyle: .direct)
-            }
-            let composition = CompositionInput(
-                elements: elements,
-                cursor: elements.count,
-                leftContext: ""
-            )
+            let composition = testCase.composition
 
             for _ in 0..<options.warmups {
                 adapter.stopComposition()
