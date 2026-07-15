@@ -293,7 +293,7 @@ struct ABProbeMozcTrustedArtifacts: Equatable {
     let helper: ABProbeMozcArtifactIdentity
     let data: ABProbeMozcArtifactIdentity
 
-    static let fixed = ABProbeMozcTrustedArtifacts(
+    static let fixedB0 = ABProbeMozcTrustedArtifacts(
         helper: ABProbeMozcArtifactIdentity(
             size: 5_695_048,
             sha256: "8676275bb47aefe963c8b82047cc66fb7a5140caec72d1ebbfa17556b281577d"
@@ -303,6 +303,18 @@ struct ABProbeMozcTrustedArtifacts: Equatable {
             sha256: "b9884362e37772f772a0d28d1e12622455c14353497b3435deed60aa7e592c5e"
         )
     )
+
+    static let fixedB1 = ABProbeMozcTrustedArtifacts(
+        helper: ABProbeMozcArtifactIdentity(
+            size: 5_746_568,
+            sha256: "728d9a79c0f540a832d3f404a2603f49080e1f9e7ee1d24df1a0a69f5a4a75e8"
+        ),
+        data: fixedB0.data
+    )
+
+    // Preserve the existing single-profile injection surface for tests.
+    static let fixed = fixedB0
+    static let fixedProfiles = [fixedB0, fixedB1]
 }
 
 struct ABProbeMozcRuntimeSnapshot: Equatable {
@@ -316,10 +328,32 @@ struct ABProbeMozcRuntimeSnapshot: Equatable {
     let runtimePath: String
     let fingerprint: String
 
+    static func prepare(sourceURL: URL) throws -> ABProbeMozcRuntimeSnapshot {
+        try prepare(
+            sourceURL: sourceURL,
+            trustedArtifactProfiles: ABProbeMozcTrustedArtifacts.fixedProfiles
+        )
+    }
+
     static func prepare(
         sourceURL: URL,
-        trustedArtifacts: ABProbeMozcTrustedArtifacts = .fixed
+        trustedArtifacts: ABProbeMozcTrustedArtifacts
     ) throws -> ABProbeMozcRuntimeSnapshot {
+        try prepare(
+            sourceURL: sourceURL,
+            trustedArtifactProfiles: [trustedArtifacts]
+        )
+    }
+
+    static func prepare(
+        sourceURL: URL,
+        trustedArtifactProfiles: [ABProbeMozcTrustedArtifacts]
+    ) throws -> ABProbeMozcRuntimeSnapshot {
+        guard !trustedArtifactProfiles.isEmpty else {
+            throw ABProbeError.mozcBundleInvalid(
+                "no trusted Mozc artifact profile is configured"
+            )
+        }
         let standardizedSourceURL = sourceURL.standardizedFileURL
         let generationName = standardizedSourceURL.lastPathComponent
         let lowercaseHexCharacters = Set("0123456789abcdef")
@@ -357,13 +391,13 @@ struct ABProbeMozcRuntimeSnapshot: Equatable {
             directoryFD: directoryFD,
             name: helperName,
             expectedMode: 0o555,
-            maximumSize: trustedArtifacts.helper.size
+            maximumSize: trustedArtifactProfiles.map(\.helper.size).max() ?? 0
         )
         let data = try readPinnedFile(
             directoryFD: directoryFD,
             name: dataName,
             expectedMode: 0o444,
-            maximumSize: trustedArtifacts.data.size
+            maximumSize: trustedArtifactProfiles.map(\.data.size).max() ?? 0
         )
         let manifest = try readPinnedFile(
             directoryFD: directoryFD,
@@ -372,8 +406,14 @@ struct ABProbeMozcRuntimeSnapshot: Equatable {
             maximumSize: maximumManifestSize
         )
 
-        try validateArtifact(helper, named: helperName, trusted: trustedArtifacts.helper)
-        try validateArtifact(data, named: dataName, trusted: trustedArtifacts.data)
+        guard let trustedArtifacts = trustedArtifactProfiles.first(where: { profile in
+            artifactMatches(helper, trusted: profile.helper)
+                && artifactMatches(data, trusted: profile.data)
+        }) else {
+            throw ABProbeError.mozcBundleInvalid(
+                "Mozc helper and dataset do not match one trusted artifact profile"
+            )
+        }
         try validateManifest(manifest, trustedArtifacts: trustedArtifacts)
 
         let runtimeURL = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -504,16 +544,11 @@ struct ABProbeMozcRuntimeSnapshot: Equatable {
         return result
     }
 
-    private static func validateArtifact(
+    private static func artifactMatches(
         _ data: Data,
-        named name: String,
         trusted: ABProbeMozcArtifactIdentity
-    ) throws {
-        guard data.count == trusted.size, digest(data) == trusted.sha256 else {
-            throw ABProbeError.mozcBundleInvalid(
-                "Mozc artifact identity mismatch for \(name)"
-            )
-        }
+    ) -> Bool {
+        data.count == trusted.size && digest(data) == trusted.sha256
     }
 
     private static func validateManifest(
@@ -583,7 +618,7 @@ struct ABProbeProvenance: Equatable {
 
     static func resolve(
         options: ABProbeOptions,
-        trustedMozcArtifacts: ABProbeMozcTrustedArtifacts = .fixed
+        trustedMozcArtifacts: ABProbeMozcTrustedArtifacts? = nil
     ) throws -> ABProbeProvenance {
         switch options.converterBackend {
         case .hazkey:
@@ -619,10 +654,16 @@ struct ABProbeProvenance: Equatable {
                     "--mozc-bundle is required for the Mozc backend"
                 )
             }
-            let runtime = try ABProbeMozcRuntimeSnapshot.prepare(
-                sourceURL: URL(fileURLWithPath: bundlePath, isDirectory: true),
-                trustedArtifacts: trustedMozcArtifacts
-            )
+            let sourceURL = URL(fileURLWithPath: bundlePath, isDirectory: true)
+            let runtime: ABProbeMozcRuntimeSnapshot
+            if let trustedMozcArtifacts {
+                runtime = try ABProbeMozcRuntimeSnapshot.prepare(
+                    sourceURL: sourceURL,
+                    trustedArtifacts: trustedMozcArtifacts
+                )
+            } else {
+                runtime = try ABProbeMozcRuntimeSnapshot.prepare(sourceURL: sourceURL)
+            }
             return ABProbeProvenance(
                 sourceRef: options.sourceRef,
                 resource: ABProbeResourceProvenance(

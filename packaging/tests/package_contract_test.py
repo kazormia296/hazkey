@@ -74,6 +74,14 @@ MOZC_SIDECAR_HELPER_SOURCE = (
     REPOSITORY_ROOT
     / "third_party/fcitx-mozkey/overlay/grimodex_mozc_sidecar/mozc_sidecar_helper.cc"
 )
+MOZC_SIDECAR_B1_OVERLAY_PROTO = (
+    REPOSITORY_ROOT
+    / "third_party/fcitx-mozkey/overlay/grimodex_mozc_sidecar_b1/mozc_sidecar.proto"
+)
+MOZC_SIDECAR_B1_HELPER_SOURCE = (
+    REPOSITORY_ROOT
+    / "third_party/fcitx-mozkey/overlay/grimodex_mozc_sidecar_b1/mozc_sidecar_helper.cc"
+)
 DEFAULT_RUNTIME_SCRIPT = REPOSITORY_ROOT / "scripts/grimodex-ime.sh"
 TOP_LEVEL_CMAKE = REPOSITORY_ROOT / "CMakeLists.txt"
 FCITX_CMAKE = REPOSITORY_ROOT / "fcitx5-hazkey/CMakeLists.txt"
@@ -1493,17 +1501,25 @@ class MozcArtifactBundleContractTests(unittest.TestCase):
 
     def test_sidecar_remains_conversion_only_with_history_disabled(self) -> None:
         helper = MOZC_SIDECAR_HELPER_SOURCE.read_text(encoding="utf-8")
+        b1_helper = MOZC_SIDECAR_B1_HELPER_SOURCE.read_text(encoding="utf-8")
         root_proto = MOZC_SIDECAR_PROTO.read_bytes()
         overlay_proto = MOZC_SIDECAR_OVERLAY_PROTO.read_bytes()
+        b1_overlay_proto = MOZC_SIDECAR_B1_OVERLAY_PROTO.read_bytes()
         self.assertEqual(
             overlay_proto,
             root_proto,
             "the fixed helper build input must match the runtime-side protocol",
         )
+        self.assertEqual(
+            b1_overlay_proto,
+            root_proto,
+            "the B1 helper must use the unchanged private sidecar protocol",
+        )
         sidecar_proto = overlay_proto.decode("utf-8")
 
-        self.assertIn("options.enable_user_history_for_conversion = false;", helper)
-        self.assertIn("options.incognito_mode = true;", helper)
+        for source in (helper, b1_helper):
+            self.assertIn("options.enable_user_history_for_conversion = false;", source)
+            self.assertIn("options.incognito_mode = true;", source)
         self.assertEqual(
             re.findall(
                 r"^\s*(OPERATION_[A-Z_]+)\s*=",
@@ -2526,6 +2542,119 @@ print(generation)
             ("source", Path("THIRD_PARTY_NOTICES.md")),
         )
         builder.verify_overlay()
+
+        self.assertEqual(builder.PROFILE_NAMES, ("b0", "b1"))
+        self.assertEqual(verifier.PROFILE_NAMES, ("b0", "b1"))
+        for name in (
+            "B1_OVERLAY_SHA256",
+            "B1_FIXED_HELPER_SIZE",
+            "B1_FIXED_HELPER_SHA256",
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(getattr(builder, name), getattr(verifier, name))
+
+        builder.activate_profile("b1")
+        verifier.activate_profile("b1")
+        self.assertEqual(builder.OVERLAY_DIRECTORY.name, "grimodex_mozc_sidecar_b1")
+        self.assertEqual(builder.OVERLAY_FILES, builder.B1_OVERLAY_FILES)
+        self.assertEqual(builder.HELPER_OUTPUT, builder.B1_HELPER_OUTPUT)
+        self.assertEqual(builder.BUILD_TARGETS, builder.B1_BUILD_TARGETS)
+        self.assertEqual(builder.TEST_TARGETS, builder.B1_TEST_TARGETS)
+        self.assertEqual(builder.OVERLAY_SHA256, verifier.OVERLAY_SHA256)
+        self.assertEqual(builder.FIXED_HELPER_SIZE, verifier.FIXED_HELPER_SIZE)
+        self.assertEqual(builder.FIXED_HELPER_SHA256, verifier.FIXED_HELPER_SHA256)
+        builder.verify_overlay()
+
+        builder.activate_profile("b0")
+        verifier.activate_profile("b0")
+        self.assertEqual(builder.OVERLAY_DIRECTORY.name, "grimodex_mozc_sidecar")
+        self.assertEqual(builder.OVERLAY_SHA256, self.OVERLAY_SHA256)
+        self.assertEqual(verifier.OVERLAY_SHA256, self.OVERLAY_SHA256)
+
+    def test_b1_artifact_acceptance_requires_explicit_profile_selection(self) -> None:
+        builder = self._load_builder()
+        verifier_spec = importlib.util.spec_from_file_location(
+            "mozc_artifact_verifier_profiles",
+            MOZC_ARTIFACT_VERIFIER,
+        )
+        assert verifier_spec is not None and verifier_spec.loader is not None
+        verifier = importlib.util.module_from_spec(verifier_spec)
+        verifier_spec.loader.exec_module(verifier)
+
+        builder_args = builder.parse_args(
+            [
+                "--checkout", "/tmp/checkout",
+                "--bazel", "/tmp/bazel",
+                "--output", "/tmp/output",
+            ]
+        )
+        verifier_args = verifier.parse_args(["--verify-only", "/tmp/generation"])
+        self.assertEqual(builder_args.profile, "b0")
+        self.assertEqual(verifier_args.profile, "b0")
+        self.assertEqual(builder.FIXED_HELPER_SHA256, verifier.FIXED_HELPER_SHA256)
+
+        explicit_builder = builder.parse_args(
+            [
+                "--checkout", "/tmp/checkout",
+                "--bazel", "/tmp/bazel",
+                "--output", "/tmp/output",
+                "--profile", "b1",
+            ]
+        )
+        explicit_verifier = verifier.parse_args(
+            ["--profile", "b1", "--verify-only", "/tmp/generation"]
+        )
+        self.assertEqual(explicit_builder.profile, "b1")
+        self.assertEqual(explicit_verifier.profile, "b1")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            b1_root = root / "b1"
+            b1_root.mkdir()
+            b1_bundle, _, _ = self._write_bundle(b1_root)
+            b1_helper = self._elf_helper(marker=b"fixed B1 helper fixture")
+            b1_helper_path = b1_bundle / "fcitx5-grimodex-mozc-helper"
+            b1_helper_path.write_bytes(b1_helper)
+            b1_helper_path.chmod(0o755)
+            b1_manifest_path = b1_bundle / "manifest.json"
+            b1_manifest = json.loads(b1_manifest_path.read_text(encoding="utf-8"))
+            b1_manifest["source"]["overlay_sha256"] = verifier.B1_OVERLAY_SHA256
+            b1_manifest["artifacts"]["fcitx5-grimodex-mozc-helper"] = {
+                "sha256": hashlib.sha256(b1_helper).hexdigest(),
+                "size": len(b1_helper),
+            }
+            b1_manifest_path.write_text(json.dumps(b1_manifest), encoding="utf-8")
+
+            b1_verifier = self._load_verifier_for_fixture(b1_bundle)
+            b1_verifier.B1_FIXED_HELPER_SIZE = len(b1_helper)
+            b1_verifier.B1_FIXED_HELPER_SHA256 = hashlib.sha256(b1_helper).hexdigest()
+            with self.assertRaisesRegex(
+                b1_verifier.BundleVerificationError,
+                "overlay_sha256",
+            ):
+                b1_verifier.verify_and_stage(b1_bundle, root / "default-stage")
+            b1_verifier.activate_profile("b1")
+            generation = b1_verifier.verify_and_stage(
+                b1_bundle,
+                root / "b1-stage",
+            )
+            self.assertEqual(
+                (generation / "fcitx5-grimodex-mozc-helper").read_bytes(),
+                b1_helper,
+            )
+
+            b0_root = root / "b0"
+            b0_root.mkdir()
+            b0_bundle, _, _ = self._write_bundle(b0_root)
+            b0_verifier = self._load_verifier_for_fixture(b0_bundle)
+            b0_verifier.B1_FIXED_HELPER_SIZE = len(b1_helper)
+            b0_verifier.B1_FIXED_HELPER_SHA256 = hashlib.sha256(b1_helper).hexdigest()
+            b0_verifier.activate_profile("b1")
+            with self.assertRaisesRegex(
+                b0_verifier.BundleVerificationError,
+                "overlay_sha256|helper identity",
+            ):
+                b0_verifier.verify_and_stage(b0_bundle, root / "inverse-stage")
 
     def test_builder_emits_an_atomic_verifier_compatible_fixture(self) -> None:
         builder = self._load_builder()

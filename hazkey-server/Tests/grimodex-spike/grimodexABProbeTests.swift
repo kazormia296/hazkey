@@ -327,6 +327,61 @@ final class GrimodexABProbeTests: XCTestCase {
     )
   }
 
+  func testFixedMozcProfilesPinB0AndB1AsExactHelperDatasetPairs() {
+    XCTAssertEqual(ABProbeMozcTrustedArtifacts.fixed, .fixedB0)
+    XCTAssertEqual(ABProbeMozcTrustedArtifacts.fixedProfiles, [.fixedB0, .fixedB1])
+    XCTAssertEqual(ABProbeMozcTrustedArtifacts.fixedB0.helper.size, 5_695_048)
+    XCTAssertEqual(
+      ABProbeMozcTrustedArtifacts.fixedB0.helper.sha256,
+      "8676275bb47aefe963c8b82047cc66fb7a5140caec72d1ebbfa17556b281577d"
+    )
+    XCTAssertEqual(ABProbeMozcTrustedArtifacts.fixedB1.helper.size, 5_746_568)
+    XCTAssertEqual(
+      ABProbeMozcTrustedArtifacts.fixedB1.helper.sha256,
+      "728d9a79c0f540a832d3f404a2603f49080e1f9e7ee1d24df1a0a69f5a4a75e8"
+    )
+    XCTAssertEqual(
+      ABProbeMozcTrustedArtifacts.fixedB1.data,
+      ABProbeMozcTrustedArtifacts.fixedB0.data
+    )
+  }
+
+  func testMozcRuntimeRejectsArtifactsThatOnlyMatchDifferentTrustedProfiles() throws {
+    let fixture = try makeMozcGeneration()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+    let wrongData = Data("different dataset".utf8)
+    let wrongHelper = Data("different helper".utf8)
+    let helperOnlyProfile = ABProbeMozcTrustedArtifacts(
+      helper: fixture.trustedArtifacts.helper,
+      data: ABProbeMozcArtifactIdentity(
+        size: wrongData.count,
+        sha256: digest(wrongData)
+      )
+    )
+    let dataOnlyProfile = ABProbeMozcTrustedArtifacts(
+      helper: ABProbeMozcArtifactIdentity(
+        size: wrongHelper.count,
+        sha256: digest(wrongHelper)
+      ),
+      data: fixture.trustedArtifacts.data
+    )
+
+    XCTAssertThrowsError(
+      try ABProbeMozcRuntimeSnapshot.prepare(
+        sourceURL: fixture.generation,
+        trustedArtifactProfiles: [helperOnlyProfile, dataOnlyProfile]
+      )
+    ) { error in
+      XCTAssertEqual(
+        error as? ABProbeError,
+        .mozcBundleInvalid(
+          "Mozc helper and dataset do not match one trusted artifact profile"
+        )
+      )
+    }
+  }
+
   func testMozcProvenanceRejectsSymlinkAndManifestIdentityMismatch() throws {
     let symlinkFixture = try makeMozcGeneration()
     defer { try? FileManager.default.removeItem(at: symlinkFixture.root) }

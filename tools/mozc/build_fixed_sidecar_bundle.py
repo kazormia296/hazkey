@@ -26,10 +26,15 @@ from typing import Mapping, Sequence
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-OVERLAY_DIRECTORY = (
+B0_OVERLAY_DIRECTORY = (
     REPOSITORY_ROOT
     / "third_party/fcitx-mozkey/overlay/grimodex_mozc_sidecar"
 )
+B1_OVERLAY_DIRECTORY = (
+    REPOSITORY_ROOT
+    / "third_party/fcitx-mozkey/overlay/grimodex_mozc_sidecar_b1"
+)
+OVERLAY_DIRECTORY = B0_OVERLAY_DIRECTORY
 
 SCHEMA = "grimodex.mozc-artifact-bundle.v1"
 SOURCE_REPOSITORY = "https://github.com/Masterisk-F/fcitx-mozkey"
@@ -39,6 +44,7 @@ BAZEL_VERSION = "9.0.2"
 BAZELISKRC_SHA256 = "59acd943a0d15254345f3e176f42786af2b4fba83b1657341cf56e017a7db19a"
 MODULE_LOCK_SHA256 = "ab6b647b1c12072eee26ec2370fa928b2ac7c3146e72daf232010dfe254ed972"
 OVERLAY_SHA256 = "26cf5430b39dcdc04c1f91a6ce473554c3f1ba3f04c2defdcf146f859b6776d6"
+B1_OVERLAY_SHA256 = "974003704cacdc9b272fe22c3675222889c1bee2c75b81619317b2431318f55d"
 
 TARGET_CONTRACT = {
     "system": "linux",
@@ -59,6 +65,8 @@ TARGET_CONTRACT = {
 }
 FIXED_HELPER_SIZE = 5_695_048
 FIXED_HELPER_SHA256 = "8676275bb47aefe963c8b82047cc66fb7a5140caec72d1ebbfa17556b281577d"
+B1_FIXED_HELPER_SIZE = 5_746_568
+B1_FIXED_HELPER_SHA256 = "728d9a79c0f540a832d3f404a2603f49080e1f9e7ee1d24df1a0a69f5a4a75e8"
 FIXED_DATA_SIZE = 18_887_468
 FIXED_DATA_SHA256 = "b9884362e37772f772a0d28d1e12622455c14353497b3435deed60aa7e592c5e"
 LICENSE_HASHES = {
@@ -80,6 +88,17 @@ OVERLAY_FILES = frozenset(
         "sha256_test.cc",
     }
 )
+B1_OVERLAY_FILES = frozenset(
+    {
+        "BUILD.bazel",
+        "mozc_sidecar.proto",
+        "mozc_sidecar_helper.cc",
+        "sentence_alternatives.h",
+        "sentence_alternatives_test.cc",
+        "sha256.h",
+        "sha256_test.cc",
+    }
+)
 HELPER_OUTPUT = Path(
     "bazel-bin/grimodex_mozc_sidecar/fcitx5-grimodex-mozc-helper"
 )
@@ -89,6 +108,68 @@ BUILD_TARGETS = (
     "//data_manager/oss:mozc_dataset_for_oss",
 )
 TEST_TARGETS = ("//grimodex_mozc_sidecar:sha256_test",)
+B1_HELPER_OUTPUT = Path(
+    "bazel-bin/grimodex_mozc_sidecar_b1/fcitx5-grimodex-mozc-helper"
+)
+B1_BUILD_TARGETS = (
+    "//grimodex_mozc_sidecar_b1:fcitx5-grimodex-mozc-helper",
+    "//data_manager/oss:mozc_dataset_for_oss",
+)
+B1_TEST_TARGETS = (
+    "//grimodex_mozc_sidecar_b1:sentence_alternatives_test",
+    "//grimodex_mozc_sidecar_b1:sha256_test",
+)
+
+PROFILE_NAMES = ("b0", "b1")
+
+
+def activate_profile(name: str) -> None:
+    """Select one immutable build contract; B0 remains the process default."""
+    global OVERLAY_DIRECTORY
+    global OVERLAY_SHA256
+    global OVERLAY_FILES
+    global HELPER_OUTPUT
+    global BUILD_TARGETS
+    global TEST_TARGETS
+    global FIXED_HELPER_SIZE
+    global FIXED_HELPER_SHA256
+
+    if name == "b0":
+        OVERLAY_DIRECTORY = B0_OVERLAY_DIRECTORY
+        OVERLAY_SHA256 = "26cf5430b39dcdc04c1f91a6ce473554c3f1ba3f04c2defdcf146f859b6776d6"
+        OVERLAY_FILES = frozenset(
+            {
+                "BUILD.bazel",
+                "mozc_sidecar.proto",
+                "mozc_sidecar_helper.cc",
+                "sha256.h",
+                "sha256_test.cc",
+            }
+        )
+        HELPER_OUTPUT = Path(
+            "bazel-bin/grimodex_mozc_sidecar/fcitx5-grimodex-mozc-helper"
+        )
+        BUILD_TARGETS = (
+            "//grimodex_mozc_sidecar:fcitx5-grimodex-mozc-helper",
+            "//data_manager/oss:mozc_dataset_for_oss",
+        )
+        TEST_TARGETS = ("//grimodex_mozc_sidecar:sha256_test",)
+        FIXED_HELPER_SIZE = 5_695_048
+        FIXED_HELPER_SHA256 = (
+            "8676275bb47aefe963c8b82047cc66fb7a5140caec72d1ebbfa17556b281577d"
+        )
+        return
+    if name == "b1":
+        OVERLAY_DIRECTORY = B1_OVERLAY_DIRECTORY
+        OVERLAY_SHA256 = B1_OVERLAY_SHA256
+        OVERLAY_FILES = B1_OVERLAY_FILES
+        HELPER_OUTPUT = B1_HELPER_OUTPUT
+        BUILD_TARGETS = B1_BUILD_TARGETS
+        TEST_TARGETS = B1_TEST_TARGETS
+        FIXED_HELPER_SIZE = B1_FIXED_HELPER_SIZE
+        FIXED_HELPER_SHA256 = B1_FIXED_HELPER_SHA256
+        return
+    raise BuildError(f"unknown Mozc sidecar profile: {name}")
 LICENSE_LOCATIONS = {
     "MOZC-LICENSE": ("source", Path("LICENSE")),
     "FCITX-MOZKEY-THIRD-PARTY-NOTICES.md": (
@@ -496,7 +577,9 @@ def verify_checkout(checkout: Path) -> None:
     )
 
 
-def verify_overlay(overlay: Path = OVERLAY_DIRECTORY) -> None:
+def verify_overlay(overlay: Path | None = None) -> None:
+    if overlay is None:
+        overlay = OVERLAY_DIRECTORY
     if overlay.is_symlink() or not overlay.is_dir():
         raise BuildError("Mozc sidecar overlay must be a regular directory")
     actual = {entry.name for entry in overlay.iterdir()}
@@ -625,9 +708,11 @@ def _make_isolated_source(checkout: Path, work_directory: Path) -> Path:
     return source
 
 
-def _apply_overlay(source: Path, overlay: Path = OVERLAY_DIRECTORY) -> None:
+def _apply_overlay(source: Path, overlay: Path | None = None) -> None:
+    if overlay is None:
+        overlay = OVERLAY_DIRECTORY
     verify_overlay(overlay)
-    destination = source / "src/grimodex_mozc_sidecar"
+    destination = source / f"src/{OVERLAY_DIRECTORY.name}"
     if destination.exists() or destination.is_symlink():
         raise BuildError("fixed source unexpectedly already contains the overlay path")
     destination.mkdir()
@@ -793,12 +878,20 @@ def emit_bundle(
     helper: Path,
     data: Path,
     licenses: Mapping[str, Path],
-    expected_helper_size: int = FIXED_HELPER_SIZE,
-    expected_helper_sha256: str = FIXED_HELPER_SHA256,
-    expected_data_size: int = FIXED_DATA_SIZE,
-    expected_data_sha256: str = FIXED_DATA_SHA256,
+    expected_helper_size: int | None = None,
+    expected_helper_sha256: str | None = None,
+    expected_data_size: int | None = None,
+    expected_data_sha256: str | None = None,
     license_hashes: Mapping[str, str] = LICENSE_HASHES,
 ) -> dict[str, object]:
+    if expected_helper_size is None:
+        expected_helper_size = FIXED_HELPER_SIZE
+    if expected_helper_sha256 is None:
+        expected_helper_sha256 = FIXED_HELPER_SHA256
+    if expected_data_size is None:
+        expected_data_size = FIXED_DATA_SIZE
+    if expected_data_sha256 is None:
+        expected_data_sha256 = FIXED_DATA_SHA256
     if output.exists() or output.is_symlink():
         raise BuildError(f"refusing to replace existing bundle output: {output}")
     if set(licenses) != set(license_hashes):
@@ -905,7 +998,9 @@ def build_fixed_sidecar_bundle(
     bazel: Path,
     output: Path,
     output_user_root: Path | None,
+    profile: str = "b0",
 ) -> dict[str, object]:
+    activate_profile(profile)
     ensure_non_root()
     verify_checkout(checkout)
     checkout = checkout.resolve()
@@ -949,6 +1044,12 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--bazel", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
+        "--profile",
+        choices=PROFILE_NAMES,
+        default="b0",
+        help="Immutable sidecar profile to build (default: b0)",
+    )
+    parser.add_argument(
         "--output-user-root",
         type=Path,
         help="Optional persistent Bazel output_user_root for dependency reuse",
@@ -964,6 +1065,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             bazel=args.bazel,
             output=args.output,
             output_user_root=args.output_user_root,
+            profile=args.profile,
         )
     except (BuildError, OSError) as error:
         print(f"Mozc sidecar bundle build failed: {error}", file=sys.stderr)

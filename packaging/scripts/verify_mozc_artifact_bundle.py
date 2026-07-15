@@ -34,6 +34,7 @@ BAZEL_VERSION = "9.0.2"
 BAZELISKRC_SHA256 = "59acd943a0d15254345f3e176f42786af2b4fba83b1657341cf56e017a7db19a"
 MODULE_LOCK_SHA256 = "ab6b647b1c12072eee26ec2370fa928b2ac7c3146e72daf232010dfe254ed972"
 OVERLAY_SHA256 = "26cf5430b39dcdc04c1f91a6ce473554c3f1ba3f04c2defdcf146f859b6776d6"
+B1_OVERLAY_SHA256 = "974003704cacdc9b272fe22c3675222889c1bee2c75b81619317b2431318f55d"
 TARGET_CONTRACT = {
     "system": "linux",
     "architecture": "x86_64",
@@ -60,6 +61,9 @@ FIXED_DATA_SIZE = 18_887_468
 FIXED_DATA_SHA256 = "b9884362e37772f772a0d28d1e12622455c14353497b3435deed60aa7e592c5e"
 FIXED_HELPER_SIZE = 5_695_048
 FIXED_HELPER_SHA256 = "8676275bb47aefe963c8b82047cc66fb7a5140caec72d1ebbfa17556b281577d"
+B1_FIXED_HELPER_SIZE = 5_746_568
+B1_FIXED_HELPER_SHA256 = "728d9a79c0f540a832d3f404a2603f49080e1f9e7ee1d24df1a0a69f5a4a75e8"
+PROFILE_NAMES = ("b0", "b1")
 LICENSE_HASHES = {
     "MOZC-LICENSE": "44cdd923b91ea9199293abecc2762c70c87dbf1e581c027a94c416368d1a648c",
     "FCITX-MOZKEY-THIRD-PARTY-NOTICES.md": "e1bc0a70491f19f5acc7edcae23a1aa5c3b317009246837abd04e0f436c87c46",
@@ -93,6 +97,27 @@ PREPARED_RUNTIME_DIRECTORY_MODE = 0o555
 
 class BundleVerificationError(RuntimeError):
     """The artifact bundle did not satisfy the import contract."""
+
+
+def activate_profile(name: str) -> None:
+    """Select one exact helper/overlay pair; callers default to B0."""
+    global OVERLAY_SHA256
+    global FIXED_HELPER_SIZE
+    global FIXED_HELPER_SHA256
+
+    if name == "b0":
+        OVERLAY_SHA256 = "26cf5430b39dcdc04c1f91a6ce473554c3f1ba3f04c2defdcf146f859b6776d6"
+        FIXED_HELPER_SIZE = 5_695_048
+        FIXED_HELPER_SHA256 = (
+            "8676275bb47aefe963c8b82047cc66fb7a5140caec72d1ebbfa17556b281577d"
+        )
+        return
+    if name == "b1":
+        OVERLAY_SHA256 = B1_OVERLAY_SHA256
+        FIXED_HELPER_SIZE = B1_FIXED_HELPER_SIZE
+        FIXED_HELPER_SHA256 = B1_FIXED_HELPER_SHA256
+        return
+    raise BundleVerificationError(f"unknown Mozc sidecar profile: {name}")
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -1267,6 +1292,12 @@ def verify_and_stage(bundle_dir: Path, stage_root: Path) -> Path:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--profile",
+        choices=PROFILE_NAMES,
+        default="b0",
+        help="Immutable helper profile to accept (default: b0)",
+    )
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--bundle", type=Path)
     action.add_argument("--verify-only", type=Path)
@@ -1310,6 +1341,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     try:
+        activate_profile(args.profile)
         if args.verify_only is not None:
             verify_staged_generation(args.verify_only)
             generation = args.verify_only.resolve()
