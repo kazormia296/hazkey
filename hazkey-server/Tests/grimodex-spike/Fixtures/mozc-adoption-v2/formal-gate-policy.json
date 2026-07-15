@@ -47,15 +47,73 @@
   },
   "candidate_sequence": {
     "evaluate_first": "B0",
-    "evaluate_B1_only_if_B0_result": "formal_fail",
+    "evaluate_B1_only_if_B0_result": "verified_raw_early_formal_fail",
     "B1_prior_result_binding": [
+      "authorization_schema",
+      "authorization_scope",
       "policy_sha256",
-      "corpus_manifest_sha256",
-      "corpus_sha256",
-      "result_integrity"
+      "acquisition_manifest_sha256",
+      "acquisition_manifest_integrity",
+      "acquisition_tree_digest",
+      "raw_run_sha256",
+      "authorization_integrity"
     ],
     "B2_eligible": false,
     "post_disclosure_new_candidate_policy": "new_holdout_required"
+  },
+  "b0_early_rejection": {
+    "authorization_schema": "hazkey.mozc-v2-b1-authorization.v1",
+    "authorization_scope": "B1-evaluation-only",
+    "hazkey_dictionary_fingerprint": "sha256:cee9210b8dc92a30e8b4e600c416db70a51fed1199f6b4c3659aba821ef4024c",
+    "authorization_rule": {
+      "decision": "any-mandatory-objective-check-false",
+      "mandatory_check_ids": [
+        "quality-top1-delta",
+        "quality-top10-delta",
+        "category-top1-delta:technical-mixed",
+        "category-top1-delta:proper-noun",
+        "category-top1-delta:colloquial",
+        "category-top1-delta:homophone-context",
+        "category-top1-delta:long-structural",
+        "category-top1-delta:grimodex-regression",
+        "protected-top1"
+      ],
+      "raw_run_ids": [
+        "H0",
+        "B0"
+      ],
+      "historical_resource_paths": {
+        "shared_temporary_root_required": true,
+        "temporary_basename_pattern": ".<current-acquisition-root-leaf>.tmp-<16-lowercase-hex>",
+        "resolve_or_open_historical_path": false,
+        "exact_suffixes": {
+          "H0": "inputs/Dictionary",
+          "B0": "inputs/B0/sha256-ad277af2ad5a634f23c7b84b7f346b02f341905f10fcfa6eb9912db78a0866cb"
+        }
+      }
+    },
+    "trusted_acquisition": {
+      "schema": "hazkey.mozc-v2-objective-acquisition.v1",
+      "accepted_evidence": {
+        "manifest_sha256": "sha256:b1426435d389cb5132815ed07050c7fe45db5c40abde695e32a4ad2ce80bcde6",
+        "manifest_integrity": "sha256:cc9e41601c515ec0b1a6c88f02038f424b3570e0acdd0f1da0e939e5f4b5d2e9",
+        "tree_digest": "sha256:c059c9ab504cb98bf770f3068b8ba941e74067927857e06c64edc51c47d1da59",
+        "raw_run_sha256": {
+          "H0": "sha256:29a8b543b86b1e596774f0fac6d1c836a9a0b7a2d60d5e782c91b374fe34b4b6",
+          "B0": "sha256:08600f8f7367535469a3f383343dc521181faf8853b5a913336afd33104feea7"
+        }
+      },
+      "producer": {
+        "path": "tools/dictionary/run_mozc_v2_objective.py",
+        "sha256": "sha256:1959800108fc4b7642bee3cf2a2ec6ad8ee8e2e51d651b186ca0516aa2aa2212"
+      },
+      "python_source_sha256": {
+        "producer": "sha256:1959800108fc4b7642bee3cf2a2ec6ad8ee8e2e51d651b186ca0516aa2aa2212",
+        "v1_acquisition": "sha256:d7cf8cd4be12affd2a8e95015522cd8a558009e23208ea5e4b0c9f4df124ec81",
+        "quality_evaluator": "sha256:44ec4f1f19746cb42ef2ace21c9dcd680bc9b0554dc6d28edb5ac2a6ad9b489b",
+        "probe_summarizer": "sha256:52bb5c42a3e42a3c5df78033d2df168d1219dd8e1cf6ffcbe0269736645b9a5e"
+      }
+    }
   },
   "gates": {
     "human_net_preference": {

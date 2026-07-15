@@ -84,6 +84,76 @@ BLOCKING_ITEMS = (
     "candidate-aware raw acquisition validation",
     "candidate-aware native stability evidence validation",
 )
+B1_AUTHORIZATION_SCHEMA = "hazkey.mozc-v2-b1-authorization.v1"
+B1_AUTHORIZATION_SCOPE = "B1-evaluation-only"
+TRUSTED_B0_ACQUISITION_SCHEMA = "hazkey.mozc-v2-objective-acquisition.v1"
+TRUSTED_B0_ACQUISITION_MANIFEST_SHA256 = (
+    "sha256:b1426435d389cb5132815ed07050c7fe45db5c40abde695e32a4ad2ce80bcde6"
+)
+TRUSTED_B0_ACQUISITION_MANIFEST_INTEGRITY = (
+    "sha256:cc9e41601c515ec0b1a6c88f02038f424b3570e0acdd0f1da0e939e5f4b5d2e9"
+)
+TRUSTED_B0_ACQUISITION_TREE_DIGEST = (
+    "sha256:c059c9ab504cb98bf770f3068b8ba941e74067927857e06c64edc51c47d1da59"
+)
+TRUSTED_B0_RAW_RUN_SHA256 = {
+    "H0": "sha256:29a8b543b86b1e596774f0fac6d1c836a9a0b7a2d60d5e782c91b374fe34b4b6",
+    "B0": "sha256:08600f8f7367535469a3f383343dc521181faf8853b5a913336afd33104feea7",
+}
+HAZKEY_DICTIONARY_FINGERPRINT = (
+    "sha256:cee9210b8dc92a30e8b4e600c416db70a51fed1199f6b4c3659aba821ef4024c"
+)
+TRUSTED_B0_PRODUCER = {
+    "path": "tools/dictionary/run_mozc_v2_objective.py",
+    "sha256": (
+        "sha256:1959800108fc4b7642bee3cf2a2ec6ad8ee8e2e51d651b186ca0516aa2aa2212"
+    ),
+}
+TRUSTED_B0_PYTHON_SOURCE_SHA256 = {
+    "producer": TRUSTED_B0_PRODUCER["sha256"],
+    "v1_acquisition": (
+        "sha256:d7cf8cd4be12affd2a8e95015522cd8a558009e23208ea5e4b0c9f4df124ec81"
+    ),
+    "quality_evaluator": (
+        "sha256:44ec4f1f19746cb42ef2ace21c9dcd680bc9b0554dc6d28edb5ac2a6ad9b489b"
+    ),
+    "probe_summarizer": (
+        "sha256:52bb5c42a3e42a3c5df78033d2df168d1219dd8e1cf6ffcbe0269736645b9a5e"
+    ),
+}
+B1_AUTHORIZATION_DECISION = "any-mandatory-objective-check-false"
+B1_MANDATORY_OBJECTIVE_CHECK_IDS = (
+    "quality-top1-delta",
+    "quality-top10-delta",
+    "category-top1-delta:technical-mixed",
+    "category-top1-delta:proper-noun",
+    "category-top1-delta:colloquial",
+    "category-top1-delta:homophone-context",
+    "category-top1-delta:long-structural",
+    "category-top1-delta:grimodex-regression",
+    "protected-top1",
+)
+B1_RAW_RUN_IDS = ("H0", "B0")
+B1_HISTORICAL_TEMPORARY_BASENAME_PATTERN = (
+    ".<current-acquisition-root-leaf>.tmp-<16-lowercase-hex>"
+)
+B1_RAW_RESOURCE_SUFFIXES = {
+    "H0": "inputs/Dictionary",
+    "B0": (
+        "inputs/B0/"
+        "sha256-ad277af2ad5a634f23c7b84b7f346b02f341905f10fcfa6eb9912db78a0866cb"
+    ),
+}
+B1_PRIOR_RESULT_BINDING = (
+    "authorization_schema",
+    "authorization_scope",
+    "policy_sha256",
+    "acquisition_manifest_sha256",
+    "acquisition_manifest_integrity",
+    "acquisition_tree_digest",
+    "raw_run_sha256",
+    "authorization_integrity",
+)
 
 
 def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -250,6 +320,21 @@ class ParsedPolicy:
     formal_evidence_status: str
     formal_adoption_allowed: bool
     blocking_items: tuple[str, ...]
+    b1_authorization_schema: str
+    b1_authorization_scope: str
+    hazkey_dictionary_fingerprint: str
+    trusted_b0_acquisition_schema: str
+    trusted_b0_acquisition_manifest_sha256: str
+    trusted_b0_acquisition_manifest_integrity: str
+    trusted_b0_acquisition_tree_digest: str
+    trusted_b0_raw_run_sha256: dict[str, str]
+    trusted_b0_producer: dict[str, str]
+    trusted_b0_python_source_sha256: dict[str, str]
+    b1_authorization_decision: str
+    b1_mandatory_objective_check_ids: tuple[str, ...]
+    b1_raw_run_ids: tuple[str, ...]
+    b1_historical_temporary_basename_pattern: str
+    b1_raw_resource_suffixes: dict[str, str]
 
 
 def parse_policy(data: bytes, context: str = "formal gate policy") -> ParsedPolicy:
@@ -263,6 +348,7 @@ def parse_policy(data: bytes, context: str = "formal gate policy") -> ParsedPoli
             "corpus_binding",
             "candidate_artifacts",
             "candidate_sequence",
+            "b0_early_rejection",
             "gates",
             "api_contract",
         },
@@ -334,10 +420,230 @@ def parse_policy(data: bytes, context: str = "formal gate policy") -> ParsedPoli
     sequence = _object(root["candidate_sequence"], f"{context}.candidate_sequence")
     _exact(sequence, {"evaluate_first", "evaluate_B1_only_if_B0_result", "B1_prior_result_binding", "B2_eligible", "post_disclosure_new_candidate_policy"}, f"{context}.candidate_sequence")
     _expect(sequence["evaluate_first"], "B0", f"{context}.candidate_sequence.evaluate_first")
-    _expect(sequence["evaluate_B1_only_if_B0_result"], "formal_fail", f"{context}.candidate_sequence.evaluate_B1_only_if_B0_result")
-    _expect(sequence["B1_prior_result_binding"], ["policy_sha256", "corpus_manifest_sha256", "corpus_sha256", "result_integrity"], f"{context}.candidate_sequence.B1_prior_result_binding")
+    _expect(sequence["evaluate_B1_only_if_B0_result"], "verified_raw_early_formal_fail", f"{context}.candidate_sequence.evaluate_B1_only_if_B0_result")
+    _expect(sequence["B1_prior_result_binding"], list(B1_PRIOR_RESULT_BINDING), f"{context}.candidate_sequence.B1_prior_result_binding")
     _expect(_boolean(sequence["B2_eligible"], f"{context}.candidate_sequence.B2_eligible"), False, f"{context}.candidate_sequence.B2_eligible")
     _expect(sequence["post_disclosure_new_candidate_policy"], "new_holdout_required", f"{context}.candidate_sequence.post_disclosure_new_candidate_policy")
+
+    rejection = _object(root["b0_early_rejection"], f"{context}.b0_early_rejection")
+    _exact(
+        rejection,
+        {
+            "authorization_schema",
+            "authorization_scope",
+            "hazkey_dictionary_fingerprint",
+            "authorization_rule",
+            "trusted_acquisition",
+        },
+        f"{context}.b0_early_rejection",
+    )
+    _expect(
+        rejection["authorization_schema"],
+        B1_AUTHORIZATION_SCHEMA,
+        f"{context}.b0_early_rejection.authorization_schema",
+    )
+    _expect(
+        rejection["authorization_scope"],
+        B1_AUTHORIZATION_SCOPE,
+        f"{context}.b0_early_rejection.authorization_scope",
+    )
+    _expect(
+        _sha256(
+            rejection["hazkey_dictionary_fingerprint"],
+            f"{context}.b0_early_rejection.hazkey_dictionary_fingerprint",
+        ),
+        HAZKEY_DICTIONARY_FINGERPRINT,
+        f"{context}.b0_early_rejection.hazkey_dictionary_fingerprint",
+    )
+    rule = _object(
+        rejection["authorization_rule"],
+        f"{context}.b0_early_rejection.authorization_rule",
+    )
+    _exact(
+        rule,
+        {
+            "decision",
+            "mandatory_check_ids",
+            "raw_run_ids",
+            "historical_resource_paths",
+        },
+        f"{context}.b0_early_rejection.authorization_rule",
+    )
+    _expect(
+        rule["decision"],
+        B1_AUTHORIZATION_DECISION,
+        f"{context}.b0_early_rejection.authorization_rule.decision",
+    )
+    _expect(
+        rule["mandatory_check_ids"],
+        list(B1_MANDATORY_OBJECTIVE_CHECK_IDS),
+        f"{context}.b0_early_rejection.authorization_rule.mandatory_check_ids",
+    )
+    _expect(
+        rule["raw_run_ids"],
+        list(B1_RAW_RUN_IDS),
+        f"{context}.b0_early_rejection.authorization_rule.raw_run_ids",
+    )
+    historical_paths = _object(
+        rule["historical_resource_paths"],
+        f"{context}.b0_early_rejection.authorization_rule.historical_resource_paths",
+    )
+    _exact(
+        historical_paths,
+        {
+            "shared_temporary_root_required",
+            "temporary_basename_pattern",
+            "resolve_or_open_historical_path",
+            "exact_suffixes",
+        },
+        f"{context}.b0_early_rejection.authorization_rule.historical_resource_paths",
+    )
+    _expect(
+        _boolean(
+            historical_paths["shared_temporary_root_required"],
+            f"{context}.b0_early_rejection.authorization_rule."
+            "historical_resource_paths.shared_temporary_root_required",
+        ),
+        True,
+        f"{context}.b0_early_rejection.authorization_rule."
+        "historical_resource_paths.shared_temporary_root_required",
+    )
+    _expect(
+        historical_paths["temporary_basename_pattern"],
+        B1_HISTORICAL_TEMPORARY_BASENAME_PATTERN,
+        f"{context}.b0_early_rejection.authorization_rule."
+        "historical_resource_paths.temporary_basename_pattern",
+    )
+    _expect(
+        _boolean(
+            historical_paths["resolve_or_open_historical_path"],
+            f"{context}.b0_early_rejection.authorization_rule."
+            "historical_resource_paths.resolve_or_open_historical_path",
+        ),
+        False,
+        f"{context}.b0_early_rejection.authorization_rule."
+        "historical_resource_paths.resolve_or_open_historical_path",
+    )
+    _expect(
+        historical_paths["exact_suffixes"],
+        B1_RAW_RESOURCE_SUFFIXES,
+        f"{context}.b0_early_rejection.authorization_rule."
+        "historical_resource_paths.exact_suffixes",
+    )
+    trusted = _object(
+        rejection["trusted_acquisition"],
+        f"{context}.b0_early_rejection.trusted_acquisition",
+    )
+    _exact(
+        trusted,
+        {"schema", "accepted_evidence", "producer", "python_source_sha256"},
+        f"{context}.b0_early_rejection.trusted_acquisition",
+    )
+    _expect(
+        trusted["schema"],
+        TRUSTED_B0_ACQUISITION_SCHEMA,
+        f"{context}.b0_early_rejection.trusted_acquisition.schema",
+    )
+    accepted = _object(
+        trusted["accepted_evidence"],
+        f"{context}.b0_early_rejection.trusted_acquisition.accepted_evidence",
+    )
+    _exact(
+        accepted,
+        {
+            "manifest_sha256",
+            "manifest_integrity",
+            "tree_digest",
+            "raw_run_sha256",
+        },
+        f"{context}.b0_early_rejection.trusted_acquisition.accepted_evidence",
+    )
+    for field, expected in (
+        ("manifest_sha256", TRUSTED_B0_ACQUISITION_MANIFEST_SHA256),
+        ("manifest_integrity", TRUSTED_B0_ACQUISITION_MANIFEST_INTEGRITY),
+        ("tree_digest", TRUSTED_B0_ACQUISITION_TREE_DIGEST),
+    ):
+        _expect(
+            _sha256(
+                accepted[field],
+                f"{context}.b0_early_rejection.trusted_acquisition."
+                f"accepted_evidence.{field}",
+            ),
+            expected,
+            f"{context}.b0_early_rejection.trusted_acquisition."
+            f"accepted_evidence.{field}",
+        )
+    raw_run_hashes = _object(
+        accepted["raw_run_sha256"],
+        f"{context}.b0_early_rejection.trusted_acquisition."
+        "accepted_evidence.raw_run_sha256",
+    )
+    _exact(
+        raw_run_hashes,
+        set(B1_RAW_RUN_IDS),
+        f"{context}.b0_early_rejection.trusted_acquisition."
+        "accepted_evidence.raw_run_sha256",
+    )
+    normalized_raw_run_hashes = {
+        run_id: _sha256(
+            raw_run_hashes[run_id],
+            f"{context}.b0_early_rejection.trusted_acquisition."
+            f"accepted_evidence.raw_run_sha256.{run_id}",
+        )
+        for run_id in B1_RAW_RUN_IDS
+    }
+    _expect(
+        normalized_raw_run_hashes,
+        TRUSTED_B0_RAW_RUN_SHA256,
+        f"{context}.b0_early_rejection.trusted_acquisition."
+        "accepted_evidence.raw_run_sha256",
+    )
+    producer = _object(
+        trusted["producer"],
+        f"{context}.b0_early_rejection.trusted_acquisition.producer",
+    )
+    _exact(
+        producer,
+        {"path", "sha256"},
+        f"{context}.b0_early_rejection.trusted_acquisition.producer",
+    )
+    normalized_producer = {
+        "path": _string(
+            producer["path"],
+            f"{context}.b0_early_rejection.trusted_acquisition.producer.path",
+        ),
+        "sha256": _sha256(
+            producer["sha256"],
+            f"{context}.b0_early_rejection.trusted_acquisition.producer.sha256",
+        ),
+    }
+    _expect(
+        normalized_producer,
+        TRUSTED_B0_PRODUCER,
+        f"{context}.b0_early_rejection.trusted_acquisition.producer",
+    )
+    raw_source_hashes = _object(
+        trusted["python_source_sha256"],
+        f"{context}.b0_early_rejection.trusted_acquisition.python_source_sha256",
+    )
+    _exact(
+        raw_source_hashes,
+        set(TRUSTED_B0_PYTHON_SOURCE_SHA256),
+        f"{context}.b0_early_rejection.trusted_acquisition.python_source_sha256",
+    )
+    source_hashes = {
+        source_id: _sha256(
+            raw_source_hashes[source_id],
+            f"{context}.b0_early_rejection.trusted_acquisition."
+            f"python_source_sha256.{source_id}",
+        )
+        for source_id in TRUSTED_B0_PYTHON_SOURCE_SHA256
+    }
+    _expect(
+        source_hashes,
+        TRUSTED_B0_PYTHON_SOURCE_SHA256,
+        f"{context}.b0_early_rejection.trusted_acquisition.python_source_sha256",
+    )
 
     gates = _object(root["gates"], f"{context}.gates")
     _exact(gates, {"human_net_preference", "top1", "top10", "per_category_top1", "protected", "both_bad", "warm_latency_p95", "pss", "long_running_stability"}, f"{context}.gates")
@@ -435,6 +741,27 @@ def parse_policy(data: bytes, context: str = "formal gate policy") -> ParsedPoli
         formal_evidence_status=FORMAL_EVIDENCE_STATUS,
         formal_adoption_allowed=FORMAL_ADOPTION_ALLOWED,
         blocking_items=BLOCKING_ITEMS,
+        b1_authorization_schema=B1_AUTHORIZATION_SCHEMA,
+        b1_authorization_scope=B1_AUTHORIZATION_SCOPE,
+        hazkey_dictionary_fingerprint=HAZKEY_DICTIONARY_FINGERPRINT,
+        trusted_b0_acquisition_schema=TRUSTED_B0_ACQUISITION_SCHEMA,
+        trusted_b0_acquisition_manifest_sha256=(
+            TRUSTED_B0_ACQUISITION_MANIFEST_SHA256
+        ),
+        trusted_b0_acquisition_manifest_integrity=(
+            TRUSTED_B0_ACQUISITION_MANIFEST_INTEGRITY
+        ),
+        trusted_b0_acquisition_tree_digest=TRUSTED_B0_ACQUISITION_TREE_DIGEST,
+        trusted_b0_raw_run_sha256=dict(TRUSTED_B0_RAW_RUN_SHA256),
+        trusted_b0_producer=dict(TRUSTED_B0_PRODUCER),
+        trusted_b0_python_source_sha256=dict(TRUSTED_B0_PYTHON_SOURCE_SHA256),
+        b1_authorization_decision=B1_AUTHORIZATION_DECISION,
+        b1_mandatory_objective_check_ids=B1_MANDATORY_OBJECTIVE_CHECK_IDS,
+        b1_raw_run_ids=B1_RAW_RUN_IDS,
+        b1_historical_temporary_basename_pattern=(
+            B1_HISTORICAL_TEMPORARY_BASENAME_PATTERN
+        ),
+        b1_raw_resource_suffixes=dict(B1_RAW_RESOURCE_SUFFIXES),
     )
 
 

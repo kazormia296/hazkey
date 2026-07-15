@@ -98,6 +98,27 @@ class FormalV2GateTests(unittest.TestCase):
         )
         self.assertEqual(self.policy.formal_evidence_status, "not_ready")
         self.assertIs(self.policy.formal_adoption_allowed, False)
+        self.assertEqual(
+            self.policy.hazkey_dictionary_fingerprint,
+            gate.HAZKEY_DICTIONARY_FINGERPRINT,
+        )
+        self.assertEqual(
+            self.policy.trusted_b0_acquisition_schema,
+            gate.TRUSTED_B0_ACQUISITION_SCHEMA,
+        )
+        self.assertEqual(
+            self.policy.trusted_b0_python_source_sha256,
+            gate.TRUSTED_B0_PYTHON_SOURCE_SHA256,
+        )
+        self.assertEqual(
+            self.policy.b1_mandatory_objective_check_ids,
+            gate.B1_MANDATORY_OBJECTIVE_CHECK_IDS,
+        )
+        self.assertEqual(self.policy.b1_raw_run_ids, ("H0", "B0"))
+        self.assertEqual(
+            self.policy.trusted_b0_raw_run_sha256,
+            gate.TRUSTED_B0_RAW_RUN_SHA256,
+        )
 
     def test_human_minus_thirty_seven_passes_minus_thirty_eight_fails(self) -> None:
         passing = self.metrics()
@@ -342,6 +363,27 @@ class FormalV2GateTests(unittest.TestCase):
         false_as_integer["corpus_binding"]["protected"]["included_in_quality"] = 0
         with self.assertRaisesRegex(ValueError, "must be a boolean"):
             gate.parse_policy(json.dumps(false_as_integer).encode())
+
+        source_drift = copy.deepcopy(raw)
+        source_drift["b0_early_rejection"]["trusted_acquisition"][
+            "python_source_sha256"
+        ]["producer"] = "sha256:" + "0" * 64
+        with self.assertRaisesRegex(ValueError, "python_source_sha256"):
+            gate.parse_policy(json.dumps(source_drift).encode())
+
+        rule_drift = copy.deepcopy(raw)
+        rule_drift["b0_early_rejection"]["authorization_rule"][
+            "mandatory_check_ids"
+        ].pop()
+        with self.assertRaisesRegex(ValueError, "mandatory_check_ids"):
+            gate.parse_policy(json.dumps(rule_drift).encode())
+
+        evidence_drift = copy.deepcopy(raw)
+        evidence_drift["b0_early_rejection"]["trusted_acquisition"][
+            "accepted_evidence"
+        ]["raw_run_sha256"]["B0"] = "sha256:" + "0" * 64
+        with self.assertRaisesRegex(ValueError, "raw_run_sha256"):
+            gate.parse_policy(json.dumps(evidence_drift).encode())
 
     def test_b1_remains_blocked_with_a_canonical_not_ready_b0_formal_fail(self) -> None:
         b0_metrics = self.metrics("B0")
