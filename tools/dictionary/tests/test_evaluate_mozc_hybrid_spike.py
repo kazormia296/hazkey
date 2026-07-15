@@ -114,6 +114,37 @@ def make_v4_result(
     return result
 
 
+def make_v5_result(
+    case_id: str,
+    reading: str,
+    candidates: list[tuple[str, int]],
+    converter_backend: str,
+    *,
+    corpus_sha256: str,
+    corpus_cases: int,
+    composition_count: int,
+    composition_start: int = 0,
+    composition_unit: str = "composition_element",
+    **kwargs: object,
+) -> dict[str, object]:
+    result = make_v4_result(
+        case_id,
+        reading,
+        candidates,
+        converter_backend,
+        corpus_sha256=corpus_sha256,
+        corpus_cases=corpus_cases,
+        **kwargs,
+    )
+    result["schema"] = "hazkey.ab-probe-result.v5"
+    result["composition_span"] = {
+        "start": composition_start,
+        "count": composition_count,
+        "unit": composition_unit,
+    }
+    return result
+
+
 def write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
     path.write_text(
         "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
@@ -229,6 +260,108 @@ def make_v4_inputs(
     return corpus, hazkey_path, mozc_path, hazkey_records, mozc_records
 
 
+def make_v5_inputs(
+    directory: Path,
+) -> tuple[Path, Path, Path, list[dict[str, object]], list[dict[str, object]]]:
+    cases = (
+        (
+            "whole-span-rescue",
+            "よみ",
+            "正解R",
+            "proper-noun",
+            2,
+            [("正解R", 2), ("候補R", 2)],
+            [("誤りR", 2), ("正解R", 2)],
+        ),
+        (
+            "whole-span-regression",
+            "かな",
+            "正解G",
+            "proper-noun",
+            2,
+            [("誤りG", 2)],
+            [("正解G", 2), ("誤りG", 2)],
+        ),
+        (
+            "same-surface-wrong-count",
+            "てすと",
+            "正解C",
+            "proper-noun",
+            3,
+            [("候補C", 3), ("正解C", 2)],
+            [("誤りC", 3), ("正解C", 2)],
+        ),
+        (
+            "partial-span-excluded",
+            "ぜんぶ",
+            "全文正解",
+            "proper-noun",
+            3,
+            [("部分H", 2)],
+            [("部分M", 2)],
+        ),
+        (
+            "width-guarded-regression",
+            "しがつ",
+            "４月",
+            "proper-noun",
+            3,
+            [("4月", 3)],
+            [("４月", 3), ("4月", 3)],
+        ),
+        (
+            "protected-quality-excluded",
+            "ほご",
+            "保護正解",
+            "protected",
+            2,
+            [("保護誤りH", 2)],
+            [("保護誤りM", 2)],
+        ),
+    )
+    corpus = directory / "corpus-v5.tsv"
+    corpus.write_text(
+        "id\treading\texpected\tcategory\n"
+        + "".join(
+            f"{case_id}\t{reading}\t{expected}\t{category}\n"
+            for case_id, reading, expected, category, _, _, _ in cases
+        ),
+        encoding="utf-8",
+    )
+    corpus_sha256 = "sha256:" + hashlib.sha256(corpus.read_bytes()).hexdigest()
+    hazkey_records = [
+        make_v5_result(
+            case_id,
+            reading,
+            hazkey,
+            "hazkey",
+            corpus_sha256=corpus_sha256,
+            corpus_cases=len(cases),
+            composition_count=composition_count,
+            category=category,
+        )
+        for case_id, reading, _, category, composition_count, hazkey, _ in cases
+    ]
+    mozc_records = [
+        make_v5_result(
+            case_id,
+            reading,
+            mozc,
+            "mozc",
+            corpus_sha256=corpus_sha256,
+            corpus_cases=len(cases),
+            composition_count=composition_count,
+            category=category,
+        )
+        for case_id, reading, _, category, composition_count, _, mozc in reversed(cases)
+    ]
+    hazkey_path = directory / "hazkey-v5.jsonl"
+    mozc_path = directory / "mozc-v5.jsonl"
+    write_jsonl(hazkey_path, hazkey_records)
+    write_jsonl(mozc_path, mozc_records)
+    return corpus, hazkey_path, mozc_path, hazkey_records, mozc_records
+
+
 class MozcHybridSpikeEvaluationTests(unittest.TestCase):
     def test_classifies_all_mozc_misses_and_reports_policy_effect(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -237,7 +370,7 @@ class MozcHybridSpikeEvaluationTests(unittest.TestCase):
             report = evaluate_mozc_hybrid_spike.evaluate_paths(corpus, hazkey, mozc)
 
         self.assertEqual(
-            report["schema"], "hazkey.mozc-hybrid-spike-evaluation.v2"
+            report["schema"], "hazkey.mozc-hybrid-spike-evaluation.v3"
         )
         self.assertTrue(report["diagnostic_only"])
         self.assertFalse(report["formal_authorized"])
@@ -386,7 +519,7 @@ class MozcHybridSpikeEvaluationTests(unittest.TestCase):
             )
 
         self.assertEqual(
-            report["schema"], "hazkey.mozc-hybrid-spike-evaluation.v2"
+            report["schema"], "hazkey.mozc-hybrid-spike-evaluation.v3"
         )
         self.assertFalse(report["formal_authorized"])
         self.assertTrue(report["new_holdout_required"])
@@ -495,7 +628,13 @@ class MozcHybridSpikeEvaluationTests(unittest.TestCase):
         self.assertIsNone(eligible["top1_outcome"])
         self.assertEqual(
             eligible["expected_rank"],
-            {"hazkey": None, "mozc": None, "hybrid": None, "runtime_h0": None},
+            {
+                "hazkey": None,
+                "mozc": None,
+                "hybrid": None,
+                "runtime_h0": None,
+                "width_guarded_hybrid": None,
+            },
         )
         self.assertEqual(
             eligible["candidates"]["hybrid"],
@@ -522,6 +661,249 @@ class MozcHybridSpikeEvaluationTests(unittest.TestCase):
         self.assertEqual(
             mismatch_only["candidates"]["runtime_h0"], ["M2", "eligible"]
         )
+
+    def test_v5_scores_only_explicit_whole_span_and_guards_width_promotions(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            corpus, hazkey, mozc, _, _ = make_v5_inputs(directory)
+            report = evaluate_mozc_hybrid_spike.evaluate_paths(
+                corpus, hazkey, mozc
+            )
+
+        self.assertEqual(
+            report["candidate_evidence"]["input_schema"],
+            "hazkey.ab-probe-result.v5",
+        )
+        self.assertEqual(
+            report["candidate_evidence"]["observed_fields"],
+            ["text", "rank", "consuming_count"],
+        )
+        self.assertEqual(
+            report["candidate_evidence"]["case_observed_fields"],
+            ["composition_span"],
+        )
+        self.assertFalse(
+            report["candidate_evidence"]["whole_target_quality_comparable"]
+        )
+        self.assertEqual(
+            report["candidate_evidence"][
+                "whole_target_quality_comparable_count"
+            ],
+            5,
+        )
+        self.assertEqual(
+            report["target_comparability"],
+            {
+                "quality_target": "whole_composition",
+                "observed_candidate_scope": "first_clause",
+                "established": False,
+                "comparable_count": 5,
+                "incomparable_count": 1,
+                "comparison_basis": "explicit_whole_composition_span",
+                "partial_parity_established": True,
+                "selection_basis": (
+                    "mozc_top1_consumes_explicit_whole_span"
+                ),
+                "selection_biased": True,
+                "absolute_backend_accuracy_generalizable": False,
+                "required_evidence": (
+                    "For the remaining incomparable rows, acquire "
+                    "segment-labeled targets or reviewed evidence that the "
+                    "observed candidate span covers the whole target."
+                ),
+            },
+        )
+        self.assertEqual(
+            report["boundary_evidence"]["explicit_composition_span"],
+            {
+                "unit": "composition_element",
+                "whole_span_comparable_count": 5,
+                "whole_span_comparable_rate": 5 / 6,
+            },
+        )
+        self.assertNotIn("top1", report)
+        diagnostic = report["diagnostic_target_comparable"]
+        self.assertEqual(
+            diagnostic["category_scope"],
+            {
+                "policy": "all_categories",
+                "cases": 5,
+                "by_category": {"proper-noun": 4, "protected": 1},
+                "includes_formal_non_quality_categories": True,
+            },
+        )
+        self.assertEqual(diagnostic["top1"]["cases"], 5)
+        self.assertEqual(
+            diagnostic["top1"]["mozc"], {"hits": 2, "rate": 0.4}
+        )
+        self.assertFalse(
+            diagnostic["top1"]["formal_quality_categories_only"]
+        )
+
+        formal = report["formal_quality"]
+        self.assertFalse(formal["formal_authorized"])
+        self.assertEqual(
+            formal["case_scope"],
+            {
+                "corpus_cases": 6,
+                "eligible_category_cases": 5,
+                "comparable_cases": 4,
+                "incomparable_cases": 1,
+                "excluded_non_quality_cases": 1,
+                "excluded_non_quality_comparable_cases": 1,
+            },
+        )
+        self.assertEqual(
+            formal["category_policy"]["excluded_categories_observed"],
+            ["protected"],
+        )
+        self.assertEqual(
+            formal["top1"]["mozc"], {"hits": 2, "rate": 0.5}
+        )
+        self.assertEqual(formal["top1"]["cases"], 4)
+        self.assertTrue(formal["top1"]["formal_quality_categories_only"])
+        self.assertEqual(formal["width_guarded_top1"]["regressed"], 1)
+        self.assertEqual(
+            report["promotion_opportunities"]["outcomes"],
+            {
+                "rescued": 1,
+                "regressed": 2,
+                "unchanged_correct": 0,
+                "unchanged_incorrect": 0,
+            },
+        )
+        self.assertEqual(
+            report["promotion_opportunities"]["outcome_comparable_count"],
+            3,
+        )
+        self.assertEqual(
+            report["width_guarded_promotion_opportunities"],
+            {
+                "policy_id": (
+                    "mozc-first-one-sided-consensus-width-guard-v1"
+                ),
+                "decision": "promote_hazkey_one_sided_consensus",
+                "scope": "boundary_aware",
+                "count": 2,
+                "rate": 1 / 3,
+                "suppressed_width_equivalent_count": 1,
+                "suppressed_width_equivalent": {
+                    "count": 1,
+                    "counterfactual_h1_outcomes": {
+                        "rescued": 0,
+                        "regressed": 1,
+                        "unchanged_correct": 0,
+                        "unchanged_incorrect": 0,
+                    },
+                    "h2_outcomes": {
+                        "rescued": 0,
+                        "regressed": 0,
+                        "unchanged_correct": 1,
+                        "unchanged_incorrect": 0,
+                    },
+                    "outcome_comparable_count": 1,
+                    "outcome_incomparable_count": 0,
+                },
+                "outcomes": {
+                    "rescued": 1,
+                    "regressed": 1,
+                    "unchanged_correct": 0,
+                    "unchanged_incorrect": 0,
+                },
+                "outcome_comparable_count": 2,
+                "outcome_incomparable_count": 0,
+                "all_policy_decisions": {
+                    "keep_mozc_top1": 3,
+                    "keep_mozc_width_equivalent_top1": 1,
+                    "promote_hazkey_one_sided_consensus": 2,
+                },
+            },
+        )
+
+        classification = formal["mozc_top1_miss_classification"]
+        self.assertEqual(classification["total"], 2)
+        self.assertEqual(classification["hazkey_top1_rescue"]["count"], 1)
+        self.assertEqual(classification["both_absent"]["count"], 1)
+        self.assertEqual(classification["excluded_target_incomparable_cases"], 1)
+
+        cases = {case["id"]: case for case in report["cases"]}
+        rescue = cases["whole-span-rescue"]
+        self.assertTrue(rescue["target_comparable"])
+        self.assertEqual(rescue["top1_outcome"], "rescued")
+        self.assertEqual(rescue["expected_rank"]["hybrid"], 1)
+        self.assertTrue(
+            rescue["boundary_evidence"]["whole_span_target_parity"]
+        )
+
+        regression = cases["whole-span-regression"]
+        self.assertEqual(regression["top1_outcome"], "regressed")
+        self.assertEqual(regression["expected_rank"]["mozc"], 1)
+        self.assertEqual(regression["expected_rank"]["hybrid"], 2)
+
+        wrong_count = cases["same-surface-wrong-count"]
+        self.assertTrue(wrong_count["target_comparable"])
+        self.assertIn("正解C", wrong_count["candidates"]["hybrid"])
+        self.assertEqual(
+            wrong_count["expected_rank"],
+            {
+                "hazkey": None,
+                "mozc": None,
+                "hybrid": None,
+                "runtime_h0": None,
+                "width_guarded_hybrid": None,
+            },
+        )
+        self.assertEqual(
+            wrong_count["mozc_top1_miss_classification"], "both_absent"
+        )
+
+        partial = cases["partial-span-excluded"]
+        self.assertFalse(partial["target_comparable"])
+        self.assertIsNone(partial["top1_outcome"])
+        self.assertFalse(
+            partial["boundary_evidence"]["whole_span_target_parity"]
+        )
+        self.assertEqual(
+            partial["quality_limitation"],
+            "the observed first clause does not explicitly span the "
+            "whole-composition target",
+        )
+
+        width_guarded = cases["width-guarded-regression"]
+        self.assertEqual(width_guarded["top1_outcome"], "regressed")
+        self.assertEqual(
+            width_guarded["width_guarded_policy_decision"],
+            "keep_mozc_width_equivalent_top1",
+        )
+        self.assertEqual(
+            width_guarded["width_guarded_top1_outcome"],
+            "unchanged_correct",
+        )
+        self.assertEqual(
+            width_guarded["candidates"]["width_guarded_hybrid"],
+            ["４月", "4月"],
+        )
+
+    def test_v5_requires_matching_composition_spans_between_backends(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            corpus, hazkey, mozc, _, mozc_records = make_v5_inputs(directory)
+            rescue = next(
+                record
+                for record in mozc_records
+                if record["id"] == "whole-span-rescue"
+            )
+            rescue["composition_span"]["count"] = 3
+            write_jsonl(mozc, mozc_records)
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "composition_span for 'whole-span-rescue' differs between "
+                "probe runs",
+            ):
+                evaluate_mozc_hybrid_spike.evaluate_paths(corpus, hazkey, mozc)
 
     def test_v4_requires_segment_candidates_conversion_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -558,6 +940,16 @@ class MozcHybridSpikeEvaluationTests(unittest.TestCase):
         self.assertEqual(promoted, ["H0", "M0", "M1", "H1"])
         self.assertEqual(blocked_decision, "keep_mozc_top1")
         self.assertEqual(blocked, ["M0", "H0", "M1", "H1"])
+
+    def test_width_guard_folds_only_full_width_ascii_forms(self) -> None:
+        self.assertEqual(
+            evaluate_mozc_hybrid_spike.width_folded_surface("Ａ１！　"),
+            "A1! ",
+        )
+        self.assertEqual(
+            evaluate_mozc_hybrid_spike.width_folded_surface("①㍑"),
+            "①㍑",
+        )
 
     def test_fails_closed_on_identity_and_case_mismatches(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

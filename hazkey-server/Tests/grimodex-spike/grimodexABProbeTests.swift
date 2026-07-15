@@ -70,7 +70,7 @@ final class GrimodexABProbeTests: XCTestCase {
     )
   }
 
-  func testOptionsResultSchemaDefaultsToV3AndAcceptsV4() throws {
+  func testOptionsResultSchemaDefaultsToV3AndAcceptsSegmentSchemas() throws {
     let baseArguments = [
       "hazkey-server", "--ab-probe", "--corpus", "/tmp/corpus.tsv",
       "--dictionary", "/tmp/dictionary", "--source-ref", "abc123",
@@ -85,6 +85,12 @@ final class GrimodexABProbeTests: XCTestCase {
     )
     XCTAssertEqual(v4Options.resultSchema, .v4)
     XCTAssertEqual(v4Options.resultSchema.conversionPath, .segmentCandidates)
+
+    let v5Options = try ABProbeOptions.parse(
+      arguments: baseArguments + ["--result-schema", "v5"]
+    )
+    XCTAssertEqual(v5Options.resultSchema, .v5)
+    XCTAssertEqual(v5Options.resultSchema.conversionPath, .segmentCandidates)
   }
 
   func testOptionsRejectBackendSpecificArgumentCombinations() {
@@ -149,7 +155,7 @@ final class GrimodexABProbeTests: XCTestCase {
       [
         "hazkey-server", "--ab-probe", "--corpus", "x",
         "--dictionary", "dict", "--source-ref", "ref",
-        "--result-schema", "v5",
+        "--result-schema", "v6",
       ],
     ]
     for arguments in invalidArguments {
@@ -555,6 +561,54 @@ final class GrimodexABProbeTests: XCTestCase {
     XCTAssertEqual(candidates[1]["text"] as? String, "第二")
     XCTAssertEqual(candidates[1]["rank"] as? Int, 2)
     XCTAssertEqual(candidates[1]["consuming_count"] as? Int, 2)
+    XCTAssertNil(object["composition_span"])
+  }
+
+  func testV5ResultAddsEntireCompositionSpan() throws {
+    let composition = CompositionInput(
+      elements: [
+        CompositionElement(text: "よ", inputStyle: .direct),
+        CompositionElement(text: "み", inputStyle: .direct),
+        CompositionElement(text: "を", inputStyle: .direct),
+      ],
+      cursor: 3,
+      leftContext: ""
+    )
+    let span = ABProbeCompositionSpan.entireComposition(composition)
+    XCTAssertEqual(
+      span,
+      ABProbeCompositionSpan(
+        start: 0,
+        count: composition.elements.count,
+        unit: "composition_element"
+      )
+    )
+
+    let result = ABProbeResultV5(
+      v3: sampleV3Result(candidates: ["第一"]),
+      candidates: [
+        ABProbeV4Candidate(text: "第一", rank: 1, consumingCount: 2),
+      ],
+      compositionSpan: span
+    )
+    let object = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(result))
+        as? [String: Any]
+    )
+
+    XCTAssertEqual(object["schema"] as? String, "hazkey.ab-probe-result.v5")
+    XCTAssertEqual(object["conversion_path"] as? String, "segment_candidates")
+    let encodedSpan = try XCTUnwrap(
+      object["composition_span"] as? [String: Any]
+    )
+    XCTAssertEqual(encodedSpan["start"] as? Int, 0)
+    XCTAssertEqual(encodedSpan["count"] as? Int, composition.elements.count)
+    XCTAssertEqual(encodedSpan["unit"] as? String, "composition_element")
+
+    let candidates = try XCTUnwrap(object["candidates"] as? [[String: Any]])
+    XCTAssertEqual(candidates[0]["text"] as? String, "第一")
+    XCTAssertEqual(candidates[0]["rank"] as? Int, 1)
+    XCTAssertEqual(candidates[0]["consuming_count"] as? Int, 2)
   }
 
   func testCandidateObservationCapturesRankAndCompositionElementCount() {
@@ -606,6 +660,36 @@ final class GrimodexABProbeTests: XCTestCase {
           .candidateDrift("candidate output drifted during case case")
         )
       }
+    }
+  }
+
+  func testV5CandidateStabilityIncludesTextRankAndConsumingCount() throws {
+    let reference = [
+      ABProbeV4Candidate(text: "候補", rank: 1, consumingCount: 3),
+    ]
+    XCTAssertNoThrow(
+      try ABProbeCandidateObservation.validateStable(
+        reference: reference,
+        observed: reference,
+        resultSchema: .v5,
+        caseID: "v5-case"
+      )
+    )
+
+    XCTAssertThrowsError(
+      try ABProbeCandidateObservation.validateStable(
+        reference: reference,
+        observed: [
+          ABProbeV4Candidate(text: "候補", rank: 1, consumingCount: 2),
+        ],
+        resultSchema: .v5,
+        caseID: "v5-case"
+      )
+    ) {
+      XCTAssertEqual(
+        $0 as? ABProbeError,
+        .candidateDrift("candidate output drifted during case v5-case")
+      )
     }
   }
 

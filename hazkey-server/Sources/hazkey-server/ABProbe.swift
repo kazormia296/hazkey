@@ -42,12 +42,13 @@ enum ABProbeConverterBackend: String, Equatable, Sendable {
 enum ABProbeResultSchema: String, Equatable, Sendable {
     case v3
     case v4
+    case v5
 
     var conversionPath: ABProbeConversionPath {
         switch self {
         case .v3:
             .candidates
-        case .v4:
+        case .v4, .v5:
             .segmentCandidates
         }
     }
@@ -181,7 +182,7 @@ struct ABProbeOptions: Equatable {
                 let value = try value(after: option)
                 guard let parsed = ABProbeResultSchema(rawValue: value) else {
                     throw ABProbeError.invalidArguments(
-                        "--result-schema must be v3 or v4"
+                        "--result-schema must be v3, v4, or v5"
                     )
                 }
                 resultSchema = parsed
@@ -1168,7 +1169,7 @@ enum ABProbeCandidateObservation {
         let isStable = switch resultSchema {
         case .v3:
             reference.map(\.text) == observed.map(\.text)
-        case .v4:
+        case .v4, .v5:
             reference == observed
         }
         guard isStable else {
@@ -1224,6 +1225,76 @@ struct ABProbeResultV4: Encodable {
         case topK = "top_k"
         case corpus
         case candidates
+        case measurement
+    }
+}
+
+struct ABProbeCompositionSpan: Encodable, Equatable {
+    let start: Int
+    let count: Int
+    let unit: String
+
+    static func entireComposition(_ composition: CompositionInput) -> Self {
+        Self(
+            start: 0,
+            count: composition.elements.count,
+            unit: "composition_element"
+        )
+    }
+}
+
+struct ABProbeResultV5: Encodable {
+    let schema = "hazkey.ab-probe-result.v5"
+    let conversionPath = ABProbeConversionPath.segmentCandidates.rawValue
+    let id: String
+    let reading: String
+    let category: String
+    let backend: String
+    let backendVersion: String
+    let converterBackend: String
+    let sourceRef: String
+    let resource: ABProbeResourceProvenance
+    let topK: Int
+    let corpus: ABProbeCorpusProvenance
+    let candidates: [ABProbeV4Candidate]
+    let compositionSpan: ABProbeCompositionSpan
+    let measurement: ABProbeMeasurement
+
+    init(
+        v3: ABProbeResult,
+        candidates: [ABProbeV4Candidate],
+        compositionSpan: ABProbeCompositionSpan
+    ) {
+        id = v3.id
+        reading = v3.reading
+        category = v3.category
+        backend = v3.backend
+        backendVersion = v3.backendVersion
+        converterBackend = v3.converterBackend
+        sourceRef = v3.sourceRef
+        resource = v3.resource
+        topK = v3.topK
+        corpus = v3.corpus
+        self.candidates = candidates
+        self.compositionSpan = compositionSpan
+        measurement = v3.measurement
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schema
+        case conversionPath = "conversion_path"
+        case id
+        case reading
+        case category
+        case backend
+        case backendVersion = "backend_version"
+        case converterBackend = "converter_backend"
+        case sourceRef = "source_ref"
+        case resource
+        case topK = "top_k"
+        case corpus
+        case candidates
+        case compositionSpan = "composition_span"
         case measurement
     }
 }
@@ -1441,6 +1512,14 @@ enum ABProbeCommand {
             case .v4:
                 encoded = try encoder.encode(
                     ABProbeResultV4(v3: v3Result, candidates: capturedCandidates)
+                )
+            case .v5:
+                encoded = try encoder.encode(
+                    ABProbeResultV5(
+                        v3: v3Result,
+                        candidates: capturedCandidates,
+                        compositionSpan: .entireComposition(composition)
+                    )
                 )
             }
             encoded.append(0x0A)

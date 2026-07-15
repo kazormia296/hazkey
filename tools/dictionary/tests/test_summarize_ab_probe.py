@@ -132,6 +132,25 @@ def make_v4_result(
     return result
 
 
+def make_v5_result(
+    case_id: str,
+    samples: list[float | int],
+    *,
+    composition_count: int = 1,
+    composition_start: int = 0,
+    composition_unit: str = "composition_element",
+    **kwargs: object,
+) -> dict[str, object]:
+    result = make_v4_result(case_id, samples, **kwargs)
+    result["schema"] = "hazkey.ab-probe-result.v5"
+    result["composition_span"] = {
+        "start": composition_start,
+        "count": composition_count,
+        "unit": composition_unit,
+    }
+    return result
+
+
 def write_run(path: Path, results: list[dict[str, object]]) -> None:
     path.write_text(
         "".join(json.dumps(result) + "\n" for result in results),
@@ -442,6 +461,161 @@ class ABProbeSummaryTests(unittest.TestCase):
             write_run(second, [changed])
 
             with self.assertRaisesRegex(ValueError, "candidates.*do not match"):
+                summarize_ab_probe.summarize([first, second])
+
+    def test_summarize_supports_v5_composition_span_evidence(self) -> None:
+        first_cases = [
+            make_v5_result(
+                "one",
+                [1, 2],
+                reading="よみいち",
+                corpus_cases=2,
+                composition_count=3,
+                candidates=[("全文一", 3), ("部分一", 2)],
+            ),
+            make_v5_result(
+                "two",
+                [3, 4],
+                reading="よみに",
+                corpus_cases=2,
+                composition_count=4,
+                candidates=[("部分二", 2), ("全文二", 4)],
+            ),
+        ]
+        second_cases = [
+            make_v5_result(
+                "two",
+                [5, 6],
+                reading="よみに",
+                corpus_cases=2,
+                composition_count=4,
+                candidates=[("部分二", 2), ("全文二", 4)],
+            ),
+            make_v5_result(
+                "one",
+                [7, 8],
+                reading="よみいち",
+                corpus_cases=2,
+                composition_count=3,
+                candidates=[("全文一", 3), ("部分一", 2)],
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            first_run = directory / "first.jsonl"
+            second_run = directory / "second.jsonl"
+            write_run(first_run, first_cases)
+            write_run(second_run, second_cases)
+
+            loaded = summarize_ab_probe.load_run(first_run)
+            summary = summarize_ab_probe.summarize([first_run, second_run])
+
+        self.assertTrue(loaded["composition_span_available"])
+        self.assertEqual(
+            loaded["cases"]["one"]["composition_span"],
+            {"start": 0, "count": 3, "unit": "composition_element"},
+        )
+        self.assertEqual(
+            loaded["cases"]["one"]["whole_span_candidate_count"], 1
+        )
+        self.assertEqual(
+            loaded["cases"]["two"]["whole_span_candidate_count"], 1
+        )
+        self.assertEqual(summary["schema"], "hazkey.ab-probe-summary.v5")
+        self.assertEqual(summary["conversion_path"], "segment_candidates")
+        self.assertEqual(
+            summary["composition_span_evidence"],
+            {
+                "available": True,
+                "unit": "composition_element",
+                "start": 0,
+                "min_count": 3,
+                "max_count": 4,
+                "cases_with_top1_consuming_full_span": 1,
+                "rate_with_top1_consuming_full_span": 0.5,
+            },
+        )
+
+    def test_v5_requires_strict_composition_span(self) -> None:
+        scenarios: dict[str, dict[str, object]] = {}
+
+        missing_span = make_v5_result("case", [1, 2])
+        del missing_span["composition_span"]
+        scenarios["missing-span"] = missing_span
+
+        non_object = make_v5_result("case", [1, 2])
+        non_object["composition_span"] = []
+        scenarios["non-object"] = non_object
+
+        for field in ("start", "count", "unit"):
+            missing = make_v5_result("case", [1, 2])
+            del missing["composition_span"][field]
+            scenarios[f"missing-{field}"] = missing
+
+        extra = make_v5_result("case", [1, 2])
+        extra["composition_span"]["end"] = 1
+        scenarios["extra-field"] = extra
+
+        for label, start in (("nonzero-start", 1), ("bool-start", False)):
+            invalid = make_v5_result("case", [1, 2])
+            invalid["composition_span"]["start"] = start
+            scenarios[label] = invalid
+
+        for label, count in (
+            ("zero-count", 0),
+            ("bool-count", True),
+            ("string-count", "1"),
+        ):
+            invalid = make_v5_result("case", [1, 2])
+            invalid["composition_span"]["count"] = count
+            scenarios[label] = invalid
+
+        for label, unit in (
+            ("wrong-unit", "character"),
+            ("empty-unit", ""),
+        ):
+            invalid = make_v5_result("case", [1, 2])
+            invalid["composition_span"]["unit"] = unit
+            scenarios[label] = invalid
+
+        overflowing_candidate = make_v5_result(
+            "case",
+            [1, 2],
+            composition_count=1,
+            candidates=[("too-long", 2)],
+        )
+        scenarios["candidate-exceeds-span"] = overflowing_candidate
+
+        self.assert_v5_scenarios_rejected(scenarios)
+
+    def test_v5_requires_segment_candidates_conversion_path(self) -> None:
+        missing = make_v5_result("case", [1, 2])
+        del missing["conversion_path"]
+        wrong = make_v5_result(
+            "case", [1, 2], conversion_path="request_candidates"
+        )
+
+        self.assert_v5_scenarios_rejected(
+            {"missing-path": missing, "wrong-path": wrong}
+        )
+
+    def test_v5_rejects_composition_span_drift_between_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            first = directory / "first.jsonl"
+            second = directory / "second.jsonl"
+            write_run(
+                first,
+                [make_v5_result("case", [1, 2], composition_count=2)],
+            )
+            write_run(
+                second,
+                [make_v5_result("case", [3, 4], composition_count=3)],
+            )
+
+            with self.assertRaisesRegex(
+                ValueError, "composition_span.*does not match"
+            ):
                 summarize_ab_probe.summarize([first, second])
 
     def test_load_run_bytes_parses_an_immutable_snapshot(self) -> None:
@@ -956,6 +1130,18 @@ class ABProbeSummaryTests(unittest.TestCase):
                         summarize_ab_probe.summarize([path])
 
     def assert_v4_scenarios_rejected(
+        self, scenarios: dict[str, dict[str, object]]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            for name, payload in scenarios.items():
+                with self.subTest(name=name):
+                    path = directory / f"{name}.jsonl"
+                    write_run(path, [payload])
+                    with self.assertRaises(ValueError):
+                        summarize_ab_probe.summarize([path])
+
+    def assert_v5_scenarios_rejected(
         self, scenarios: dict[str, dict[str, object]]
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

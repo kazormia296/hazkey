@@ -23,11 +23,14 @@ INPUT_SCHEMA_V1 = "hazkey.ab-probe-result.v1"
 INPUT_SCHEMA_V2 = "hazkey.ab-probe-result.v2"
 INPUT_SCHEMA_V3 = "hazkey.ab-probe-result.v3"
 INPUT_SCHEMA_V4 = "hazkey.ab-probe-result.v4"
+INPUT_SCHEMA_V5 = "hazkey.ab-probe-result.v5"
 OUTPUT_SCHEMA_V1 = "hazkey.ab-probe-summary.v1"
 OUTPUT_SCHEMA_V2 = "hazkey.ab-probe-summary.v2"
 OUTPUT_SCHEMA_V3 = "hazkey.ab-probe-summary.v3"
 OUTPUT_SCHEMA_V4 = "hazkey.ab-probe-summary.v4"
+OUTPUT_SCHEMA_V5 = "hazkey.ab-probe-summary.v5"
 SEGMENT_CANDIDATES_PATH = "segment_candidates"
+COMPOSITION_ELEMENT_UNIT = "composition_element"
 V2_RESOURCE_KIND_BY_CONVERTER = {
     "hazkey": "hazkey_dictionary",
     "mozc": "mozc_runtime_inputs",
@@ -150,10 +153,11 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
         INPUT_SCHEMA_V2,
         INPUT_SCHEMA_V3,
         INPUT_SCHEMA_V4,
+        INPUT_SCHEMA_V5,
     ):
         raise ValueError(
             f"{context}.schema must be {INPUT_SCHEMA_V1}, {INPUT_SCHEMA_V2}, "
-            f"{INPUT_SCHEMA_V3}, or {INPUT_SCHEMA_V4}"
+            f"{INPUT_SCHEMA_V3}, {INPUT_SCHEMA_V4}, or {INPUT_SCHEMA_V5}"
         )
 
     case_id = _string(_required(result, "id", context), f"{context}.id")
@@ -210,7 +214,7 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
                 f"{context}.resource.kind must be {expected_resource_kind!r} "
                 f"for converter_backend {converter_backend!r}"
             )
-    if schema in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4):
+    if schema in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4, INPUT_SCHEMA_V5):
         reading = _string(
             _required(result, "reading", context), f"{context}.reading"
         )
@@ -244,7 +248,7 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
         top_k = None
         corpus = None
 
-    if schema == INPUT_SCHEMA_V4:
+    if schema in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5):
         conversion_path = _string(
             _required(result, "conversion_path", context),
             f"{context}.conversion_path",
@@ -261,7 +265,7 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
         _required(result, "candidates", context), f"{context}.candidates"
     )
     candidates: list[str] | list[dict[str, Any]]
-    if schema == INPUT_SCHEMA_V4:
+    if schema in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5):
         candidates = []
         expected_candidate_fields = {"text", "rank", "consuming_count"}
         for index, raw_candidate in enumerate(raw_candidates):
@@ -308,6 +312,50 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
         raise ValueError(
             f"{context}.candidates has {len(candidates)} values; top_k is {top_k}"
         )
+
+    if schema == INPUT_SCHEMA_V5:
+        span_context = f"{context}.composition_span"
+        raw_span = _object(
+            _required(result, "composition_span", context), span_context
+        )
+        expected_span_fields = {"start", "count", "unit"}
+        actual_span_fields = set(raw_span)
+        if actual_span_fields != expected_span_fields:
+            missing = sorted(expected_span_fields - actual_span_fields)
+            unexpected = sorted(actual_span_fields - expected_span_fields)
+            raise ValueError(
+                f"{span_context} must contain exactly start, count, and unit; "
+                f"missing={missing!r}, unexpected={unexpected!r}"
+            )
+        span_start = _nonnegative_int(raw_span["start"], f"{span_context}.start")
+        if span_start != 0:
+            raise ValueError(f"{span_context}.start must be 0")
+        span_count = _positive_int(raw_span["count"], f"{span_context}.count")
+        span_unit = _string(raw_span["unit"], f"{span_context}.unit")
+        if span_unit != COMPOSITION_ELEMENT_UNIT:
+            raise ValueError(
+                f"{span_context}.unit must be {COMPOSITION_ELEMENT_UNIT!r}"
+            )
+        composition_span = {
+            "start": span_start,
+            "count": span_count,
+            "unit": span_unit,
+        }
+        if any(
+            candidate["consuming_count"] > span_count
+            for candidate in candidates
+        ):
+            raise ValueError(
+                f"{context}.candidates consuming_count must not exceed "
+                "composition_span.count"
+            )
+        whole_span_candidate_count = sum(
+            candidate["consuming_count"] == span_count
+            for candidate in candidates
+        )
+    else:
+        composition_span = None
+        whole_span_candidate_count = None
 
     measurement = _object(
         _required(result, "measurement", context), f"{context}.measurement"
@@ -432,6 +480,8 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
         ),
         "converter_backend": converter_backend,
         "conversion_path": conversion_path,
+        "composition_span": composition_span,
+        "whole_span_candidate_count": whole_span_candidate_count,
         "top_k": top_k,
         "corpus": corpus,
         "candidates": candidates,
@@ -488,9 +538,13 @@ def load_run_bytes(data: bytes, path: Path | str) -> dict[str, Any]:
         "warmups",
         "iterations",
     )
-    if first["schema"] in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4):
+    if first["schema"] in (
+        INPUT_SCHEMA_V3,
+        INPUT_SCHEMA_V4,
+        INPUT_SCHEMA_V5,
+    ):
         consistency_fields += ("top_k", "corpus")
-    if first["schema"] == INPUT_SCHEMA_V4:
+    if first["schema"] in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5):
         consistency_fields += ("conversion_path",)
     consistency_fields += (
         ("dictionary_path", "dictionary_fingerprint")
@@ -502,7 +556,11 @@ def load_run_bytes(data: bytes, path: Path | str) -> dict[str, Any]:
             if case[field] != first[field]:
                 raise ValueError(f"{path}: inconsistent {field} within run")
     if (
-        first["schema"] in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4)
+        first["schema"] in (
+            INPUT_SCHEMA_V3,
+            INPUT_SCHEMA_V4,
+            INPUT_SCHEMA_V5,
+        )
         and first["corpus"]["cases"] != len(cases)
     ):
         raise ValueError(f"{path}: corpus.cases does not match result count")
@@ -517,6 +575,9 @@ def load_run_bytes(data: bytes, path: Path | str) -> dict[str, Any]:
         "dictionary_fingerprint": first["dictionary_fingerprint"],
         "converter_backend": first["converter_backend"],
         "conversion_path": first["conversion_path"],
+        "composition_span_available": (
+            first["schema"] == INPUT_SCHEMA_V5
+        ),
         "top_k": first["top_k"],
         "corpus": first["corpus"],
         "warmups": first["warmups"],
@@ -541,6 +602,10 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
     expected_readings = {
         case_id: case["reading"] for case_id, case in first["cases"].items()
     }
+    expected_composition_spans = {
+        case_id: case["composition_span"]
+        for case_id, case in first["cases"].items()
+    }
     for run in runs[1:]:
         if run["schema"] != first["schema"]:
             raise ValueError(
@@ -554,9 +619,13 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
             "warmups",
             "iterations",
         )
-        if first["schema"] in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4):
+        if first["schema"] in (
+            INPUT_SCHEMA_V3,
+            INPUT_SCHEMA_V4,
+            INPUT_SCHEMA_V5,
+        ):
             consistency_fields += ("top_k", "corpus")
-        if first["schema"] == INPUT_SCHEMA_V4:
+        if first["schema"] in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5):
             consistency_fields += ("conversion_path",)
         consistency_fields += (
             ("dictionary_path", "dictionary_fingerprint")
@@ -582,7 +651,11 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
                     f"{run['path']}: category for case {case_id!r} does not "
                     "match the first run"
                 )
-            if first["schema"] in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4) and (
+            if first["schema"] in (
+                INPUT_SCHEMA_V3,
+                INPUT_SCHEMA_V4,
+                INPUT_SCHEMA_V5,
+            ) and (
                 run["cases"][case_id]["reading"]
                 != expected_readings[case_id]
             ):
@@ -590,10 +663,19 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
                     f"{run['path']}: reading for case {case_id!r} does not "
                     "match the first run"
                 )
+            if first["schema"] == INPUT_SCHEMA_V5 and (
+                run["cases"][case_id]["composition_span"]
+                != expected_composition_spans[case_id]
+            ):
+                raise ValueError(
+                    f"{run['path']}: composition_span for case {case_id!r} "
+                    "does not match the first run"
+                )
             if first["schema"] in (
                 INPUT_SCHEMA_V2,
                 INPUT_SCHEMA_V3,
                 INPUT_SCHEMA_V4,
+                INPUT_SCHEMA_V5,
             ) and (
                 run["cases"][case_id]["candidates"]
                 != first["cases"][case_id]["candidates"]
@@ -690,19 +772,55 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
             "source_ref": first["source_ref"],
             "resource": first["resource"],
         }
-        if first["schema"] in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4):
+        if first["schema"] in (
+            INPUT_SCHEMA_V3,
+            INPUT_SCHEMA_V4,
+            INPUT_SCHEMA_V5,
+        ):
             provenance["corpus"] = first["corpus"]
         converter_summary = {"converter_backend": first["converter_backend"]}
     corpus_summary = (
         {"top_k": first["top_k"]}
-        if first["schema"] in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4)
+        if first["schema"] in (
+            INPUT_SCHEMA_V3,
+            INPUT_SCHEMA_V4,
+            INPUT_SCHEMA_V5,
+        )
         else {}
     )
-    v4_summary = (
+    segment_summary = (
         {"conversion_path": first["conversion_path"]}
-        if first["schema"] == INPUT_SCHEMA_V4
+        if first["schema"] in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5)
         else {}
     )
+    if first["schema"] == INPUT_SCHEMA_V5:
+        span_counts = [
+            case["composition_span"]["count"]
+            for case in first["cases"].values()
+        ]
+        cases_with_top1_consuming_full_span = sum(
+            bool(case["candidates"])
+            and case["candidates"][0]["consuming_count"]
+            == case["composition_span"]["count"]
+            for case in first["cases"].values()
+        )
+        composition_span_summary = {
+            "composition_span_evidence": {
+                "available": True,
+                "unit": COMPOSITION_ELEMENT_UNIT,
+                "start": 0,
+                "min_count": min(span_counts),
+                "max_count": max(span_counts),
+                "cases_with_top1_consuming_full_span": (
+                    cases_with_top1_consuming_full_span
+                ),
+                "rate_with_top1_consuming_full_span": (
+                    cases_with_top1_consuming_full_span / len(expected_ids)
+                ),
+            }
+        }
+    else:
+        composition_span_summary = {}
     summary = {
         "schema": (
             OUTPUT_SCHEMA_V1
@@ -713,7 +831,11 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
                 else (
                     OUTPUT_SCHEMA_V3
                     if first["schema"] == INPUT_SCHEMA_V3
-                    else OUTPUT_SCHEMA_V4
+                    else (
+                        OUTPUT_SCHEMA_V4
+                        if first["schema"] == INPUT_SCHEMA_V4
+                        else OUTPUT_SCHEMA_V5
+                    )
                 )
             )
         ),
@@ -721,7 +843,8 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
         "backend_version": first["backend_version"],
         **converter_summary,
         **corpus_summary,
-        **v4_summary,
+        **segment_summary,
+        **composition_span_summary,
         "provenance": provenance,
         "runs": len(runs),
         "cases_per_run": len(expected_ids),

@@ -128,12 +128,12 @@ GRIMODEX_MOZC_BACKEND=mozc-hybrid \
   ./scripts/grimodex-ime_mozc.sh all
 ```
 
-paired ABProbe v3の診断評価には
+paired ABProbe v3/v4/v5の診断評価には
 `tools/dictionary/evaluate_mozc_hybrid_spike.py`を使用します。評価出力は
 `diagnostic_only=true`かつ`new_holdout_required=true`で、既知corpusを正式な採用判定へ
 再利用しないようfail-closedに検証します。`runtime_h0_top1`は実装既定のTop-1固定規則、
 `top1.hybrid`は採用されていない診断H1 one-sided-consensus規則です。ABProbe v3は候補surface
-だけを記録し文節の`consuming_count`を持たないため、評価schema v2は
+だけを記録し文節の`consuming_count`を持たないため、評価schema v3は
 `runtime_boundary_parity_established=false`と`runtime_apply_eligible=false`を明示します。
 H1はproductionの候補順を変えず、境界込みのshadow counterだけで観測します。
 structured diagnosticsの`shadow_promotion_evaluations`、
@@ -154,6 +154,26 @@ python3 tools/dictionary/evaluate_mozc_hybrid_spike.py \
 paired evaluatorはMozc Top-1と同じ境界のHazkey候補だけをマージします。一方、既存corpusの
 正解は全文でv4候補は先頭文節なので、v4のTop-1、rescue/regression、oracleは比較不能として
 fail-closedになります。順位変更の判定には文節正解ラベル付きの新規holdoutが必要です。
+
+`--result-schema v5`はv4候補に、ABProbeが実際に構築した入力全体の
+`composition_span={start,count,unit}`を追加します。paired evaluatorは、Mozc Top-1の
+`consuming_count`がこの明示span全体と一致するケースだけ、既存の全文正解と比較します。
+同じ表層でもspanが異なる候補は正解に数えず、残りは比較不能のまま除外します。
+v5の機械可読レポートは、全文span一致の全診断行を`diagnostic_target_comparable`、
+`protected`を除いたformal-quality行を`formal_quality`として別集計にします。
+全診断行の分母は正式品質値として扱いません。
+診断H2 `one-sided-consensus-width-guard`はH1を基に、両Top-1の差が全角ASCIIと半角ASCII、
+または全角空白と半角空白だけの場合の昇格を抑えます。一般のNFKC互換文字は畳み込みません。
+H2の抑制集計は比較可能・比較不能を分け、比較不能な抑制を改善または悪化へ算入しません。
+H2も診断専用で、runtimeの候補順は変更しません。
+
+```sh
+python3 tools/dictionary/evaluate_mozc_hybrid_spike.py \
+  --corpus /path/to/formal-corpus.tsv \
+  --hazkey-results /path/to/hazkey-ab-probe-v5.jsonl \
+  --mozc-results /path/to/mozc-ab-probe-v5.jsonl \
+  --output /tmp/mozc-hybrid-composition-span.json
+```
 
 実server経路の初回Mozc表示、Space、stale破棄、PSS/RSS、候補ジャンプはopt-in
 `GrimodexHybridProcessSpikeTests`で測定します。待ち時間はカンマ区切りで複数指定し、
