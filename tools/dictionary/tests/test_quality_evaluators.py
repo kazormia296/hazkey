@@ -20,6 +20,10 @@ QUALITY_FIXTURES = (
     REPOSITORY_ROOT
     / "hazkey-server/Tests/grimodex-spike/Fixtures/quality-v1"
 )
+MOZC_ADOPTION_V2_FIXTURES = (
+    REPOSITORY_ROOT
+    / "hazkey-server/Tests/grimodex-spike/Fixtures/mozc-adoption-v2"
+)
 
 
 class ConversionQualityTests(unittest.TestCase):
@@ -130,6 +134,84 @@ class ConversionQualityTests(unittest.TestCase):
         for row in protected:
             with self.subTest(case=row["id"]):
                 self.assertIn(row["reading"], row["expected"].split("|"))
+
+    def test_protected_input_surface_contract_is_opt_in(self) -> None:
+        script = REPOSITORY_ROOT / "tools/dictionary/evaluate_conversion_quality.py"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            corpus_path = Path(temporary_directory) / "corpus.tsv"
+            corpus_path.write_text(
+                "id\treading\texpected\tcategory\n"
+                "protected-case\tよみ\t期待変換\tprotected\n",
+                encoding="utf-8",
+            )
+
+            generic = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "--corpus",
+                    str(corpus_path),
+                    "--self-test",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            strict = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "--corpus",
+                    str(corpus_path),
+                    "--self-test",
+                    "--require-protected-input-surface",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(generic.returncode, 0, generic.stderr)
+        self.assertEqual(strict.returncode, 2)
+        self.assertIn("must accept its exact input surface", strict.stderr)
+
+    def test_sealed_v2_generic_self_test_passes_but_v1_contract_rejects(self) -> None:
+        script = REPOSITORY_ROOT / "tools/dictionary/evaluate_conversion_quality.py"
+        sealed_directories = sorted(
+            MOZC_ADOPTION_V2_FIXTURES.glob("sealed-v2-sha256-*")
+        )
+        self.assertEqual(len(sealed_directories), 1)
+        corpus_path = sealed_directories[0] / "formal-corpus.tsv"
+
+        generic = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--corpus",
+                str(corpus_path),
+                "--self-test",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        strict = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--corpus",
+                str(corpus_path),
+                "--self-test",
+                "--require-protected-input-surface",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(generic.returncode, 0, generic.stderr)
+        self.assertEqual(strict.returncode, 2)
+        self.assertIn("must accept its exact input surface", strict.stderr)
 
     def test_top_k_one_does_not_double_count_top1(self) -> None:
         corpus = [

@@ -156,14 +156,17 @@ def evaluate(corpus: list[dict[str, str]], results: dict[str, list[str]], top_k:
     return report
 
 
-def self_test(corpus_path: Path) -> None:
+def self_test(
+    corpus_path: Path, *, require_protected_input_surface: bool = False
+) -> None:
     corpus = load_corpus(corpus_path)
-    for row in corpus:
-        expected = [value for value in row["expected"].split("|") if value]
-        if row["category"] == "protected" and row["reading"] not in expected:
-            raise AssertionError(
-                f"protected case {row['id']} must accept its exact input surface"
-            )
+    if require_protected_input_surface:
+        for row in corpus:
+            expected = [value for value in row["expected"].split("|") if value]
+            if row["category"] == "protected" and row["reading"] not in expected:
+                raise AssertionError(
+                    f"protected case {row['id']} must accept its exact input surface"
+                )
     synthetic = {
         row["id"]: {"id": row["id"], "candidates": [row["expected"].split("|")[0]]}
         for row in corpus
@@ -181,12 +184,25 @@ def main() -> int:
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--require-protected-input-surface",
+        action="store_true",
+        help=(
+            "with --self-test, require every protected case to accept its exact "
+            "input surface (the quality-v1 contract)"
+        ),
+    )
     args = parser.parse_args()
     if args.top_k < 1:
         parser.error("--top-k must be positive")
+    if args.require_protected_input_surface and not args.self_test:
+        parser.error("--require-protected-input-surface requires --self-test")
     try:
         if args.self_test:
-            self_test(args.corpus)
+            self_test(
+                args.corpus,
+                require_protected_input_surface=args.require_protected_input_surface,
+            )
             print(f"self-test ok: {args.corpus}")
             return 0
         if args.results is None:

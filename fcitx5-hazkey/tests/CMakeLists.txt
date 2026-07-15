@@ -191,6 +191,7 @@ add_test(
         --corpus
         "${CMAKE_CURRENT_SOURCE_DIR}/../../hazkey-server/Tests/grimodex-spike/Fixtures/quality-v1/conversion-quality-v1.tsv"
         --self-test
+        --require-protected-input-surface
 )
 
 add_test(
