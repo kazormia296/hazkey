@@ -151,27 +151,34 @@ class ProtocolHandler {
                 configResponse.currentConfig.grimodexDiagnostics = diagnosticsProvider().protobuf
                 configResponse.currentConfig.zenzaiRuntimeDiagnostics =
                     sessionRegistry.zenzaiRuntimeDiagnostics().protobuf
+                sessionRegistry.logMozcHybridDiagnostics()
             }
             response = configResponse
         case .setConfig(let request):
             if request.profiles.isEmpty {
                 response = invalidRequestResponse("Configuration profiles must not be empty")
             } else {
-                response = sessionRegistry.serverConfig.setCurrentConfig(
-                    request.fileHashes,
-                    request.profiles
+                response = sessionRegistry.performConfigurationMutation(
+                    {
+                        sessionRegistry.serverConfig.setCurrentConfig(
+                        request.fileHashes,
+                        request.profiles
+                        )
+                    },
+                    reinitializeWhen: { $0.status == .success },
+                    onChanged: { _ in
+                        onConfigurationChanged(sessionRegistry.serverConfig)
+                    }
                 )
-                if response.status == .success {
-                    onConfigurationChanged(sessionRegistry.serverConfig)
-                    sessionRegistry.reinitializeAll()
-                }
             }
         case .clearAllHistory_p:
             sessionRegistry.clearAllLearningData()
             response = successResponse()
         case .reloadZenzaiModel:
-            sessionRegistry.serverConfig.reloadZenzaiModel()
-            sessionRegistry.reinitializeAll()
+            sessionRegistry.performConfigurationMutation(
+                { sessionRegistry.serverConfig.reloadZenzaiModel() },
+                reinitializeWhen: { _ in true }
+            )
             response = successResponse()
         case .getDefaultProfile:
             NSLog("Unimplemented: getDefaultProfile")

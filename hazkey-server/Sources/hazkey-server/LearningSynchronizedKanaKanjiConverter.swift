@@ -7,102 +7,133 @@ import Foundation
 final class LearningSynchronizedKanaKanjiConverter: KanaKanjiConverting {
     private let base: any KanaKanjiConverting
     private let revisionStore: HazkeyLearningRevisionStore
+    private let executionGate: HazkeyConverterExecutionGate
     private var observedRevision: UInt64
 
     init(
         base: any KanaKanjiConverting,
-        revisionStore: HazkeyLearningRevisionStore
+        revisionStore: HazkeyLearningRevisionStore,
+        executionGate: HazkeyConverterExecutionGate = HazkeyConverterExecutionGate()
     ) {
         self.base = base
         self.revisionStore = revisionStore
+        self.executionGate = executionGate
         self.observedRevision = revisionStore.current()
     }
 
     var supportsSegmentEditing: Bool { base.supportsSegmentEditing }
 
     func display(for composition: CompositionInput) -> CompositionDisplay {
-        base.display(for: composition)
+        executionGate.withLock { base.display(for: composition) }
     }
 
     func inputCursorPosition(
         for composition: CompositionInput,
         movingBy offset: Int
     ) -> Int {
-        base.inputCursorPosition(for: composition, movingBy: offset)
+        executionGate.withLock {
+            base.inputCursorPosition(for: composition, movingBy: offset)
+        }
     }
 
     func candidates(
         for composition: CompositionInput,
         options: ConversionOptions
     ) throws -> ConversionOutput {
-        synchronizePersistedLearningIfNeeded()
-        return try base.candidates(for: composition, options: options)
+        try executionGate.withLock {
+            synchronizePersistedLearningIfNeeded()
+            return try base.candidates(for: composition, options: options)
+        }
     }
 
     func segmentCandidates(
         for composition: CompositionInput,
         options: ConversionOptions
     ) throws -> ConversionOutput {
-        synchronizePersistedLearningIfNeeded()
-        return try base.segmentCandidates(for: composition, options: options)
+        try executionGate.withLock {
+            synchronizePersistedLearningIfNeeded()
+            return try base.segmentCandidates(for: composition, options: options)
+        }
     }
 
     func predictions(
         for composition: CompositionInput,
         options: ConversionOptions
     ) throws -> ConversionOutput {
-        synchronizePersistedLearningIfNeeded()
-        return try base.predictions(for: composition, options: options)
+        try executionGate.withLock {
+            synchronizePersistedLearningIfNeeded()
+            return try base.predictions(for: composition, options: options)
+        }
     }
 
     func realtimeCandidates(
         for composition: CompositionInput,
         options: ConversionOptions
     ) throws -> RealtimeConversionOutput {
-        synchronizePersistedLearningIfNeeded()
-        return try base.realtimeCandidates(for: composition, options: options)
+        try executionGate.withLock {
+            synchronizePersistedLearningIfNeeded()
+            return try base.realtimeCandidates(for: composition, options: options)
+        }
     }
 
     func setCompletedData(_ candidate: ConverterCandidate) {
-        base.setCompletedData(candidate)
+        executionGate.withLock { base.setCompletedData(candidate) }
     }
 
     func updateLearningData(_ candidate: ConverterCandidate) {
-        base.updateLearningData(candidate)
+        executionGate.withLock { base.updateLearningData(candidate) }
     }
 
     func commitLearning() {
-        base.commitLearning()
-        observedRevision = revisionStore.recordCommit()
+        executionGate.withLock {
+            base.commitLearning()
+            observedRevision = revisionStore.recordCommit()
+        }
     }
 
     func stageLearning(
         candidate: ConverterCandidate,
         reading: String
     ) -> ConverterLearningToken? {
-        base.stageLearning(candidate: candidate, reading: reading)
+        executionGate.withLock {
+            base.stageLearning(candidate: candidate, reading: reading)
+        }
     }
 
     func commitStagedLearning(_ token: ConverterLearningToken) {
-        base.commitStagedLearning(token)
+        executionGate.withLock { base.commitStagedLearning(token) }
     }
 
     func discardStagedLearning(_ token: ConverterLearningToken) {
-        base.discardStagedLearning(token)
+        executionGate.withLock { base.discardStagedLearning(token) }
     }
 
     func forget(_ candidate: ConverterCandidate) {
-        base.forget(candidate)
-        // AzooKey's forget operation merges directly into long-term memory.
-        observedRevision = revisionStore.recordCommit()
+        executionGate.withLock {
+            base.forget(candidate)
+            // AzooKey's forget operation merges directly into long-term memory.
+            observedRevision = revisionStore.recordCommit()
+        }
     }
 
     func stopComposition() {
-        base.stopComposition()
+        executionGate.withLock { base.stopComposition() }
     }
 
     func purgeSensitiveState() {
-        base.purgeSensitiveState()
+        executionGate.withLock { base.purgeSensitiveState() }
+    }
+
+    func prepareSpeculativeConversion(_ context: SpeculativeConversionContext) {
+        base.prepareSpeculativeConversion(context)
+    }
+
+    func invalidateSpeculativeConversion(reason: SpeculationInvalidationReason) {
+        base.invalidateSpeculativeConversion(reason: reason)
+    }
+
+    func lockCandidateOrder(for revision: CompositionRevision) {
+        base.lockCandidateOrder(for: revision)
     }
 
     private func synchronizePersistedLearningIfNeeded() {

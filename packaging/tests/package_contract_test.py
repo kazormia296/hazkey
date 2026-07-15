@@ -2486,7 +2486,12 @@ class MozcArtifactBundleContractTests(unittest.TestCase):
         self.assertIn(
             '-DHAZKEY_SERVER_MOZC_ARTIFACT_DIR="${artifact_dir}"', script
         )
-        self.assertIn("export FCITX5_GRIMODEX_CONVERTER=mozc", script)
+        self.assertIn(
+            'MOZC_BACKEND=${GRIMODEX_MOZC_BACKEND:-mozc}', script
+        )
+        self.assertIn("mozc|mozc-hybrid", script)
+        backend_export = 'export FCITX5_GRIMODEX_CONVERTER="${MOZC_BACKEND}"'
+        self.assertIn(backend_export, script)
         self.assertIn("--prepare-installed-runtime", script)
         self.assertIn("fcitx5-grimodex-mozc-helper", script)
         self.assertIn("fcitx5-grimodex/mozc/mozc.data", script)
@@ -2498,14 +2503,30 @@ class MozcArtifactBundleContractTests(unittest.TestCase):
             script.index('nohup "${SERVER}" --replace'),
         )
         self.assertLess(
-            script.index("export FCITX5_GRIMODEX_CONVERTER=mozc"),
+            script.index(backend_export),
             script.index('nohup "${SERVER}" --replace'),
         )
         self.assertLess(
-            script.index("export FCITX5_GRIMODEX_CONVERTER=mozc"),
+            script.index(backend_export),
             script.index("fcitx5 -rd"),
         )
-        self.assertNotIn("FCITX5_GRIMODEX_CONVERTER=mozc", default_script)
+        self.assertNotIn(backend_export, default_script)
+        self.assertIn("unset FCITX5_GRIMODEX_CONVERTER", default_script)
+        self.assertIn("reject_conflicting_env_file", default_script)
+
+        invalid_environment = os.environ.copy()
+        invalid_environment["GRIMODEX_MOZC_BACKEND"] = "invalid"
+        invalid_backend = subprocess.run(
+            [str(MOZC_RUNTIME_SCRIPT), "restart"],
+            env=invalid_environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(invalid_backend.returncode, 2)
+        self.assertIn(
+            "Unsupported GRIMODEX_MOZC_BACKEND: invalid",
+            invalid_backend.stderr,
+        )
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             environment = os.environ.copy()

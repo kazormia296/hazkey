@@ -66,6 +66,10 @@ final class ImeV2SessionController {
         reducer.invalidateCandidatesForExternalDictionaryChange()
     }
 
+    func resumeSpeculativeConversionAfterMaintenance() {
+        reducer.resumeSpeculativeConversionAfterMaintenance()
+    }
+
     /// Resolves learning that belongs to text already accepted by the client
     /// before the registry tears the session down. This bypasses request
     /// caching because no client response can be delivered after teardown.

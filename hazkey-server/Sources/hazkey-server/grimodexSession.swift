@@ -134,6 +134,9 @@ struct GrimodexCompositionGenerationPin: Equatable, Sendable {
     private(set) var pinned: GrimodexIntegrationRevision?
 
     var isComposing: Bool { pinned != nil }
+    var latestKnownRevision: GrimodexIntegrationRevision? {
+        pending ?? pinned ?? applied
+    }
 
     mutating func observe(
         _ revision: GrimodexIntegrationRevision

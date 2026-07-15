@@ -20,6 +20,10 @@ final class ImeReducer {
     private var requestCache: [String: CachedRequest] = [:]
     private var requestOrder: [String] = []
     private let requestCacheLimit = 128
+    /// Advances only when the editable composition semantics change. The
+    /// public session revision also advances for presentation-only updates and
+    /// therefore cannot identify speculative converter work.
+    private var compositionRevision = CompositionRevision(rawValue: 0)
 
     init(
         session: CompositionSession = CompositionSession(),
@@ -38,6 +42,7 @@ final class ImeReducer {
         guard session.phase == .idle, session.composingText.isEmpty else { return false }
         let securityDomainChanged = session.policy.secureInput != policy.secureInput
         if securityDomainChanged {
+            invalidateSpeculation(reason: .secureTransition)
             // A pending transaction belongs to the security domain that
             // produced it. Resolve it before purging converter-owned tokens;
             // otherwise the session would retain an apparently resolvable
@@ -52,6 +57,7 @@ final class ImeReducer {
     }
 
     func invalidateCandidatesForExternalDictionaryChange() {
+        invalidateSpeculation(reason: .dictionaryChange)
         guard session.candidates != nil
                 || !session.segments.isEmpty
                 || session.livePresentation.materializedPrefix != nil else {
@@ -67,6 +73,13 @@ final class ImeReducer {
         // but it must not resurrect the candidate window or revision that the
         // replacement just invalidated.
         rebaseRequestCacheToCurrentSnapshot()
+    }
+
+    /// Restarts background preparation after an out-of-band dictionary or
+    /// configuration mutation has completed. The mutation already advanced
+    /// the private composition revision, so this must not advance it again.
+    func resumeSpeculativeConversionAfterMaintenance() {
+        prepareSpeculativeConversion()
     }
 
     func finalizePendingLearning(commit: Bool) {
@@ -113,6 +126,7 @@ final class ImeReducer {
                 result = failure(.invalidAction, "text input is not valid in the current phase")
                 break
             }
+            invalidateSpeculation(reason: .edit)
             pinCompositionPolicyIfNeeded(compositionStartPolicyProvider)
             if session.phase == .idle {
                 session.reconversionReplacement = nil
@@ -126,6 +140,7 @@ final class ImeReducer {
             result = finishInteractiveEdit()
 
         case .deleteBackward:
+            invalidateSpeculation(reason: .edit)
             resolvePendingLearning(commit: false)
             if session.phase == .unicodeInput {
                 if session.unicodeInputBuffer.isEmpty {
@@ -147,6 +162,7 @@ final class ImeReducer {
                 result = failure(.invalidAction, "forward delete is not valid during Unicode input")
                 break
             }
+            invalidateSpeculation(reason: .edit)
             session.composingText.deleteForward()
             normalizeAfterEditing()
             result = finishInteractiveEdit()
@@ -156,6 +172,7 @@ final class ImeReducer {
                 result = failure(.invalidAction, "cursor movement requires a composing session")
                 break
             }
+            invalidateSpeculation(reason: .cursorMove)
             // Realtime conversion stays in `composing`, so Left/Right must keep
             // moving the editable reading cursor. Segment movement begins only
             // after an explicit transition to candidate selection.
@@ -183,6 +200,7 @@ final class ImeReducer {
                 result = failure(.invalidAction, "edge movement requires a composing session")
                 break
             }
+            invalidateSpeculation(reason: .cursorMove)
             if case .moveCursorToStart = action {
                 session.composingText.moveCursorToStart()
             } else {
@@ -245,6 +263,7 @@ final class ImeReducer {
                 result = failure(.invalidAction, "candidate navigation requires candidates")
                 break
             }
+            converter.lockCandidateOrder(for: compositionRevision)
             let current = candidates.selectedIndex ?? 0
             candidates.selectedIndex = min(
                 max(current + delta, 0), candidates.items.count - 1
@@ -267,6 +286,7 @@ final class ImeReducer {
                 result = failure(.invalidAction, "candidate paging requires candidates")
                 break
             }
+            converter.lockCandidateOrder(for: compositionRevision)
             let page = max(candidates.pageSize, 1)
             let current = candidates.selectedIndex ?? 0
             candidates.selectedIndex = min(
@@ -295,6 +315,7 @@ final class ImeReducer {
                 result = failure(.staleCandidate, "candidate generation or id is stale")
                 break
             }
+            converter.lockCandidateOrder(for: compositionRevision)
             candidates.selectedIndex = index
             session.candidates = candidates
             syncActiveSegmentCandidates(candidates)
@@ -382,6 +403,7 @@ final class ImeReducer {
                 )
                 break
             }
+            invalidateSpeculation(reason: .edit)
             resolvePendingLearning(commit: true)
             clearLivePresentation()
             endConverterComposition()
@@ -406,6 +428,7 @@ final class ImeReducer {
                 )
                 break
             }
+            invalidateSpeculation(reason: .edit)
             pinCompositionPolicyIfNeeded(compositionStartPolicyProvider)
             endConverterComposition()
             resolvePendingLearning(commit: true)
@@ -429,6 +452,7 @@ final class ImeReducer {
                 result = failure(.invalidAction, "Unicode input requires one hexadecimal digit")
                 break
             }
+            invalidateSpeculation(reason: .edit)
             session.unicodeInputBuffer.append(digit.lowercased())
             session.advanceRevision()
             result = success()
@@ -441,9 +465,11 @@ final class ImeReducer {
                 result = failure(.invalidAction, "Unicode scalar is invalid")
                 break
             }
+            invalidateSpeculation(reason: .edit)
             session.composingText.insert(String(scalar), inputStyle: .direct)
             finishUnicodeInput(cancelled: false)
             session.advanceRevision()
+            prepareSpeculativeConversion()
             result = success()
 
         case .updateContext(let leftContext, let rightContext):
@@ -454,6 +480,7 @@ final class ImeReducer {
                 )
                 break
             }
+            invalidateSpeculation(reason: .cursorMove)
             if session.policy.secureInput {
                 session.context.leftContext = ""
                 session.context.rightContext = ""
@@ -537,10 +564,41 @@ final class ImeReducer {
         return pinCompositionPolicy(provider())
     }
 
+    private func invalidateSpeculation(reason: SpeculationInvalidationReason) {
+        compositionRevision = CompositionRevision(
+            rawValue: compositionRevision.rawValue &+ 1
+        )
+        converter.invalidateSpeculativeConversion(reason: reason)
+    }
+
+    private func prepareSpeculativeConversion() {
+        guard session.phase == .composing,
+              !session.composingText.isEmpty,
+              !session.policy.secureInput,
+              session.composingText.cursor == session.composingText.elements.count else {
+            return
+        }
+        let input = CompositionInput(
+            elements: session.composingText.elements,
+            cursor: session.composingText.cursor,
+            leftContext: session.context.leftContext,
+            mappedTableName: session.policy.inputTableName
+        )
+        converter.prepareSpeculativeConversion(SpeculativeConversionContext(
+            revision: compositionRevision,
+            input: input,
+            options: conversionOptions(leftContext: session.context.leftContext),
+            projectRevision: session.policy.projectRevision
+        ))
+    }
+
     private func finishInteractiveEdit() -> ImeReductionResult {
         if shouldDirectCommitVisibleSuffix() {
             return commitAll(learningOrigin: .directCommit)
         }
+        // Start Hazkey before the live-conversion debounce. Mozc remains the
+        // only synchronous display path, so this call must return immediately.
+        prepareSpeculativeConversion()
         guard session.policy.autoConvertMode != .disabled else {
             refreshPredictions()
             session.livePresentation.pendingRevision = nil
@@ -650,7 +708,8 @@ final class ImeReducer {
                         annotation: $0.annotation,
                         consumingCount: $0.consumingCount,
                         sourceID: $0.sourceID,
-                        provenance: $0.provenance
+                        provenance: $0.provenance,
+                        isLearnable: $0.isLearnable
                     )
                 }
             )
@@ -724,7 +783,8 @@ final class ImeReducer {
                 session.composingText.elements.count
             ),
             sourceID: candidate.sourceID,
-            provenance: candidate.provenance
+            provenance: candidate.provenance,
+            isLearnable: candidate.isLearnable
         )
     }
 
@@ -773,7 +833,8 @@ final class ImeReducer {
                             session.composingText.elements.count
                         ),
                         sourceID: candidate.sourceID,
-                        provenance: candidate.provenance
+                        provenance: candidate.provenance,
+                        isLearnable: candidate.isLearnable
                     )
                 },
                 selectedIndex: nil,
@@ -797,6 +858,10 @@ final class ImeReducer {
             if advanceRevision { session.advanceRevision() }
             return success()
         }
+        // This is the only publication boundary for formal candidate order.
+        // Pending Hazkey work is atomically treated as a miss and may never be
+        // inserted after this call returns.
+        converter.lockCandidateOrder(for: compositionRevision)
         if !converter.supportsSegmentEditing {
             return convertLegacy(
                 isReconversion: isReconversion,
@@ -940,7 +1005,8 @@ final class ImeReducer {
                     annotation: candidate.annotation,
                     consumingCount: segmentCount,
                     sourceID: candidate.sourceID,
-                    provenance: candidate.provenance
+                    provenance: candidate.provenance,
+                    isLearnable: candidate.isLearnable
                 )
             }
             let preferredText = preferredTextsByStart[offset]
@@ -1025,6 +1091,7 @@ final class ImeReducer {
                 || session.phase == .reconverting else {
             return failure(.invalidAction, "segment movement requires converted segments")
         }
+        converter.lockCandidateOrder(for: compositionRevision)
         let (requested, overflow) = activeIndex.addingReportingOverflow(delta)
         let index = overflow
             ? (delta < 0 ? 0 : session.segments.count - 1)
@@ -1103,6 +1170,7 @@ final class ImeReducer {
         if let currentCount {
             guard newCount != currentCount else { return success() }
         }
+        invalidateSpeculation(reason: .segmentResize)
         var preferredTextsByStart: [Int: String] = [:]
         var start = 0
         for segment in oldSegments {
@@ -1143,6 +1211,7 @@ final class ImeReducer {
         } else {
             newBoundary = min(max(count + delta, 1), count)
         }
+        invalidateSpeculation(reason: .segmentResize)
         endConverterComposition()
         session.activeBoundary = newBoundary
         session.candidates = nil
@@ -1167,6 +1236,7 @@ final class ImeReducer {
             guard committedCandidates.count == committedSegments.count else {
                 return failure(.invalidAction, "no candidate is selected")
             }
+            invalidateSpeculation(reason: .commit)
             resolvePendingLearning(commit: true)
             let count = committedSegments.reduce(0) { $0 + $1.inputCount }
             let text = committedCandidates.map(\.text).joined()
@@ -1211,6 +1281,7 @@ final class ImeReducer {
         let candidate = candidates.items[selected]
         let count = min(candidate.consumingCount, session.composingText.elements.count)
         guard count > 0 else { return failure(.invalidAction, "candidate consumes no input") }
+        invalidateSpeculation(reason: .commit)
         resolvePendingLearning(commit: true)
         let _ = session.composingText.removePrefix(count: count)
         var effects = takeReconversionReplacementEffect()
@@ -1268,6 +1339,7 @@ final class ImeReducer {
                 learnableCandidates: selectedCandidates
             )
         }
+        invalidateSpeculation(reason: .commit)
         let text = visible.text
         var effects = takeReconversionReplacementEffect()
         effects.append(.commitText(effectID: session.allocateEffectID(), text: text))
@@ -1289,6 +1361,7 @@ final class ImeReducer {
     }
 
     private func cancel() -> ImeReductionResult {
+        invalidateSpeculation(reason: .cancel)
         let resolvedLearning = resolvePendingLearning(commit: false)
         clearLivePresentation()
         switch session.phase {
@@ -1321,6 +1394,7 @@ final class ImeReducer {
             return success()
         }
         session.advanceRevision()
+        prepareSpeculativeConversion()
         return success()
     }
 
@@ -1366,6 +1440,7 @@ final class ImeReducer {
                     return success()
                 }
 
+                invalidateSpeculation(reason: .edit)
                 let cursor = session.composingText.cursor
                 clearLivePresentation()
                 endConverterComposition()
@@ -1375,6 +1450,7 @@ final class ImeReducer {
                     cursor: cursor
                 )
                 session.advanceRevision()
+                prepareSpeculativeConversion()
                 return success()
             case .hiragana, .katakanaFullwidth, .katakanaHalfwidth:
                 break
@@ -1411,6 +1487,7 @@ final class ImeReducer {
             }
             return success()
         }
+        invalidateSpeculation(reason: .edit)
         if var candidates = session.candidates,
            let index = candidates.selectedIndex,
            candidates.items.indices.contains(index) {
@@ -1436,10 +1513,19 @@ final class ImeReducer {
             session.phase = .composing
         }
         session.advanceRevision()
+        if session.phase == .composing {
+            prepareSpeculativeConversion()
+        }
         return success()
     }
 
     private func lifecycle(_ event: ImeLifecycleEvent) -> ImeReductionResult {
+        if case .secureInputChanged(let secure) = event,
+           session.policy.secureInput != secure {
+            invalidateSpeculation(reason: .secureTransition)
+        } else {
+            invalidateSpeculation(reason: .lifecycle)
+        }
         switch event {
         case .secureInputChanged(let secure):
             if session.policy.secureInput != secure {
@@ -1519,6 +1605,7 @@ final class ImeReducer {
         // Validation above is intentionally side-effect free. A malformed,
         // stale, or forbidden checkpoint must not consume the current undo
         // window or alter presentation state at the same revision.
+        invalidateSpeculation(reason: .restore)
         resolvePendingLearning(commit: false)
         clearLivePresentation()
         endConverterComposition()
@@ -1555,6 +1642,7 @@ final class ImeReducer {
             session.phase = .unicodeInput
         }
         session.advanceRevision()
+        prepareSpeculativeConversion()
         return success()
     }
 

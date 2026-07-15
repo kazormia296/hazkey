@@ -20,6 +20,9 @@ final class GrimodexCompositionIntegrationController {
     var isComposing: Bool { generationPin.isComposing }
     var appliedRevision: GrimodexIntegrationRevision? { generationPin.applied }
     var pinnedRevision: GrimodexIntegrationRevision? { generationPin.pinned }
+    var latestKnownRevision: GrimodexIntegrationRevision? {
+        generationPin.latestKnownRevision
+    }
 
     init(applier: any GrimodexDynamicDictionaryApplying) {
         self.applier = applier

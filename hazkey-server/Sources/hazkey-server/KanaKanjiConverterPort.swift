@@ -61,19 +61,22 @@ struct ConverterCandidate: Equatable, Hashable, Codable, Sendable {
     let consumingCount: Int
     let sourceID: String?
     let provenance: CandidateProvenance
+    let isLearnable: Bool
 
     init(
         text: String,
         annotation: String? = nil,
         consumingCount: Int,
         sourceID: String? = nil,
-        provenance: CandidateProvenance = .unknown
+        provenance: CandidateProvenance = .unknown,
+        isLearnable: Bool = true
     ) {
         self.text = text
         self.annotation = annotation
         self.consumingCount = max(1, consumingCount)
         self.sourceID = sourceID
         self.provenance = provenance
+        self.isLearnable = isLearnable
     }
 }
 
@@ -115,6 +118,51 @@ struct RealtimeConversionOutput: Equatable, Sendable {
     let liveCandidate: ConverterCandidate?
     let candidates: [ConverterCandidate]
     let pageSize: Int
+}
+
+/// Internal revision for speculative conversion work. Unlike the protocol
+/// snapshot revision, this advances only when editable composition semantics
+/// change, so live-presentation refreshes and candidate navigation do not make
+/// an otherwise valid background result stale.
+struct CompositionRevision: Equatable, Hashable, Sendable {
+    let rawValue: UInt64
+}
+
+struct SpeculativeConversionContext: Equatable, Sendable {
+    let revision: CompositionRevision
+    let input: CompositionInput
+    let options: ConversionOptions
+    let projectRevision: UInt64
+    /// Snapshot of backend-wide persisted learning. Reducers leave this at
+    /// zero; a composite converter that owns the revision store replaces it
+    /// before scheduling work.
+    let learningRevision: UInt64
+
+    init(
+        revision: CompositionRevision,
+        input: CompositionInput,
+        options: ConversionOptions,
+        projectRevision: UInt64,
+        learningRevision: UInt64 = 0
+    ) {
+        self.revision = revision
+        self.input = input
+        self.options = options
+        self.projectRevision = projectRevision
+        self.learningRevision = learningRevision
+    }
+}
+
+enum SpeculationInvalidationReason: String, Equatable, Hashable, Sendable {
+    case edit
+    case cursorMove
+    case segmentResize
+    case commit
+    case cancel
+    case dictionaryChange
+    case restore
+    case lifecycle
+    case secureTransition
 }
 
 enum ImeAutoConvertMode: String, Codable, Sendable, Equatable {
@@ -231,6 +279,19 @@ protocol KanaKanjiConverting: AnyObject {
     /// Secure-input and other privacy boundaries use this instead of the
     /// rollback-preserving `stopComposition()` path.
     func purgeSensitiveState()
+
+    /// Starts optional background work for the current editable composition.
+    /// Implementations must return immediately and must not publish candidates
+    /// from the completion callback.
+    func prepareSpeculativeConversion(_ context: SpeculativeConversionContext)
+
+    /// Invalidates every result prepared for the previous composition revision.
+    func invalidateSpeculativeConversion(reason: SpeculationInvalidationReason)
+
+    /// Freezes the candidate order for formal conversion. An implementation may
+    /// snapshot an already-completed immutable prefix, but unfinished work must
+    /// never be inserted after this call returns.
+    func lockCandidateOrder(for revision: CompositionRevision)
 }
 
 extension KanaKanjiConverting {
@@ -300,6 +361,12 @@ extension KanaKanjiConverting {
     func purgeSensitiveState() {
         stopComposition()
     }
+
+    func prepareSpeculativeConversion(_ context: SpeculativeConversionContext) {}
+
+    func invalidateSpeculativeConversion(reason: SpeculationInvalidationReason) {}
+
+    func lockCandidateOrder(for revision: CompositionRevision) {}
 }
 
 final class NoopKanaKanjiConverter: KanaKanjiConverting {

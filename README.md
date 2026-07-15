@@ -109,9 +109,64 @@ MOZC_ARTIFACT_DIR=/path/to/fcitx5-grimodex-mozc-bundle \
 ```
 
 すでにMozc bundle付きでconfigure済みの場合は、`BUILD_DIR`を指定すればCMake cache内の
-artifact pathを再利用できます。Mozc modeではlearningとZenzaiは無効です。serverは
+artifact pathを再利用できます。pure Mozc modeではlearningとZenzaiは無効です。serverは
 open-session応答で永続learning capabilityを`false`として明示しますが、履歴依存の設定UIと
 候補forgetの無効表示はdefault切替前の残作業です。
+
+Mozc-first投機ハイブリッドの初期スパイクは、同じ専用runnerへ明示的に指定します。
+入力中の表示と正式変換はMozcを待ち時間の基準にし、バックグラウンドHazkeyが同じ
+composition revisionの全文入力に対する先頭自然文節を1回だけ準備し、そのrequestと共有gateが
+Space時点までに完了した場合だけ、同じ文節境界の候補を補完します。
+未完了・陳腐化・文節境界不一致は即Mozc-onlyへフォールバックし、選択開始後の候補順は
+変更しません。現在のruntime H0は、評価済みholdoutがないためMozc Top-1とTop-3順を
+固定します。Hazkey側では通常どおりZenzaiを利用でき、永続学習へ送るのは実際に選択した
+Hazkey由来候補だけです。Mozc由来候補はこのmodeでも学習対象にしません。
+
+```sh
+MOZC_ARTIFACT_DIR=/path/to/fcitx5-grimodex-mozc-bundle \
+GRIMODEX_MOZC_BACKEND=mozc-hybrid \
+  ./scripts/grimodex-ime_mozc.sh all
+```
+
+paired ABProbe v3の診断評価には
+`tools/dictionary/evaluate_mozc_hybrid_spike.py`を使用します。評価出力は
+`diagnostic_only=true`かつ`new_holdout_required=true`で、既知corpusを正式な採用判定へ
+再利用しないようfail-closedに検証します。`runtime_h0_top1`は実装既定のTop-1固定規則、
+`top1.hybrid`は採用されていない診断H1 one-sided-consensus規則です。
+
+```sh
+python3 tools/dictionary/evaluate_mozc_hybrid_spike.py \
+  --corpus /path/to/formal-corpus.tsv \
+  --hazkey-results /path/to/hazkey-ab-probe-v3.jsonl \
+  --mozc-results /path/to/mozc-ab-probe-v3.jsonl \
+  --output /tmp/mozc-hybrid-quality.json
+```
+
+実server経路の初回Mozc表示、Space、stale破棄、PSS/RSS、候補ジャンプはopt-in
+`GrimodexHybridProcessSpikeTests`で測定します。待ち時間はカンマ区切りで複数指定し、
+単一の固定sleepを一般化しません。メモリ値はbefore/afterのendpoint snapshotであり、
+peakまたは同時snapshotではありません。runtime counterは各測定windowの前後でworkerを
+quiesceした差分を合算するため、warm-upとcomposition resetは含みません。
+
+```sh
+GRIMODEX_HYBRID_SPIKE_SERVER=/path/to/hazkey-server \
+GRIMODEX_HYBRID_SPIKE_MOZC_HELPER=/path/to/fcitx5-grimodex-mozc-helper \
+GRIMODEX_HYBRID_SPIKE_MOZC_DATA=/path/to/mozc.data \
+GRIMODEX_HYBRID_SPIKE_PREFETCH_DELAYS_MS=0,25,100 \
+GRIMODEX_HYBRID_SPIKE_ZENZAI_ENABLED=false \
+GRIMODEX_HYBRID_SPIKE_OUTPUT=/tmp/mozc-hybrid-runtime.json \
+  swift test --package-path hazkey-server \
+    --filter GrimodexHybridProcessSpikeTests
+```
+
+Zenzai有効条件では`GRIMODEX_HYBRID_SPIKE_ZENZAI_ENABLED=true`、有効な
+`FCITX5_GRIMODEX_ZENZAI_MODEL`、`--traits ZenzaiSupport`を指定します。全sessionが共有する
+Hazkey gate上で別sessionの投機requestとHazkey候補学習が競合する経路は、この単一session
+初期スパイクの既知制約です。
+
+2026-07-15の診断結果と解釈は
+[Mozc-first speculative hybrid spike](docs/spikes/mozc-hybrid-2026-07-15/README.md)
+に記録しています。
 
 主要なローカル検証:
 

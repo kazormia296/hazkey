@@ -831,7 +831,7 @@ class MozcB0StabilityContractTests(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 ValueError,
-                "recovery Swift package (size|fingerprint)",
+                "recovery Swift package (file count|size|fingerprint)",
             ):
                 stability.run_recovery(
                     server=server,

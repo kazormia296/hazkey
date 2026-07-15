@@ -34,6 +34,24 @@ run_as_root() {
     fi
 }
 
+reject_conflicting_env_file() {
+    local config_home=${XDG_CONFIG_HOME:-"${HOME}/.config"}
+    local env_file="${config_home}/fcitx5-grimodex/env"
+
+    [[ -f "${env_file}" ]] || return 0
+    if grep -Eq \
+        '^[[:space:]]*(export[[:space:]]+)?FCITX5_GRIMODEX_(CONVERTER|MOZC_HELPER|MOZC_DATA)[[:space:]]*=' \
+        "${env_file}"
+    then
+        printf 'Mozc runtime variables in %s would override normal Hazkey mode.\n' \
+            "${env_file}" >&2
+        printf '%s\n' \
+            'Remove those assignments or use scripts/grimodex-ime_mozc.sh explicitly.' \
+            >&2
+        return 1
+    fi
+}
+
 build() {
     cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" \
         -G Ninja \
@@ -50,10 +68,17 @@ install() {
 restart() {
     command -v fcitx5 >/dev/null
     command -v fcitx5-remote >/dev/null
+    reject_conflicting_env_file
     [[ -x "${SERVER}" ]] || {
         printf 'server executable not found: %s\n' "${SERVER}" >&2
         return 1
     }
+
+    # The normal runner is an explicit Hazkey path even when invoked from a
+    # shell that previously ran the Mozc experiment.
+    unset FCITX5_GRIMODEX_CONVERTER
+    unset FCITX5_GRIMODEX_MOZC_HELPER
+    unset FCITX5_GRIMODEX_MOZC_DATA
 
     mkdir -p "$(dirname -- "${RESTART_LOG}")"
     nohup "${SERVER}" --replace \

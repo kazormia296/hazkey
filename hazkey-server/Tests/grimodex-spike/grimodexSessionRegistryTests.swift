@@ -88,6 +88,52 @@ final class GrimodexSessionRegistryTests: XCTestCase {
     XCTAssertEqual(controllerB.snapshot.phase, .composing)
   }
 
+  func testAllSessionsShareTheRegistryHazkeyExecutionFence() {
+    let registry = HazkeySessionRegistry()
+    let sessionA = registry.open(
+      clientContext: context(program: "grimodex"),
+      ownerFd: 10
+    )
+    let sessionB = registry.open(
+      clientContext: context(program: "grimodex"),
+      ownerFd: 10
+    )
+
+    let environmentA = registry.environment(for: sessionA, ownerFd: 10)
+    let environmentB = registry.environment(for: sessionB, ownerFd: 10)
+
+    XCTAssertTrue(environmentA?.executionGate === environmentB?.executionGate)
+  }
+
+  func testFailedConfigurationMutationKeepsPublishedCompositionUnchanged() {
+    let registry = HazkeySessionRegistry()
+    let sessionID = registry.open(
+      clientContext: context(program: "grimodex"),
+      ownerFd: 10
+    )
+    let controller = registry.semanticController(for: sessionID, ownerFd: 10)!
+    let inserted = controller.handle(ImeV2Request(
+      requestID: "insert-before-failed-config",
+      expectedRevision: 0,
+      action: .insertText("かな")
+    ))
+    let converted = controller.handle(ImeV2Request(
+      requestID: "convert-before-failed-config",
+      expectedRevision: inserted.snapshot.revision,
+      action: .startConversion
+    ))
+    XCTAssertEqual(converted.status, .success)
+    let before = controller.snapshot
+
+    let result = registry.performConfigurationMutation(
+      { false },
+      reinitializeWhen: { $0 }
+    )
+
+    XCTAssertFalse(result)
+    XCTAssertEqual(controller.snapshot, before)
+  }
+
   func testUnknownClosedAndForeignOwnerSessionsAreRejected() {
     let registry = HazkeySessionRegistry()
     let session = registry.open(

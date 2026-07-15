@@ -119,6 +119,7 @@ final class HazkeySessionRegistry {
         let clientContext: GrimodexClientContext
         let environment: HazkeySessionEnvironment
         let semanticController: ImeV2SessionController
+        let hybridConverter: MozcFirstHybridKanaKanjiConverter?
         var lastAccess: Date
     }
 
@@ -127,6 +128,9 @@ final class HazkeySessionRegistry {
     private let dicdataStoreFactory: DicdataStoreFactory
     private let userDictionaryStore: UserDictionaryStore
     private let mozcCore: (any MozcCoreConverting)?
+    /// One registry-wide fence protects the persisted Hazkey memory, shared
+    /// server configuration, and model runtime used by every session.
+    private let hazkeyExecutionGate: HazkeyConverterExecutionGate
     private let learningRevisionStore = HazkeyLearningRevisionStore()
     private let zenzaiRuntimeDiagnosticsStore = ZenzaiRuntimeDiagnosticsStore()
     private let maximumSessions: Int
@@ -157,9 +161,11 @@ final class HazkeySessionRegistry {
         maximumSessionsPerOwner: Int = 16,
         idleTimeout: TimeInterval = 30 * 60,
         now: @escaping () -> Date = { Date() },
-        idleLearningDataClearer: (() -> Void)? = nil
+        idleLearningDataClearer: (() -> Void)? = nil,
+        hazkeyExecutionGate: HazkeyConverterExecutionGate = HazkeyConverterExecutionGate()
     ) {
         self.serverConfig = serverConfig
+        self.hazkeyExecutionGate = hazkeyExecutionGate
         self.revisionProviderFactory = revisionProviderFactory
         self.dicdataStoreFactory = dicdataStoreFactory ?? {
             DicdataStore(dictionaryURL: serverConfig.dictionaryPath)
@@ -168,7 +174,7 @@ final class HazkeySessionRegistry {
             persistenceURL: HazkeyServerConfig.getDataDirectory()
                 .appendingPathComponent("user-dictionary-v1.json")
         )
-        if serverConfig.converterBackend == .mozc {
+        if serverConfig.converterBackend.usesMozcCore {
             self.mozcCore = mozcCore ?? MozcSidecarClient(
                 helperPath: serverConfig.mozcHelperPath,
                 dataPath: serverConfig.mozcDataPath
@@ -184,12 +190,15 @@ final class HazkeySessionRegistry {
         self.idleTimeout = max(1, idleTimeout)
         self.now = now
         self.idleLearningDataClearer = idleLearningDataClearer ?? {
-            let environment = HazkeySessionEnvironment(serverConfig: serverConfig)
+            let environment = HazkeySessionEnvironment(
+                serverConfig: serverConfig,
+                executionGate: hazkeyExecutionGate
+            )
             environment.clearProfileLearningData()
         }
         zenzaiRuntimeDiagnosticsStore.reset(
             decision: serverConfig.zenzaiRuntimeDecision(
-                zenzaiAllowed: serverConfig.converterBackend != .mozc
+                zenzaiAllowed: serverConfig.converterBackend.allowsZenzai
             )
         )
     }
@@ -237,17 +246,23 @@ final class HazkeySessionRegistry {
             removeSession(sessionID: leastRecentlyUsed, reason: .capacityEviction)
         }
         let sessionID = UUID().uuidString.lowercased()
-        let store = dicdataStoreFactory()
-        let converter = KanaKanjiConverter(dicdataStore: store)
-        let boundaryConverter = KanaKanjiConverter(dicdataStore: store)
-        let environment = HazkeySessionEnvironment(
-            serverConfig: serverConfig,
-            revisionProvider: revisionProviderFactory(clientContext),
-            converter: converter,
-            boundaryConverter: boundaryConverter
-        )
-        environment.refreshGrimodexIntegration()
-        environment.replaceUserDictionary(userDictionaryStore.entries)
+        let prepared = hazkeyExecutionGate.withLock {
+            let store = dicdataStoreFactory()
+            let converter = KanaKanjiConverter(dicdataStore: store)
+            let boundaryConverter = KanaKanjiConverter(dicdataStore: store)
+            let environment = HazkeySessionEnvironment(
+                serverConfig: serverConfig,
+                revisionProvider: revisionProviderFactory(clientContext),
+                converter: converter,
+                boundaryConverter: boundaryConverter,
+                executionGate: hazkeyExecutionGate
+            )
+            environment.refreshGrimodexIntegration()
+            environment.replaceUserDictionary(userDictionaryStore.entries)
+            return (converter, boundaryConverter, environment)
+        }
+        let converter = prepared.0
+        let environment = prepared.2
         let appliedRevision = environment.grimodexAppliedRevision
         let supportsScheduledLiveConversion =
             clientFeatureBits & ImeV2ClientFeatures.scheduleLiveConversionEffect != 0
@@ -256,7 +271,7 @@ final class HazkeySessionRegistry {
         let liveConversionDelayMilliseconds = supportsScheduledLiveConversion
             ? environment.grimodexLiveConversionDelayMilliseconds
             : 0
-        let usesMozc = serverConfig.converterBackend == .mozc
+        let allowsZenzai = serverConfig.converterBackend.allowsZenzai
         let persistentLearningAvailable =
             learningCapability.persistentLearningAvailable
         let semanticSession = CompositionSession(
@@ -270,9 +285,8 @@ final class HazkeySessionRegistry {
                 allowsLearning: persistentLearningAvailable
                     && environment.grimodexAllowsLearning,
                 secureInput: environment.grimodexSecureInput,
-                zenzaiEnabled: usesMozc
-                    ? false
-                    : !environment.grimodexSecureInput,
+                zenzaiEnabled: allowsZenzai
+                    && !environment.grimodexSecureInput,
                 projectRevision: appliedRevision?.generation ?? 0,
                 autoConvertMode: environment.grimodexAutoConvertMode,
                 liveConversionDelayMilliseconds: liveConversionDelayMilliseconds,
@@ -287,12 +301,11 @@ final class HazkeySessionRegistry {
             )
         )
         let zenzaiRuntimeDiagnosticsStore = self.zenzaiRuntimeDiagnosticsStore
-        let productionConverter: any KanaKanjiConverting
-        if usesMozc {
-            guard let mozcCore else {
+        let makeMozcConverter = { () -> any KanaKanjiConverting in
+            guard let mozcCore = self.mozcCore else {
                 preconditionFailure("Mozc backend selected without a core supervisor")
             }
-            productionConverter = MozcKanaKanjiConverterAdapter(
+            return MozcKanaKanjiConverterAdapter(
                 core: mozcCore,
                 mappedInputStyleProvider: { [environment] in
                     .mapped(id: .tableName(environment.currentTableName))
@@ -305,8 +318,9 @@ final class HazkeySessionRegistry {
                     userDictionaryStore.candidateIndexSnapshot
                 }
             )
-        } else {
-            productionConverter = HazkeyKanaKanjiConverterAdapter(
+        }
+        let makeHazkeyConverter = { () -> any KanaKanjiConverting in
+            HazkeyKanaKanjiConverterAdapter(
                 converter: converter,
                 boundaryConverter: environment.boundaryConverter,
                 optionsProvider: { [environment] options in
@@ -335,13 +349,34 @@ final class HazkeySessionRegistry {
                 }
             )
         }
-        let reducerConverter: any KanaKanjiConverting = if usesMozc {
-            productionConverter
-        } else {
+        let makeLearningHazkeyConverter = { () -> any KanaKanjiConverting in
             LearningSynchronizedKanaKanjiConverter(
-                base: productionConverter,
-                revisionStore: learningRevisionStore
+                base: makeHazkeyConverter(),
+                revisionStore: self.learningRevisionStore,
+                executionGate: self.hazkeyExecutionGate
             )
+        }
+        let reducerConverter: any KanaKanjiConverting
+        let hybridConverter: MozcFirstHybridKanaKanjiConverter?
+        switch serverConfig.converterBackend {
+        case .hazkey:
+            reducerConverter = makeLearningHazkeyConverter()
+            hybridConverter = nil
+        case .mozc:
+            reducerConverter = makeMozcConverter()
+            hybridConverter = nil
+        case .mozcHybrid:
+            let hybrid = MozcFirstHybridKanaKanjiConverter(
+                mozc: makeMozcConverter(),
+                hazkey: makeLearningHazkeyConverter(),
+                hazkeyExecutionGate: hazkeyExecutionGate,
+                learningRevisionProvider: {
+                    [learningRevisionStore = self.learningRevisionStore] in
+                    learningRevisionStore.current()
+                }
+            )
+            reducerConverter = hybrid
+            hybridConverter = hybrid
         }
         let semanticController = ImeV2SessionController(
             reducer: ImeReducer(
@@ -356,9 +391,8 @@ final class HazkeySessionRegistry {
                     allowsLearning: persistentLearningAvailable
                         && environment.grimodexAllowsLearning,
                     secureInput: environment.grimodexSecureInput,
-                    zenzaiEnabled: usesMozc
-                        ? false
-                        : !environment.grimodexSecureInput,
+                    zenzaiEnabled: allowsZenzai
+                        && !environment.grimodexSecureInput,
                     projectRevision: revision?.generation ?? 0,
                     autoConvertMode: environment.grimodexAutoConvertMode,
                     liveConversionDelayMilliseconds: supportsScheduledLiveConversion
@@ -380,6 +414,7 @@ final class HazkeySessionRegistry {
             clientContext: clientContext,
             environment: environment,
             semanticController: semanticController,
+            hybridConverter: hybridConverter,
             lastAccess: now()
         )
         return .success(sessionID)
@@ -444,30 +479,92 @@ final class HazkeySessionRegistry {
     }
 
     func reinitializeAll() {
+        let affectedSessions = Array(sessions.values)
+        for session in affectedSessions {
+            session.semanticController.invalidateForDictionaryChange()
+        }
+        hazkeyExecutionGate.withLock {
+            reinitializeEnvironments(affectedSessions)
+        }
+        resumeSpeculation(in: affectedSessions)
+    }
+
+    /// Configuration objects are shared by every session adapter. Keep the
+    /// registry-wide fence held across both the mutation and reinitialization;
+    /// a one-shot "wait until idle" would leave a race in which a new worker
+    /// starts between those operations.
+    func performConfigurationMutation<T>(
+        _ mutation: () throws -> T,
+        reinitializeWhen shouldReinitialize: (T) -> Bool,
+        onChanged: (T) -> Void = { _ in }
+    ) rethrows -> T {
+        let affectedSessions = Array(sessions.values)
+        var invalidated = false
+        defer {
+            if invalidated {
+                resumeSpeculation(in: affectedSessions)
+            }
+        }
+        return try hazkeyExecutionGate.withLock {
+            let result = try mutation()
+            guard shouldReinitialize(result) else { return result }
+            // The mutation has succeeded and no Hazkey worker can start while
+            // this fence is held. Only now invalidate published candidate
+            // state; a failed configuration write must be observationally
+            // inert for every active composition.
+            for session in affectedSessions {
+                session.semanticController.invalidateForDictionaryChange()
+            }
+            invalidated = true
+            onChanged(result)
+            reinitializeEnvironments(affectedSessions)
+            return result
+        }
+    }
+
+    private func reinitializeEnvironments(_ affectedSessions: [Session]) {
         zenzaiRuntimeDiagnosticsStore.reset(
             decision: serverConfig.zenzaiRuntimeDecision(
-                zenzaiAllowed: serverConfig.converterBackend != .mozc
+                zenzaiAllowed: serverConfig.converterBackend.allowsZenzai
             )
         )
-        for session in sessions.values {
+        for session in affectedSessions {
             session.environment.reinitializeConfiguration()
+        }
+    }
+
+    private func resumeSpeculation(in affectedSessions: [Session]) {
+        for session in affectedSessions {
+            session.semanticController.resumeSpeculativeConversionAfterMaintenance()
         }
     }
 
     func clearAllLearningData() {
         if sessions.isEmpty {
-            idleLearningDataClearer()
-            _ = learningRevisionStore.recordCommit()
+            hazkeyExecutionGate.withLock {
+                idleLearningDataClearer()
+                _ = learningRevisionStore.recordCommit()
+            }
             return
         }
-        for session in sessions.values {
+        let affectedSessions = Array(sessions.values)
+        // Cancel every reader before the first converter resets the shared
+        // persisted history. Invalidating one session at a time is not a
+        // cross-session fence.
+        for session in affectedSessions {
+            session.semanticController.invalidateForDictionaryChange()
+        }
+        hazkeyExecutionGate.withLock {
+            for session in affectedSessions {
             // A staged transaction was derived from the history that is about
             // to be deleted. Discard it first so the next client action cannot
             // resurrect cleared learning data.
-            session.semanticController.finalizePendingLearning(commit: false)
-            session.environment.clearProfileLearningData()
+                session.semanticController.finalizePendingLearning(commit: false)
+                session.environment.clearProfileLearningData()
+            }
+            _ = learningRevisionStore.recordCommit()
         }
-        _ = learningRevisionStore.recordCommit()
+        resumeSpeculation(in: affectedSessions)
     }
 
     func userDictionaryEntries() -> [UserDictionaryEntry] {
@@ -503,9 +600,15 @@ final class HazkeySessionRegistry {
     }
 
     func saveAll() {
-        for session in sessions.values {
-            session.semanticController.finalizePendingLearning(commit: true)
-            session.environment.close()
+        let affectedSessions = Array(sessions.values)
+        for session in affectedSessions {
+            session.semanticController.invalidateForDictionaryChange()
+        }
+        hazkeyExecutionGate.withLock {
+            for session in affectedSessions {
+                session.semanticController.finalizePendingLearning(commit: true)
+                session.environment.close()
+            }
         }
     }
 
@@ -529,7 +632,24 @@ final class HazkeySessionRegistry {
 
     func zenzaiRuntimeDiagnostics() -> ZenzaiRuntimeDiagnosticsSnapshot {
         pruneExpiredSessions()
-        return zenzaiRuntimeDiagnosticsStore.snapshot()
+        return hazkeyExecutionGate.withLock {
+            zenzaiRuntimeDiagnosticsStore.snapshot()
+        }
+    }
+
+    func mozcHybridDiagnostics() -> MozcFirstHybridDiagnostics {
+        pruneExpiredSessions()
+        return sessions.values.reduce(into: MozcFirstHybridDiagnostics()) {
+            aggregate, session in
+            if let snapshot = session.hybridConverter?.diagnosticsSnapshot() {
+                aggregate.merge(snapshot)
+            }
+        }
+    }
+
+    func logMozcHybridDiagnostics() {
+        guard serverConfig.converterBackend == .mozcHybrid else { return }
+        NSLog("MOZC_HYBRID_DIAGNOSTICS \(mozcHybridDiagnostics().structuredLogLine)")
     }
 
     private func pruneExpiredSessions() {
@@ -547,18 +667,27 @@ final class HazkeySessionRegistry {
         reason: HazkeySessionRemovalReason
     ) {
         guard let session = sessions.removeValue(forKey: sessionID) else { return }
-        session.semanticController.finalizePendingLearning(
-            commit: reason.commitsPendingLearning
-        )
-        session.environment.close()
+        session.semanticController.invalidateForDictionaryChange()
+        hazkeyExecutionGate.withLock {
+            session.semanticController.finalizePendingLearning(
+                commit: reason.commitsPendingLearning
+            )
+            session.environment.close()
+        }
     }
 
     private func applyUserDictionaryToSessions() {
         let entries = userDictionaryStore.entries
-        for session in sessions.values {
+        let affectedSessions = Array(sessions.values)
+        for session in affectedSessions {
             session.semanticController.invalidateForDictionaryChange()
-            session.environment.replaceUserDictionary(entries)
         }
+        hazkeyExecutionGate.withLock {
+            for session in affectedSessions {
+                session.environment.replaceUserDictionary(entries)
+            }
+        }
+        resumeSpeculation(in: affectedSessions)
     }
 
     private func leastRecentlyUsedSession(ownerFd: Int32?) -> String? {

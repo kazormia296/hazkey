@@ -133,10 +133,23 @@ let builtInInputTables = [
 enum HazkeyConverterBackend: Equatable, Sendable {
     case hazkey
     case mozc
+    case mozcHybrid
+
+    var usesMozcCore: Bool {
+        self == .mozc || self == .mozcHybrid
+    }
+
+    var usesHazkeyCore: Bool {
+        self == .hazkey || self == .mozcHybrid
+    }
+
+    var allowsZenzai: Bool {
+        self != .mozc
+    }
 
     var learningCapability: ConverterLearningCapability {
         switch self {
-        case .hazkey: return .persistent
+        case .hazkey, .mozcHybrid: return .persistent
         case .mozc: return .conversionOnly
         }
     }
@@ -144,9 +157,11 @@ enum HazkeyConverterBackend: Equatable, Sendable {
     init(environment: [String: String]) {
         // The experimental process backend is exact-match opt-in. Unknown
         // values retain the in-process Hazkey backend.
-        self = environment["FCITX5_GRIMODEX_CONVERTER"] == "mozc"
-            ? .mozc
-            : .hazkey
+        switch environment["FCITX5_GRIMODEX_CONVERTER"] {
+        case "mozc": self = .mozc
+        case "mozc-hybrid": self = .mozcHybrid
+        default: self = .hazkey
+        }
     }
 }
 

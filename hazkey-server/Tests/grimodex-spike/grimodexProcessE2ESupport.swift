@@ -112,6 +112,7 @@ final class GrimodexProcessSnapshotFixture {
 enum GrimodexProcessConverterConfiguration {
   case hazkey
   case mozc(helperURL: URL, dataURL: URL)
+  case mozcHybrid(helperURL: URL, dataURL: URL)
 
   func apply(to environment: inout [String: String]) throws {
     environment.removeValue(forKey: "FCITX5_GRIMODEX_CONVERTER")
@@ -121,7 +122,8 @@ enum GrimodexProcessConverterConfiguration {
     switch self {
     case .hazkey:
       return
-    case .mozc(let helperURL, let dataURL):
+    case .mozc(let helperURL, let dataURL),
+         .mozcHybrid(let helperURL, let dataURL):
       guard FileManager.default.isExecutableFile(atPath: helperURL.path) else {
         throw GrimodexProcessE2EError.invalidResponse(
           "Mozc process E2E helper is not executable: \(helperURL.path)"
@@ -132,7 +134,11 @@ enum GrimodexProcessConverterConfiguration {
           "Mozc process E2E data is not readable: \(dataURL.path)"
         )
       }
-      environment["FCITX5_GRIMODEX_CONVERTER"] = "mozc"
+      environment["FCITX5_GRIMODEX_CONVERTER"] = switch self {
+      case .mozc: "mozc"
+      case .mozcHybrid: "mozc-hybrid"
+      case .hazkey: preconditionFailure("handled above")
+      }
       environment["FCITX5_GRIMODEX_MOZC_HELPER"] = helperURL.path
       environment["FCITX5_GRIMODEX_MOZC_DATA"] = dataURL.path
     }
@@ -154,6 +160,18 @@ final class GrimodexProcessHarness {
 
   var isRunning: Bool { launched && process.isRunning }
   var processIdentifier: Int32? { launched ? process.processIdentifier : nil }
+
+  func logContents() throws -> String {
+    String(decoding: try Data(contentsOf: logURL), as: UTF8.self)
+  }
+
+  func logTailContents(maxBytes: UInt64 = 65_536) throws -> String {
+    let handle = try FileHandle(forReadingFrom: logURL)
+    defer { try? handle.close() }
+    let size = try handle.seekToEnd()
+    try handle.seek(toOffset: size > maxBytes ? size - maxBytes : 0)
+    return String(decoding: try handle.readToEnd() ?? Data(), as: UTF8.self)
+  }
 
   init(
     executableURL: URL,
@@ -501,6 +519,13 @@ final class GrimodexProcessClient {
   }
 
   func insertText(_ text: String, sessionID: String) throws {
+    _ = try insertTextSnapshot(text, sessionID: sessionID)
+  }
+
+  func insertTextSnapshot(
+    _ text: String,
+    sessionID: String
+  ) throws -> Hazkey_SessionSnapshot {
     guard snapshots[sessionID]?.phase == .idle else {
       throw GrimodexProcessE2EError.invalidResponse(
         "v2 text insertion requires an idle session"
@@ -519,9 +544,16 @@ final class GrimodexProcessClient {
         "v2 text insertion did not enter the composing phase"
       )
     }
+    return inserted.handleImeActionResult.snapshot
   }
 
   func startConversion(sessionID: String) throws -> [String] {
+    try startConversionSnapshot(sessionID: sessionID).candidateWindow.items.map(\.text)
+  }
+
+  func startConversionSnapshot(
+    sessionID: String
+  ) throws -> Hazkey_SessionSnapshot {
     guard snapshots[sessionID]?.phase == .composing else {
       throw GrimodexProcessE2EError.invalidResponse(
         "v2 conversion requires a composing session"
@@ -540,13 +572,14 @@ final class GrimodexProcessClient {
         "v2 conversion did not enter the previewing phase"
       )
     }
-    let candidates = converted.handleImeActionResult.snapshot.candidateWindow.items.map(\.text)
+    let snapshot = converted.handleImeActionResult.snapshot
+    let candidates = snapshot.candidateWindow.items.map(\.text)
     guard !candidates.isEmpty else {
       throw GrimodexProcessE2EError.invalidResponse(
         "v2 conversion returned no candidates"
       )
     }
-    return candidates
+    return snapshot
   }
 
   func configureBenchmarkProfile() throws {
@@ -576,6 +609,51 @@ final class GrimodexProcessClient {
       }
     )
     try requireSuccess(response, operation: "configure benchmark profile")
+  }
+
+  func configureHybridSpikeProfile(zenzaiEnabled: Bool) throws {
+    let current = try getConfig()
+    guard !current.profiles.isEmpty else {
+      throw GrimodexProcessE2EError.invalidResponse(
+        "Configuration contains no profile"
+      )
+    }
+    var profiles = current.profiles
+    for index in profiles.indices {
+      profiles[index].autoConvertMode = .autoConvertAlways
+      profiles[index].liveConversionDelayMsec = 0
+      profiles[index].suggestionListMode = .suggestionListShowNormalResults
+      profiles[index].numSuggestions = 10
+      profiles[index].numCandidatesPerPage = 10
+      profiles[index].useInputHistory = false
+      profiles[index].stopStoreNewHistory = true
+      profiles[index].specialConversionMode = .init()
+      profiles[index].zenzaiEnable = zenzaiEnabled
+      profiles[index].grimodexScopeMode = .grimodexOff
+    }
+    let response = try transact(
+      Hazkey_RequestEnvelope.with {
+        $0.setConfig = Hazkey_Config_SetConfig.with { $0.profiles = profiles }
+      }
+    )
+    try requireSuccess(response, operation: "configure hybrid spike profile")
+  }
+
+  func navigateCandidateSnapshot(
+    _ delta: Int32,
+    sessionID: String
+  ) throws -> Hazkey_SessionSnapshot {
+    let navigated = try transactV2(
+      sessionID: sessionID,
+      requestID: "process-navigate-\(UUID().uuidString)",
+      expectedRevision: revisions[sessionID] ?? 0
+    ) {
+      $0.navigateCandidate = Hazkey_Commands_NavigateCandidate.with {
+        $0.delta = delta
+      }
+    }
+    try requireSuccess(navigated, operation: "navigate v2 candidate")
+    return navigated.handleImeActionResult.snapshot
   }
 
   func candidates(sessionID: String) throws -> [String] {
@@ -637,6 +715,14 @@ final class GrimodexProcessClient {
       )
     }
     return config.zenzaiRuntimeDiagnostics
+  }
+
+  func zenzaiModelAvailable() throws -> Bool {
+    try getConfig().zenzaiModelAvailable
+  }
+
+  func flushHybridDiagnosticsToServerLog() throws {
+    _ = try getConfig()
   }
 
   private func getConfig() throws -> Hazkey_Config_CurrentConfig {

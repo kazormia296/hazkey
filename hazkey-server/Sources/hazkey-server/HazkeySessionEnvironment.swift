@@ -11,6 +11,7 @@ final class HazkeySessionEnvironment {
     let serverConfig: HazkeyServerConfig
     let converter: KanaKanjiConverter
     let boundaryConverter: KanaKanjiConverter
+    let executionGate: HazkeyConverterExecutionGate
     private let grimodexRevisionProvider: any GrimodexRevisionProviding
 
     var keymap: Keymap
@@ -97,9 +98,11 @@ final class HazkeySessionEnvironment {
         serverConfig injectedServerConfig: HazkeyServerConfig? = nil,
         revisionProvider: any GrimodexRevisionProviding = GrimodexDisabledRevisionProvider(),
         converter injectedConverter: KanaKanjiConverter? = nil,
-        boundaryConverter injectedBoundaryConverter: KanaKanjiConverter? = nil
+        boundaryConverter injectedBoundaryConverter: KanaKanjiConverter? = nil,
+        executionGate: HazkeyConverterExecutionGate = HazkeyConverterExecutionGate()
     ) {
         grimodexRevisionProvider = revisionProvider
+        self.executionGate = executionGate
         let serverConfig = injectedServerConfig ?? HazkeyServerConfig()
         self.serverConfig = serverConfig
         let converter: KanaKanjiConverter
@@ -166,59 +169,77 @@ final class HazkeySessionEnvironment {
     }
 
     func refreshGrimodexIntegration() {
-        grimodexIntegration.observe(grimodexRevisionProvider.latest())
-        refreshResolvedZenzaiConditions()
+        let latest = grimodexRevisionProvider.latest()
+        // The common composition-start path is read-only. Avoid joining an
+        // unrelated Hazkey speculation when the external revision is already
+        // reflected in this session.
+        guard latest != grimodexIntegration.latestKnownRevision else { return }
+        executionGate.withLock {
+            grimodexIntegration.observe(latest)
+            refreshResolvedZenzaiConditions()
+        }
     }
 
     func replaceGrimodexDynamicDictionary(
         _ entries: [GrimodexMappedDictionaryEntry],
         projectIndex: GrimodexProjectDictionaryIndex
     ) {
-        grimodexProjectDictionaryIndex = projectIndex
-        grimodexDynamicDictionaryEntries = entries.map(\.dictionaryElement)
-        applyDynamicDictionaries()
+        executionGate.withLock {
+            grimodexProjectDictionaryIndex = projectIndex
+            grimodexDynamicDictionaryEntries = entries.map(\.dictionaryElement)
+            applyDynamicDictionaries()
+        }
     }
 
     func replaceUserDictionary(_ entries: [UserDictionaryEntry]) {
-        personalDynamicDictionaryEntries = entries
-            .filter { $0.layer != .temporary }
-            .map(\.dictionaryElement)
-        temporaryShortcutEntries = entries
-            .filter { $0.layer == .temporary }
-            .map(\.dictionaryElement)
-        applyDynamicDictionaries()
+        executionGate.withLock {
+            personalDynamicDictionaryEntries = entries
+                .filter { $0.layer != .temporary }
+                .map(\.dictionaryElement)
+            temporaryShortcutEntries = entries
+                .filter { $0.layer == .temporary }
+                .map(\.dictionaryElement)
+            applyDynamicDictionaries()
+        }
     }
 
     func clearProfileLearningData() {
-        // Prime AzooKey's memory configuration before reset. A maintenance
-        // environment may not have issued a conversion yet.
-        var options = baseConvertRequestOptions
-        options.zenzaiMode = .off
-        var probe = ComposingText()
-        probe.insertAtCursorPosition("あ", inputStyle: .direct)
-        _ = converter.requestCandidates(probe, options: options)
-        stopComposition()
-        converter.resetMemory()
+        executionGate.withLock {
+            // Prime AzooKey's memory configuration before reset. A maintenance
+            // environment may not have issued a conversion yet.
+            var options = baseConvertRequestOptions
+            options.zenzaiMode = .off
+            var probe = ComposingText()
+            probe.insertAtCursorPosition("あ", inputStyle: .direct)
+            _ = converter.requestCandidates(probe, options: options)
+            stopComposition()
+            converter.resetMemory()
+        }
     }
 
     func reinitializeConfiguration() {
-        stopComposition()
-        keymap = serverConfig.loadKeymap()
-        let newTableName = UUID().uuidString
-        serverConfig.loadInputTable(tableName: newTableName)
-        currentTableName = newTableName
-        baseConvertRequestOptions = serverConfig.genBaseConvertRequestOptions()
-        refreshGrimodexIntegration()
+        executionGate.withLock {
+            stopComposition()
+            keymap = serverConfig.loadKeymap()
+            let newTableName = UUID().uuidString
+            serverConfig.loadInputTable(tableName: newTableName)
+            currentTableName = newTableName
+            baseConvertRequestOptions = serverConfig.genBaseConvertRequestOptions()
+            refreshGrimodexIntegration()
+            refreshResolvedZenzaiConditions()
+        }
     }
 
     func close() {
-        stopComposition()
+        executionGate.withLock { stopComposition() }
     }
 
     func stopComposition() {
-        converter.stopComposition()
-        if boundaryConverter !== converter {
-            boundaryConverter.stopComposition()
+        executionGate.withLock {
+            converter.stopComposition()
+            if boundaryConverter !== converter {
+                boundaryConverter.stopComposition()
+            }
         }
     }
 

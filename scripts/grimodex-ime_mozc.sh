@@ -13,6 +13,7 @@ SERVER=${GRIMODEX_SERVER:-}
 MOZC_ARTIFACT_DIR=${MOZC_ARTIFACT_DIR:-${HAZKEY_SERVER_MOZC_ARTIFACT_DIR:-}}
 MOZC_HELPER=${FCITX5_GRIMODEX_MOZC_HELPER:-}
 MOZC_DATA=${FCITX5_GRIMODEX_MOZC_DATA:-}
+MOZC_BACKEND=${GRIMODEX_MOZC_BACKEND:-mozc}
 PYTHON3=${PYTHON3:-python3}
 MOZC_VERIFIER=${GRIMODEX_MOZC_VERIFIER:-"${REPO_ROOT}/packaging/scripts/verify_mozc_artifact_bundle.py"}
 MOZC_RUNTIME_ROOT=${GRIMODEX_MOZC_RUNTIME_ROOT:-"${XDG_RUNTIME_DIR:-${HOME}/.cache}/fcitx5-grimodex/mozc-runtime"}
@@ -35,10 +36,23 @@ Mozc artifact input:
 Environment overrides:
   BUILD_DIR, INSTALL_PREFIX, GGML_VULKAN, GRIMODEX_SERVER, GRIMODEX_RESTART_LOG,
   FCITX5_GRIMODEX_MOZC_HELPER, FCITX5_GRIMODEX_MOZC_DATA, PYTHON3,
-  GRIMODEX_MOZC_VERIFIER, GRIMODEX_MOZC_RUNTIME_ROOT
+  GRIMODEX_MOZC_VERIFIER, GRIMODEX_MOZC_RUNTIME_ROOT,
+  GRIMODEX_MOZC_BACKEND (mozc or mozc-hybrid; default: mozc)
 
-The converter backend is always FCITX5_GRIMODEX_CONVERTER=mozc.
+The normal runner remains separate. This Mozc runner selects either the pure
+Mozc backend or the experimental Mozc-first speculative hybrid.
 EOF
+}
+
+validate_mozc_backend() {
+    case ${MOZC_BACKEND} in
+        mozc|mozc-hybrid) ;;
+        *)
+            printf 'Unsupported GRIMODEX_MOZC_BACKEND: %s\n' \
+                "${MOZC_BACKEND}" >&2
+            return 2
+            ;;
+    esac
 }
 
 run_as_root() {
@@ -288,6 +302,7 @@ restart() {
     local server_pid
     local server_status
 
+    validate_mozc_backend
     command -v fcitx5 >/dev/null
     command -v fcitx5-remote >/dev/null
     reject_conflicting_env_file
@@ -298,7 +313,7 @@ restart() {
     # Export the exact opt-in selector before starting both the server and
     # Fcitx. The Fcitx addon may respawn the server later and must retain the
     # same backend and sidecar paths.
-    export FCITX5_GRIMODEX_CONVERTER=mozc
+    export FCITX5_GRIMODEX_CONVERTER="${MOZC_BACKEND}"
     export FCITX5_GRIMODEX_MOZC_HELPER="${MOZC_HELPER}"
     export FCITX5_GRIMODEX_MOZC_DATA="${MOZC_DATA}"
 
@@ -325,7 +340,7 @@ restart() {
     sleep 2
     fcitx5-remote -s grimodex
     fcitx5-remote -o
-    printf 'Requested converter backend: mozc\n'
+    printf 'Requested converter backend: %s\n' "${MOZC_BACKEND}"
     printf 'Mozc helper: %s\n' "${MOZC_HELPER}"
     printf 'Mozc data: %s\n' "${MOZC_DATA}"
     printf 'Restart log: %s\n' "${RESTART_LOG}"
@@ -340,6 +355,7 @@ main() {
         install) install ;;
         restart) restart ;;
         all)
+            validate_mozc_backend
             build
             install
             restart
