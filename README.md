@@ -240,7 +240,9 @@ Codexだけが更新する。Codexのkeyringは元の`CODEX_HOME`へ束縛され
 `auto`はkeyringかfileか安全に判別できないため、この経路ではkeyringとともにfail-closedで拒否する。各提案は
 ephemeral thread、read-only sandbox、tools無効で実行する。応答形式は
 `outputSchema`で制約した上で、読み連結、表層連結、境界範囲、Top-3の重複をsemantic validatorでも
-検査する。Codexのrefresh token、認証ファイル、access token、未検証の生応答はreview labelへ混ぜない。
+検査する。Top-3の一部だけが連結不一致や重複になった場合は、その候補だけを除外して完全検証済みの
+候補を表示し、除外件数と理由をproposal journalへ残す。全候補が不正な場合だけ生成全体を拒否する。
+Codexのrefresh token、認証ファイル、access token、未検証の生応答はreview labelへ混ぜない。
 
 ```sh
 python3 tools/dictionary/serve_mozc_boundary_annotations.py \

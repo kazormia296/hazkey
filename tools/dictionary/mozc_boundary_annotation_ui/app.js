@@ -1002,14 +1002,19 @@ function renderProposals() {
     const generatorLabel = [proposal.model, proposal.reasoning_effort]
       .filter(Boolean)
       .join(" · ");
+    const discardedLabel = proposal.discarded_candidate_count
+      ? ` · ${proposal.discarded_candidate_count}案除外`
+      : "";
+    let ambiguityLabel = "";
+    if (proposal.ambiguous) {
+      ambiguityLabel = proposal.paths.length > 1 ? "別解あり · " : "曖昧判定 · ";
+    }
     rankLine.append(
       element("span", "", `候補 ${rank}`),
       element(
         "span",
         "",
-        proposal.ambiguous
-          ? `別解あり · ${generatorLabel || "LLM"}`
-          : generatorLabel || "LLM",
+        `${ambiguityLabel}${generatorLabel || "LLM"}${discardedLabel}`,
       ),
     );
     const reading = element(
@@ -1749,7 +1754,12 @@ async function requestProposals() {
     state.proposalsStaleForReading = false;
     state.proposalStaleMessage = null;
     renderProposals();
-    toast("LLM候補を受け取りました");
+    const discardedCount = result.proposal.discarded_candidate_count || 0;
+    toast(
+      discardedCount
+        ? `LLM候補を${result.proposal.paths.length}件受け取り、不整合な${discardedCount}件を除外しました`
+        : "LLM候補を受け取りました",
+    );
   } catch (error) {
     if (state.currentId === caseId) {
       if (error.status === 409) {

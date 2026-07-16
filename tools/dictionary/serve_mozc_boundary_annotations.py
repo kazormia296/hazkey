@@ -2786,6 +2786,38 @@ class Workspace:
                     reading_sha256,
                     f"proposals:{line_number}.effective_reading_sha256",
                 )
+            discarded_candidates = proposal.get("discarded_candidates", [])
+            if (
+                not isinstance(discarded_candidates, list)
+                or len(discarded_candidates) > 3
+            ):
+                raise AnnotationError(
+                    f"proposals:{line_number}.discarded_candidates must be an "
+                    "array of at most three entries"
+                )
+            discarded_ranks: set[int] = set()
+            for discarded_index, raw_discarded in enumerate(
+                discarded_candidates
+            ):
+                context = (
+                    f"proposals:{line_number}.discarded_candidates"
+                    f"[{discarded_index}]"
+                )
+                discarded = _require_object(raw_discarded, context)
+                if set(discarded) != {"rank", "reason"}:
+                    raise AnnotationError(
+                        f"{context} must contain exactly rank and reason"
+                    )
+                rank = discarded.get("rank")
+                if type(rank) is not int or not 1 <= rank <= 3:
+                    raise AnnotationError(f"{context}.rank must be 1, 2, or 3")
+                if rank in discarded_ranks:
+                    raise AnnotationError(
+                        f"proposals:{line_number}.discarded_candidates has "
+                        "duplicate ranks"
+                    )
+                discarded_ranks.add(rank)
+                _require_text(discarded.get("reason"), f"{context}.reason")
             self.proposals[case_id].append(proposal)
 
     @staticmethod
@@ -2964,6 +2996,9 @@ class Workspace:
             "ambiguous": proposal["ambiguous"],
             "ambiguity_reasons": proposal["ambiguity_reasons"],
             "paths": proposal["paths"],
+            "discarded_candidate_count": len(
+                proposal.get("discarded_candidates", [])
+            ),
             "few_shot_ids": proposal["generator"]["few_shot_ids"],
             "review_revision": proposal.get("review_revision"),
             "effective_reading_sha256": proposal.get(
@@ -3264,7 +3299,12 @@ class Workspace:
         proposal_id: str,
         *,
         reading: str | None = None,
-    ) -> tuple[bool, list[str], list[dict[str, Any]]]:
+    ) -> tuple[
+        bool,
+        list[str],
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+    ]:
         value = _require_object(parsed, "LLM output")
         ambiguous = value.get("ambiguous")
         if type(ambiguous) is not bool:
@@ -3283,79 +3323,102 @@ class Workspace:
                 reading = _effective_reading(record, self.reviews[case_id])
         surfaces = record["source"]["expected_surfaces"]
         paths: list[dict[str, Any]] = []
+        discarded_candidates: list[dict[str, Any]] = []
         seen: set[tuple[int, tuple[int, ...], tuple[int, ...]]] = set()
-        for rank, candidate in enumerate(candidates, 1):
-            candidate = _require_object(candidate, f"LLM candidate {rank}")
-            surface_index = candidate.get("surface_reference_index")
-            if type(surface_index) is not int or not 0 <= surface_index < len(surfaces):
-                raise AnnotationError(
-                    f"LLM candidate {rank} has invalid surface_reference_index"
+        for rank, raw_candidate in enumerate(candidates, 1):
+            try:
+                candidate = _require_object(
+                    raw_candidate, f"LLM candidate {rank}"
                 )
-            chunks = candidate.get("chunks")
-            if not isinstance(chunks, list) or not chunks:
-                raise AnnotationError(f"LLM candidate {rank} has no chunks")
-            readings: list[str] = []
-            outputs: list[str] = []
-            for chunk_index, chunk in enumerate(chunks):
-                chunk = _require_object(
-                    chunk, f"LLM candidate {rank}.chunks[{chunk_index}]"
-                )
-                readings.append(
-                    _require_text(
-                        chunk.get("reading"),
-                        f"LLM candidate {rank}.chunks[{chunk_index}].reading",
+                surface_index = candidate.get("surface_reference_index")
+                if (
+                    type(surface_index) is not int
+                    or not 0 <= surface_index < len(surfaces)
+                ):
+                    raise AnnotationError(
+                        f"LLM candidate {rank} has invalid surface_reference_index"
                     )
-                )
-                outputs.append(
-                    _require_text(
-                        chunk.get("surface"),
-                        f"LLM candidate {rank}.chunks[{chunk_index}].surface",
+                chunks = candidate.get("chunks")
+                if not isinstance(chunks, list) or not chunks:
+                    raise AnnotationError(f"LLM candidate {rank} has no chunks")
+                readings: list[str] = []
+                outputs: list[str] = []
+                for chunk_index, chunk in enumerate(chunks):
+                    chunk = _require_object(
+                        chunk, f"LLM candidate {rank}.chunks[{chunk_index}]"
                     )
+                    readings.append(
+                        _require_text(
+                            chunk.get("reading"),
+                            f"LLM candidate {rank}.chunks[{chunk_index}].reading",
+                        )
+                    )
+                    outputs.append(
+                        _require_text(
+                            chunk.get("surface"),
+                            f"LLM candidate {rank}.chunks[{chunk_index}].surface",
+                        )
+                    )
+                if "".join(readings) != reading:
+                    raise AnnotationError(
+                        f"LLM candidate {rank} reading chunks do not cover the source"
+                    )
+                if "".join(outputs) != surfaces[surface_index]:
+                    raise AnnotationError(
+                        f"LLM candidate {rank} surface chunks do not cover the reference"
+                    )
+                reading_boundaries: list[int] = []
+                surface_boundaries: list[int] = []
+                reading_offset = 0
+                surface_offset = 0
+                for chunk_reading, chunk_surface in zip(
+                    readings[:-1], outputs[:-1], strict=True
+                ):
+                    reading_offset += len(chunk_reading)
+                    surface_offset += len(chunk_surface)
+                    reading_boundaries.append(reading_offset)
+                    surface_boundaries.append(surface_offset)
+                key = (
+                    surface_index,
+                    tuple(reading_boundaries),
+                    tuple(surface_boundaries),
                 )
-            if "".join(readings) != reading:
-                raise AnnotationError(
-                    f"LLM candidate {rank} reading chunks do not cover the source"
+                if key in seen:
+                    discarded_candidates.append(
+                        {
+                            "rank": rank,
+                            "reason": (
+                                f"LLM candidate {rank} duplicates an earlier candidate"
+                            ),
+                        }
+                    )
+                    continue
+                seen.add(key)
+                paths.append(
+                    {
+                        "path_id": f"{proposal_id}-path-{rank}",
+                        "status": "draft",
+                        "surface_reference_id": f"surface-{surface_index}",
+                        "reading_boundaries": reading_boundaries,
+                        "surface_boundaries": surface_boundaries,
+                        "alignment_status": "aligned",
+                        "provenance": {
+                            "kind": "llm",
+                            "proposal_id": proposal_id,
+                        },
+                    }
                 )
-            if "".join(outputs) != surfaces[surface_index]:
-                raise AnnotationError(
-                    f"LLM candidate {rank} surface chunks do not cover the reference"
-                )
-            reading_boundaries: list[int] = []
-            surface_boundaries: list[int] = []
-            reading_offset = 0
-            surface_offset = 0
-            for chunk_reading, chunk_surface in zip(
-                readings[:-1], outputs[:-1], strict=True
-            ):
-                reading_offset += len(chunk_reading)
-                surface_offset += len(chunk_surface)
-                reading_boundaries.append(reading_offset)
-                surface_boundaries.append(surface_offset)
-            key = (
-                surface_index,
-                tuple(reading_boundaries),
-                tuple(surface_boundaries),
-            )
-            if key in seen:
-                continue
-            seen.add(key)
-            paths.append(
-                {
-                    "path_id": f"{proposal_id}-path-{rank}",
-                    "status": "draft",
-                    "surface_reference_id": f"surface-{surface_index}",
-                    "reading_boundaries": reading_boundaries,
-                    "surface_boundaries": surface_boundaries,
-                    "alignment_status": "aligned",
-                    "provenance": {
-                        "kind": "llm",
-                        "proposal_id": proposal_id,
-                    },
-                }
-            )
+            except AnnotationError as exc:
+                discarded_candidates.append({"rank": rank, "reason": str(exc)})
         if not paths:
-            raise AnnotationError("LLM output contains only duplicate candidates")
-        return ambiguous, list(reasons), paths
+            reasons_text = "; ".join(
+                item["reason"] for item in discarded_candidates
+            )
+            raise AnnotationError(
+                "LLM output contains no valid candidates"
+                + (f": {reasons_text}" if reasons_text else "")
+            )
+        return ambiguous, list(reasons), paths, discarded_candidates
 
     def generate_proposals(
         self,
@@ -3429,9 +3492,12 @@ class Workspace:
             "aligned_chunksがnullなら表層境界は未確定なので、人手確定済みとみなしたり"
             "機械的に転写してはならない。"
             "自然な別解がある場合は最大3案を順位順に返しambiguousをtrueにする。"
+            "第2案と第3案は任意であり、案数を埋めるために作らない。入力と表層を"
+            "訂正、正規化、言い換えせず、連続部分文字列として分割し、連結の完全一致を"
+            "確認できる案だけを返す。確実な案が一つだけなら一案だけでよい。"
             "説明文ではなく指定JSON Schemaだけを返す。"
         )
-        prompt_version = "mozc-ime-chunk-top3-codex-app-server-v3"
+        prompt_version = "mozc-ime-chunk-top3-codex-app-server-v4"
         output_schema = self._proposal_json_schema(
             len(record["source"]["expected_surfaces"])
         )
@@ -3452,11 +3518,13 @@ class Workspace:
         parsed = backend_result.output
         proposal_id = "proposal-" + uuid.uuid4().hex
         try:
-            ambiguous, reasons, paths = self._validate_llm_output(
-                case_id,
-                parsed,
-                proposal_id,
-                reading=effective_reading,
+            ambiguous, reasons, paths, discarded_candidates = (
+                self._validate_llm_output(
+                    case_id,
+                    parsed,
+                    proposal_id,
+                    reading=effective_reading,
+                )
             )
         except AnnotationError as exc:
             raise CodexAppServerError(
@@ -3475,6 +3543,7 @@ class Workspace:
             "ambiguous": ambiguous,
             "ambiguity_reasons": reasons,
             "paths": paths,
+            "discarded_candidates": discarded_candidates,
             "generator": {
                 "provider": "codex-app-server",
                 "model": backend_result.model,

@@ -1896,14 +1896,17 @@ class WorkspaceTests(unittest.TestCase):
             ]
             proposals[0].pop("effective_reading_sha256", None)
             proposals[0].pop("review_revision", None)
+            proposals[0].pop("discarded_candidates", None)
             (workspace_root / "proposals.jsonl").write_bytes(
                 canonical_jsonl(proposals)
             )
 
             reloaded = self.make_workspace(queue_path, workspace_root)
             try:
+                legacy_proposals = reloaded.case_detail("case-1")["proposals"]
+                self.assertEqual(len(legacy_proposals), 1)
                 self.assertEqual(
-                    len(reloaded.case_detail("case-1")["proposals"]), 1
+                    legacy_proposals[0]["discarded_candidate_count"], 0
                 )
                 correction_payload = review_payload(
                     path_set_status="pending", paths=[]
@@ -2092,6 +2095,195 @@ class WorkspaceTests(unittest.TestCase):
                         self.assertFalse(workspace.proposals_path.exists())
                     finally:
                         workspace.close()
+
+    def test_semantic_validation_retains_valid_candidates_when_later_candidate_is_invalid(
+        self,
+    ) -> None:
+        parsed = {
+            "ambiguous": True,
+            "ambiguity_reasons": ["助詞を独立させる経路も自然"],
+            "candidates": [
+                {
+                    "surface_reference_index": 0,
+                    "chunks": [
+                        {"reading": "きょうは", "surface": "今日は"},
+                        {"reading": "あめ", "surface": "雨"},
+                    ],
+                },
+                {
+                    "surface_reference_index": 0,
+                    "chunks": [
+                        {"reading": "きょう", "surface": "今日"},
+                        {"reading": "は", "surface": "は"},
+                        {"reading": "あめ", "surface": "雨"},
+                    ],
+                },
+                {
+                    "surface_reference_index": 0,
+                    "chunks": [
+                        {"reading": "きょうは", "surface": "今日は"},
+                        {"reading": "ゆき", "surface": "雨"},
+                    ],
+                },
+            ],
+        }
+        backend = FakeProposalBackend(parsed)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            workspace_root = root / "workspace"
+            write_queue(queue_path, [queue_record("case-1")])
+            workspace = self.make_workspace(
+                queue_path,
+                workspace_root,
+                proposal_backend=backend,
+            )
+            try:
+                proposal = workspace.generate_proposals("case-1")
+
+                self.assertEqual(len(proposal["paths"]), 2)
+                self.assertEqual(proposal["discarded_candidate_count"], 1)
+                self.assertEqual(
+                    [path["reading_boundaries"] for path in proposal["paths"]],
+                    [[4], [3, 4]],
+                )
+                self.assertEqual(
+                    [path["surface_boundaries"] for path in proposal["paths"]],
+                    [[3], [2, 3]],
+                )
+                self.assertTrue(
+                    proposal["paths"][0]["path_id"].endswith("-path-1")
+                )
+                self.assertTrue(
+                    proposal["paths"][1]["path_id"].endswith("-path-2")
+                )
+                stored = json.loads(
+                    workspace.proposals_path.read_text(encoding="utf-8")
+                )
+                self.assertEqual(stored["raw_output"], parsed)
+                self.assertEqual(len(stored["paths"]), 2)
+                self.assertEqual(
+                    stored["discarded_candidates"],
+                    [
+                        {
+                            "rank": 3,
+                            "reason": (
+                                "LLM candidate 3 reading chunks do not cover "
+                                "the source"
+                            ),
+                        }
+                    ],
+                )
+            finally:
+                workspace.close()
+
+            reloaded = self.make_workspace(queue_path, workspace_root)
+            try:
+                proposals = reloaded.case_detail("case-1")["proposals"]
+                self.assertEqual(len(proposals), 1)
+                self.assertEqual(proposals[0]["discarded_candidate_count"], 1)
+            finally:
+                reloaded.close()
+
+    def test_proposal_journal_rejects_malformed_discarded_candidates(
+        self,
+    ) -> None:
+        parsed = {
+            "ambiguous": False,
+            "ambiguity_reasons": [],
+            "candidates": [
+                {
+                    "surface_reference_index": 0,
+                    "chunks": [
+                        {"reading": "きょうは", "surface": "今日は"},
+                        {"reading": "あめ", "surface": "雨"},
+                    ],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            workspace_root = root / "workspace"
+            write_queue(queue_path, [queue_record("case-1")])
+            workspace = self.make_workspace(
+                queue_path,
+                workspace_root,
+                proposal_backend=FakeProposalBackend(parsed),
+            )
+            workspace.generate_proposals("case-1")
+            workspace.close()
+
+            proposal = json.loads(
+                (workspace_root / "proposals.jsonl").read_text(encoding="utf-8")
+            )
+            proposal["discarded_candidates"] = None
+            (workspace_root / "proposals.jsonl").write_bytes(
+                canonical_jsonl([proposal])
+            )
+            with self.assertRaisesRegex(
+                serve.AnnotationError,
+                "discarded_candidates must be an array",
+            ):
+                self.make_workspace(queue_path, workspace_root)
+
+    def test_semantic_validation_rejects_output_when_every_candidate_is_invalid(
+        self,
+    ) -> None:
+        parsed = {
+            "ambiguous": True,
+            "ambiguity_reasons": ["候補を再検討する必要がある"],
+            "candidates": [
+                {
+                    "surface_reference_index": 0,
+                    "chunks": [
+                        {"reading": "あしたは", "surface": "今日は"},
+                        {"reading": "あめ", "surface": "雨"},
+                    ],
+                },
+                {
+                    "surface_reference_index": 0,
+                    "chunks": [
+                        {"reading": "きょう", "surface": "今日"},
+                        {"reading": "の", "surface": "は"},
+                        {"reading": "あめ", "surface": "雨"},
+                    ],
+                },
+                {
+                    "surface_reference_index": 0,
+                    "chunks": [
+                        {"reading": "きょうは", "surface": "今日は"},
+                        {"reading": "ゆき", "surface": "雨"},
+                    ],
+                },
+            ],
+        }
+        backend = FakeProposalBackend(parsed)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            write_queue(queue_path, [queue_record("case-1")])
+            workspace = self.make_workspace(
+                queue_path,
+                root / "workspace",
+                proposal_backend=backend,
+            )
+            try:
+                with self.assertRaisesRegex(
+                    serve.CodexAppServerError,
+                    "failed semantic validation",
+                ) as raised:
+                    workspace.generate_proposals("case-1")
+
+                self.assertIsInstance(raised.exception.__cause__, serve.AnnotationError)
+                self.assertIn(
+                    "LLM output contains no valid candidates",
+                    str(raised.exception.__cause__),
+                )
+                self.assertEqual(workspace.proposals["case-1"], [])
+                self.assertFalse(workspace.proposals_path.exists())
+            finally:
+                workspace.close()
 
     def test_llm_settings_change_applies_to_next_generation_and_audit(self) -> None:
         parsed = {
