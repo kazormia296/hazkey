@@ -1164,6 +1164,104 @@ class WorkspaceTests(unittest.TestCase):
             finally:
                 reloaded.close()
 
+    def test_duplicated_path_edit_persists_through_detail_fetch_and_reload(
+        self,
+    ) -> None:
+        original_path = {
+            "path_id": "original-path-1",
+            "status": "acceptable",
+            "surface_reference_id": "surface-0",
+            "reading_boundaries": [4],
+            "surface_boundaries": [3],
+            "alignment_status": "aligned",
+            "provenance": {"kind": "human"},
+        }
+        duplicated_draft = deepcopy(original_path)
+        duplicated_draft.update(
+            {
+                "path_id": "copy-path-1",
+                "status": "draft",
+                "provenance": {
+                    "kind": "human",
+                    "source_path_id": original_path["path_id"],
+                },
+            }
+        )
+        edited_copy = deepcopy(duplicated_draft)
+        edited_copy.update(
+            {
+                "reading_boundaries": [3, 4],
+                "surface_boundaries": [2, 3],
+            }
+        )
+        expected_paths = [original_path, edited_copy]
+
+        def assert_persisted(paths: object) -> None:
+            self.assertIsInstance(paths, list)
+            assert isinstance(paths, list)
+            self.assertEqual(
+                [path["path_id"] for path in paths],
+                ["original-path-1", "copy-path-1"],
+            )
+            self.assertEqual(paths[0], original_path)
+            self.assertEqual(paths[1], edited_copy)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            workspace_root = root / "workspace"
+            write_queue(
+                queue_path,
+                [queue_record("case-1"), queue_record("case-2")],
+            )
+            workspace = self.make_workspace(queue_path, workspace_root)
+            try:
+                duplicated = workspace.patch_review(
+                    "case-1",
+                    review_payload(
+                        path_set_status="open",
+                        paths=[original_path, duplicated_draft],
+                    ),
+                )
+                self.assertEqual(duplicated["revision"], 1)
+                self.assertEqual(
+                    duplicated["acceptable_paths"],
+                    [original_path, duplicated_draft],
+                )
+
+                saved = workspace.patch_review(
+                    "case-1",
+                    review_payload(
+                        base_revision=duplicated["revision"],
+                        path_set_status="open",
+                        paths=expected_paths,
+                    ),
+                )
+                self.assertEqual(saved["revision"], 2)
+                assert_persisted(saved["acceptable_paths"])
+
+                self.assertEqual(
+                    workspace.case_detail("case-2")["case"]["id"],
+                    "case-2",
+                )
+                navigated_back = workspace.case_detail("case-1")
+                self.assertEqual(navigated_back["review"]["revision"], 2)
+                assert_persisted(
+                    navigated_back["review"]["acceptable_paths"]
+                )
+            finally:
+                workspace.close()
+
+            reloaded = self.make_workspace(queue_path, workspace_root)
+            try:
+                reloaded_detail = reloaded.case_detail("case-1")
+                self.assertEqual(reloaded_detail["review"]["revision"], 2)
+                assert_persisted(
+                    reloaded_detail["review"]["acceptable_paths"]
+                )
+            finally:
+                reloaded.close()
+
     def test_corrected_reading_persists_and_export_keeps_source_immutable(self) -> None:
         original_reading = "きよはあめ"
         corrected_reading = "きょうはあめ"

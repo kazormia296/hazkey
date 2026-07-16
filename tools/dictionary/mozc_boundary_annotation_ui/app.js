@@ -10,6 +10,7 @@ const state = {
   draft: null,
   currentId: null,
   activePathIndex: 0,
+  activePathIdByCase: new Map(),
   dirty: false,
   saving: false,
   pendingAdvance: null,
@@ -295,12 +296,61 @@ function parseMarkedReading(marked, reading) {
 }
 
 function currentPath() {
-  if (!state.draft || !state.draft.acceptable_paths.length) return null;
+  if (!state.draft || !state.draft.acceptable_paths.length) {
+    if (state.currentId) state.activePathIdByCase.delete(state.currentId);
+    return null;
+  }
   state.activePathIndex = Math.max(
     0,
     Math.min(state.activePathIndex, state.draft.acceptable_paths.length - 1),
   );
-  return state.draft.acceptable_paths[state.activePathIndex];
+  const path = state.draft.acceptable_paths[state.activePathIndex];
+  if (state.currentId) {
+    state.activePathIdByCase.set(state.currentId, path.path_id);
+  }
+  return path;
+}
+
+function restoredPathIndex(caseId, paths) {
+  const rememberedPathId = state.activePathIdByCase.get(caseId);
+  if (!rememberedPathId) return 0;
+  const rememberedIndex = paths.findIndex(
+    (path) => path.path_id === rememberedPathId,
+  );
+  if (rememberedIndex >= 0) return rememberedIndex;
+  state.activePathIdByCase.delete(caseId);
+  return 0;
+}
+
+function reconcileSavedDraft(savedReview) {
+  const savedDraft = deepCopy(savedReview);
+  const currentPaths = state.draft?.acceptable_paths;
+  const savedPaths = savedDraft.acceptable_paths;
+  const canPreservePathObjects = (
+    Array.isArray(currentPaths)
+    && Array.isArray(savedPaths)
+    && currentPaths.length === savedPaths.length
+    && savedPaths.every(
+      (savedPath, index) => currentPaths[index]?.path_id === savedPath.path_id,
+    )
+  );
+  if (!canPreservePathObjects) {
+    state.draft = savedDraft;
+    return false;
+  }
+
+  savedDraft.acceptable_paths = savedPaths.map((savedPath, index) => {
+    const current = currentPaths[index];
+    for (const key of Object.keys(current)) {
+      if (!Object.prototype.hasOwnProperty.call(savedPath, key)) {
+        delete current[key];
+      }
+    }
+    Object.assign(current, savedPath);
+    return current;
+  });
+  state.draft = savedDraft;
+  return true;
 }
 
 function currentSurface(path = currentPath()) {
@@ -1079,9 +1129,14 @@ function renderPathTabs() {
   state.draft.acceptable_paths.forEach((path, index) => {
     const button = element("button", "path-tab");
     button.type = "button";
+    button.dataset.pathId = path.path_id;
     button.setAttribute("aria-pressed", index === state.activePathIndex ? "true" : "false");
     const dot = element("span", `tab-state ${path.status}`);
-    button.append(dot, document.createTextNode(`経路 ${index + 1}`));
+    const copiedLabel = path.provenance?.source_path_id ? " · 複製" : "";
+    button.append(
+      dot,
+      document.createTextNode(`経路 ${index + 1}${copiedLabel}`),
+    );
     button.addEventListener("click", () => {
       state.activePathIndex = index;
       state.splitChunkIndex = null;
@@ -1345,7 +1400,10 @@ async function selectCase(caseId, {saveFirst = true, force = false} = {}) {
     if (!Object.prototype.hasOwnProperty.call(state.draft, "corrected_reading")) {
       state.draft.corrected_reading = null;
     }
-    state.activePathIndex = 0;
+    state.activePathIndex = restoredPathIndex(
+      caseId,
+      state.draft.acceptable_paths,
+    );
     state.pathInputError = null;
     state.editGeneration = 0;
     state.dirty = false;
@@ -1501,9 +1559,13 @@ async function saveCurrent({
       state.dirty = true;
       state.boundaryEdits = Math.max(0, state.boundaryEdits - savedBoundaryEdits);
     } else {
-      state.draft = deepCopy(result.review);
+      // Boundary controls close over the active path object. Preserve those
+      // objects across an ordinary save so the next edit cannot mutate a
+      // detached pre-save path that is no longer present in state.draft.
+      const pathObjectsPreserved = reconcileSavedDraft(result.review);
       state.dirty = false;
       state.boundaryEdits = 0;
+      if (!pathObjectsPreserved) renderReview();
     }
     state.caseOpenedAt = performance.now();
     dom.caseRevision.textContent = `revision ${result.review.revision}`;
