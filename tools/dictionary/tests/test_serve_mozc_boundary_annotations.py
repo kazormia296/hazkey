@@ -1184,6 +1184,247 @@ class WorkspaceTests(unittest.TestCase):
             finally:
                 reloaded.close()
 
+    def test_bulk_finalize_preserves_drafts_and_is_idempotent(self) -> None:
+        acceptable = reading_only_path([4], path_id="accepted-path")
+        draft = deepcopy(acceptable)
+        draft.update(
+            {
+                "path_id": "draft-path",
+                "status": "draft",
+                "reading_boundaries": [3, 4],
+                "provenance": {
+                    "kind": "human",
+                    "source_path_id": "accepted-path",
+                },
+            }
+        )
+        expected_paths = [acceptable, draft]
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            workspace_root = root / "workspace"
+            write_queue(
+                queue_path,
+                [queue_record("case-open"), queue_record("case-closed")],
+            )
+            workspace = self.make_workspace(queue_path, workspace_root)
+            try:
+                open_review = workspace.patch_review(
+                    "case-open",
+                    review_payload(
+                        path_set_status="open",
+                        paths=expected_paths,
+                    ),
+                )
+                closed_review = workspace.patch_review(
+                    "case-closed",
+                    review_payload(path_set_status="closed"),
+                )
+                event_lines_before = workspace.events_path.read_bytes().splitlines()
+
+                with mock.patch.object(
+                    workspace,
+                    "_write_snapshot",
+                    wraps=workspace._write_snapshot,
+                ) as snapshot_writer, mock.patch.object(
+                    workspace,
+                    "_export_bundle_locked",
+                    wraps=workspace._export_bundle_locked,
+                ) as exporter:
+                    result = workspace.finalize_reviewed()
+                    snapshot_writer.assert_called_once_with()
+                    exporter.assert_called_once_with()
+
+                self.assertEqual(result["finalized_cases"], 1)
+                self.assertEqual(result["already_closed_cases"], 1)
+                self.assertTrue(result["manifest"]["complete"])
+                self.assertEqual(
+                    result["manifest"]["path_set_statuses"], {"closed": 2}
+                )
+                finalized = workspace.case_detail("case-open")["review"]
+                self.assertEqual(finalized["path_set_status"], "closed")
+                self.assertEqual(finalized["revision"], open_review["revision"] + 1)
+                self.assertEqual(finalized["acceptable_paths"], expected_paths)
+                unchanged = workspace.case_detail("case-closed")["review"]
+                self.assertEqual(unchanged["revision"], closed_review["revision"])
+
+                event_lines_after = workspace.events_path.read_bytes().splitlines()
+                self.assertEqual(
+                    len(event_lines_after), len(event_lines_before) + 1
+                )
+                finalization_event = json.loads(event_lines_after[-1])
+                self.assertEqual(finalization_event["case_id"], "case-open")
+                self.assertEqual(
+                    finalization_event["action"]["kind"], "bulk_finalize"
+                )
+                self.assertEqual(
+                    finalization_event["review"]["acceptable_paths"],
+                    expected_paths,
+                )
+                exported_records = [
+                    json.loads(line)
+                    for line in Path(result["review_path"])
+                    .read_text(encoding="utf-8")
+                    .splitlines()
+                ]
+                self.assertEqual(
+                    exported_records[0]["acceptable_paths"], [acceptable]
+                )
+                self.assertEqual(exported_records[0]["draft_paths"], [draft])
+
+                journal_before_retry = workspace.events_path.read_bytes()
+                snapshot_before_retry = workspace.snapshot_path.read_bytes()
+                review_export_before_retry = Path(result["review_path"]).read_bytes()
+                manifest_before_retry = Path(result["manifest_path"]).read_bytes()
+                with mock.patch.object(
+                    workspace,
+                    "_write_snapshot",
+                    wraps=workspace._write_snapshot,
+                ) as snapshot_writer, mock.patch.object(
+                    workspace,
+                    "_export_bundle_locked",
+                    wraps=workspace._export_bundle_locked,
+                ) as exporter:
+                    retried = workspace.finalize_reviewed()
+                    snapshot_writer.assert_not_called()
+                    exporter.assert_called_once_with()
+                self.assertIsNone(retried["batch_id"])
+                self.assertEqual(retried["finalized_cases"], 0)
+                self.assertEqual(retried["already_closed_cases"], 2)
+                self.assertEqual(
+                    workspace.events_path.read_bytes(), journal_before_retry
+                )
+                self.assertEqual(
+                    workspace.snapshot_path.read_bytes(), snapshot_before_retry
+                )
+                self.assertEqual(
+                    Path(retried["review_path"]).read_bytes(),
+                    review_export_before_retry,
+                )
+                self.assertEqual(
+                    Path(retried["manifest_path"]).read_bytes(),
+                    manifest_before_retry,
+                )
+            finally:
+                workspace.close()
+
+            reloaded = self.make_workspace(queue_path, workspace_root)
+            try:
+                reloaded_review = reloaded.case_detail("case-open")["review"]
+                self.assertEqual(reloaded_review["path_set_status"], "closed")
+                self.assertEqual(
+                    reloaded_review["acceptable_paths"], expected_paths
+                )
+            finally:
+                reloaded.close()
+
+    def test_bulk_finalize_refuses_any_incomplete_case_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            workspace_root = root / "workspace"
+            write_queue(
+                queue_path,
+                [
+                    queue_record("case-good"),
+                    queue_record("case-pending"),
+                    queue_record("case-adjudication"),
+                    queue_record("case-invalid"),
+                ],
+            )
+            workspace = self.make_workspace(queue_path, workspace_root)
+            try:
+                workspace.patch_review(
+                    "case-good",
+                    review_payload(path_set_status="open"),
+                )
+                workspace.patch_review(
+                    "case-adjudication",
+                    review_payload(
+                        path_set_status="open",
+                        needs_adjudication=True,
+                    ),
+                )
+                workspace.patch_review(
+                    "case-invalid",
+                    review_payload(path_set_status="invalid", paths=[]),
+                )
+                journal_before = workspace.events_path.read_bytes()
+                snapshot_before = workspace.snapshot_path.read_bytes()
+                reviews_before = deepcopy(workspace.reviews)
+
+                with self.assertRaisesRegex(
+                    serve.AnnotationError,
+                    "cannot finalize reviewed annotations",
+                ) as raised:
+                    workspace.finalize_reviewed()
+
+                message = str(raised.exception)
+                self.assertIn("case-pending: reviewed_once is false", message)
+                self.assertIn("path_set_status is pending", message)
+                self.assertIn("no acceptable path", message)
+                self.assertIn(
+                    "case-adjudication: needs_adjudication is true", message
+                )
+                self.assertIn("case-invalid: path_set_status is invalid", message)
+                self.assertEqual(workspace.events_path.read_bytes(), journal_before)
+                self.assertEqual(workspace.snapshot_path.read_bytes(), snapshot_before)
+                self.assertEqual(workspace.reviews, reviews_before)
+                self.assertFalse(workspace.exports_dir.exists())
+            finally:
+                workspace.close()
+
+    def test_finalize_reviewed_cli_writes_exports_without_starting_server(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            workspace_root = root / "workspace"
+            write_queue(queue_path, [queue_record("case-1")])
+            workspace = self.make_workspace(queue_path, workspace_root)
+            workspace.patch_review(
+                "case-1", review_payload(path_set_status="open")
+            )
+            workspace.close()
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with mock.patch("sys.stdout", stdout), mock.patch(
+                "sys.stderr", stderr
+            ), mock.patch.object(serve, "ThreadingHTTPServer") as server:
+                exit_code = serve.main(
+                    [
+                        "--queue",
+                        str(queue_path),
+                        "--workspace",
+                        str(workspace_root),
+                        "--annotator-id",
+                        "fixture-reviewer",
+                        "--finalize-reviewed",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0, stderr.getvalue())
+            server.assert_not_called()
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["finalized_cases"], 1)
+            self.assertTrue(result["manifest"]["complete"])
+            self.assertTrue(Path(result["review_path"]).is_file())
+            self.assertTrue(Path(result["manifest_path"]).is_file())
+
+            reloaded = self.make_workspace(queue_path, workspace_root)
+            try:
+                self.assertEqual(
+                    reloaded.case_detail("case-1")["review"][
+                        "path_set_status"
+                    ],
+                    "closed",
+                )
+            finally:
+                reloaded.close()
+
     def test_duplicated_path_edit_persists_through_detail_fetch_and_reload(
         self,
     ) -> None:

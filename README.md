@@ -265,11 +265,43 @@ python3 tools/dictionary/serve_mozc_boundary_annotations.py \
 `--codex-timeout-seconds`、`--codex-effort`、`--llm-few-shots`は提案経路だけに適用され、通常のレビュー・
 保存・exportはCodex App Serverが利用できない場合も動作する。
 
-全1,360件のレビューが完了するまでは境界精度を主張しません。完了後も、これは既知corpusの
-診断でありformal adoption evidenceではありません。`--reviewed-boundaries`が測るのは
-composition element単位の境界だけで、候補表層の変換品質ではありません。境界精度とsurface精度を
-混同せず、レビューqueueのcode-point境界はABProbe v5のcomposition element境界と照合してから
-境界専用JSONLへ移します。正式な採用判断には未見の文節ラベル付きholdoutを使います。
+全1,360件のレビューを終えたら、UIを終了してcandidate-blindな一括確定を実行します。
+全件がreview済み、要裁定なし、許容経路ありであることを先に検証し、条件を満たす`open`だけを
+監査イベント付きで`closed`へ移します。途中の1件でも条件を満たさない場合は何も書きません。
+
+```sh
+python3 tools/dictionary/serve_mozc_boundary_annotations.py \
+  --queue build-grimodex/mozc-boundary-annotation-v1/preannotations.jsonl \
+  --workbook /path/to/mozc-boundary-annotation-1360.xlsx \
+  --workspace build-grimodex/mozc-boundary-annotation-ui \
+  --finalize-reviewed
+```
+
+確定exportは、複数の許容経路を単一spanへ潰さず、修正後の読みを1 code pointずつ明示的な
+`composition_element`にしたlabel-free ABProbe入力と、別ファイルの許容先頭チャンクtargetへ
+コンパイルします。generationディレクトリは5生成物専用とし、ABProbe結果と評価出力は外へ置きます。
+
+```sh
+python3 tools/dictionary/compile_mozc_acceptable_path_evaluation.py \
+  --reviewed-paths /path/to/exports/reviewed-paths.jsonl \
+  --annotation-manifest /path/to/exports/manifest.json \
+  --output-dir /path/to/immutable-generation
+
+# /path/to/immutable-generation/probe-input.jsonlを同一条件のHazkey/Mozcへ渡し、
+# paired ABProbe v5結果をgenerationの外へ保存する。
+
+python3 tools/dictionary/evaluate_mozc_acceptable_path_boundaries.py \
+  --generation-manifest /path/to/immutable-generation/manifest.json \
+  --targets /path/to/immutable-generation/targets.jsonl \
+  --hazkey-v5 /path/to/results/H5.jsonl \
+  --mozc-v5 /path/to/results/B5.jsonl \
+  --output /path/to/results/evaluation.json
+```
+
+評価器は元の人手exportから全生成物を再導出してbyte一致を要求します。測るのはABProbe v5で観測できる
+先頭IMEチャンクだけで、全文のAcceptable Path Accuracyではありません。先頭境界、境界正解条件付きの
+表層、両方を要求するEnd-to-Endを別軸・別分母で報告します。この1,360件は既知corpusなので結果は
+`diagnostic_only=true`かつ`formal_authorized=false`です。正式な採用判断には未見holdoutを使い、
 production既定値はH0のままです。
 
 未見の文節ラベル付きholdoutは、正本と独立review approvalからlabel-free ABProbe入力を

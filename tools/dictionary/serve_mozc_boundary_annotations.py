@@ -3140,6 +3140,114 @@ class Workspace:
             self._write_snapshot()
             return deepcopy(normalized)
 
+    def finalize_reviewed(self) -> dict[str, Any]:
+        """Close every fully reviewed case and write one final export bundle.
+
+        Finalization is deliberately stricter than the ordinary per-case
+        editor.  The complete queue is validated before the journal or any
+        in-memory review is changed, so a single unfinished case leaves the
+        workspace untouched.  Draft alternatives are retained; only the
+        path-set status and the review's audit metadata change.
+        """
+
+        with self.lock:
+            if self._closed:
+                raise AnnotationError("annotation workspace is closed")
+
+            blockers: list[str] = []
+            open_case_ids: list[str] = []
+            for record in self.queue.records:
+                case_id = record["id"]
+                review = self.reviews[case_id]
+                reasons: list[str] = []
+                if review["reviewed_once"] is not True:
+                    reasons.append("reviewed_once is false")
+                if review["needs_adjudication"] is not False:
+                    reasons.append("needs_adjudication is true")
+                status = review["path_set_status"]
+                if status not in {"open", "closed"}:
+                    reasons.append(f"path_set_status is {status}")
+                if not any(
+                    path.get("status") == "acceptable"
+                    for path in review["acceptable_paths"]
+                ):
+                    reasons.append("no acceptable path")
+                if reasons:
+                    blockers.append(f"{case_id}: {', '.join(reasons)}")
+                elif status == "open":
+                    open_case_ids.append(case_id)
+
+            if blockers:
+                displayed = blockers[:20]
+                suffix = ""
+                if len(blockers) > len(displayed):
+                    suffix = f"; ... and {len(blockers) - len(displayed)} more"
+                raise AnnotationError(
+                    "cannot finalize reviewed annotations; "
+                    + "; ".join(displayed)
+                    + suffix
+                )
+
+            batch_id: str | None = None
+            if open_case_ids:
+                batch_id = str(uuid.uuid4())
+                updated_at = now_iso8601()
+                updated_reviews: dict[str, dict[str, Any]] = {}
+                events: list[dict[str, Any]] = []
+                for case_id in open_case_ids:
+                    previous = self.reviews[case_id]
+                    updated = deepcopy(previous)
+                    updated.update(
+                        {
+                            "path_set_status": "closed",
+                            "revision": previous["revision"] + 1,
+                            "updated_at": updated_at,
+                        }
+                    )
+                    updated_reviews[case_id] = updated
+                    events.append(
+                        {
+                            "schema": EVENT_SCHEMA,
+                            "event_id": str(uuid.uuid4()),
+                            "created_at": updated_at,
+                            "queue_sha256": self.queue.sha256,
+                            "case_id": case_id,
+                            "review": updated,
+                            "action": {
+                                "kind": "bulk_finalize",
+                                "batch_id": batch_id,
+                                "from_path_set_status": "open",
+                                "to_path_set_status": "closed",
+                                "case_count": len(open_case_ids),
+                            },
+                        }
+                    )
+
+                # One append and one fsync make the complete batch durable
+                # before it is published through the snapshot or exports.
+                with self.events_path.open("ab") as output:
+                    output.write(canonical_jsonl(events))
+                    output.flush()
+                    os.fsync(output.fileno())
+                self.reviews.update(updated_reviews)
+                self._write_snapshot()
+
+            data, manifest = self._export_bundle_locked()
+            self.exports_dir.mkdir(parents=True, exist_ok=True)
+            review_path = self.exports_dir / "reviewed-paths.jsonl"
+            manifest_path = self.exports_dir / "manifest.json"
+            _atomic_write(review_path, data)
+            _atomic_write(manifest_path, canonical_json_bytes(manifest))
+            return {
+                "batch_id": batch_id,
+                "finalized_cases": len(open_case_ids),
+                "already_closed_cases": len(self.queue.records)
+                - len(open_case_ids),
+                "review_path": str(review_path),
+                "manifest_path": str(manifest_path),
+                "manifest": deepcopy(manifest),
+            }
+
     def _export_record(self, record: dict[str, Any]) -> dict[str, Any]:
         review = self.reviews[record["id"]]
         effective_reading = _effective_reading(record, review)
@@ -4476,7 +4584,36 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--codex-timeout-seconds", type=int, default=120)
     parser.add_argument("--codex-effort", default="low")
     parser.add_argument("--llm-few-shots", type=int, default=10)
+    parser.add_argument(
+        "--finalize-reviewed",
+        action="store_true",
+        help=(
+            "validate the entire workspace, close every reviewed open path set, "
+            "write the final exports, and exit without starting the UI"
+        ),
+    )
     return parser.parse_args(argv)
+
+
+def finalize_reviewed_workspace(args: argparse.Namespace) -> dict[str, Any]:
+    """Run the non-interactive, candidate-blind finalization command."""
+
+    queue = load_queue(args.queue)
+    workspace = Workspace(
+        queue,
+        args.workspace,
+        workbook_path=args.workbook,
+        annotator_id=args.annotator_id,
+        proposal_backend=None,
+        proposal_backend_message="Codex App Server is disabled during finalization",
+        llm_few_shots=args.llm_few_shots,
+        llm_model=args.codex_model,
+        llm_effort=args.codex_effort,
+    )
+    try:
+        return workspace.finalize_reviewed()
+    finally:
+        workspace.close()
 
 
 def create_application(args: argparse.Namespace) -> AnnotationApplication:
@@ -4534,6 +4671,22 @@ def create_application(args: argparse.Namespace) -> AnnotationApplication:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.finalize_reviewed:
+        try:
+            result = finalize_reviewed_workspace(args)
+        except (AnnotationError, OSError, zipfile.BadZipFile) as exc:
+            print(f"error: {exc}", file=os.sys.stderr)
+            return 2
+        print(
+            json.dumps(
+                result,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            flush=True,
+        )
+        return 0
     application: AnnotationApplication | None = None
     try:
         application = create_application(args)
