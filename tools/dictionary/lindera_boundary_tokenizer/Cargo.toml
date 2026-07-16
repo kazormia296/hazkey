@@ -1,0 +1,8 @@
+[package]
+name = "lindera-boundary-tokenizer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+lindera = { version = "4.0.0", default-features = false, features = ["embed-unidic"] }

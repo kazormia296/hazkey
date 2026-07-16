@@ -175,6 +175,100 @@ python3 tools/dictionary/evaluate_mozc_hybrid_spike.py \
   --output /tmp/mozc-hybrid-composition-span.json
 ```
 
+既知1,360件については、変換表層とは独立した先頭文節境界の診断用アノテーションも作成できます。
+`prepare_mozc_hybrid_boundary_annotations.py`はLinderaの組み込みUniDicでプリアノテーションし、
+`expected`に複数の許容表層がある場合は一つだけを選ばず全て解析して境界consensusを取ります。
+判定は`exact`、`aligned`、`ambiguous`に分け、レビューqueueにはHazkey/Mozcの候補出力を
+含めません。queueの提案単位は`source_reading_code_point`です。レビュー担当者は各行を承認、
+境界修正、曖昧、無効のいずれかに確定します。
+
+```sh
+python3 tools/dictionary/prepare_mozc_hybrid_boundary_annotations.py \
+  --corpus /path/to/formal-corpus.tsv \
+  --lindera-tokenizer /path/to/lindera-boundary-tokenizer \
+  --output /path/to/boundary-review-queue.jsonl \
+  --summary-output /path/to/boundary-review-summary.json
+
+python3 tools/dictionary/evaluate_mozc_hybrid_spike.py \
+  --corpus /path/to/formal-corpus.tsv \
+  --hazkey-results /path/to/hazkey-ab-probe-v5.jsonl \
+  --mozc-results /path/to/mozc-ab-probe-v5.jsonl \
+  --reviewed-boundaries /path/to/reviewed-boundaries.jsonl \
+  --output /tmp/mozc-hybrid-reviewed-boundaries.json
+```
+
+既存のExcelレビューを引き継いで、複数のIMEチャンク許容経路を編集するローカルUIも使える。
+Excelとpreannotation queueは読み取り専用の入力とし、編集内容は`--workspace`以下のsnapshot、
+append-only event journal、LLM proposal journalへ保存する。初回起動後は、表示されたtoken付きの
+loopback URLをブラウザで開く。
+
+```sh
+python3 tools/dictionary/serve_mozc_boundary_annotations.py \
+  --queue build-grimodex/mozc-boundary-annotation-v1/preannotations.jsonl \
+  --workbook /home/grimodex/Grimodex/temp/mozc-boundary-annotation-1360.xlsx \
+  --workspace build-grimodex/mozc-boundary-annotation-ui
+```
+
+UIは読み位置だけの暫定経路と、読み区間・表層区間を対応付けた経路を区別する。自然な別解は
+一つへ潰さず、複数の許容経路として保存する。`曖昧`だったExcel行は要裁定の下書きとして復元し、
+既存の手入力境界を失わない。保存済みworkspaceはqueueとExcelのSHA-256へ束縛され、同じworkspaceの
+二重起動、古いrevisionからの上書き、event journalの欠落を拒否する。
+
+queueの読み自体が誤っているケースは、原データを変更せずUIの「読みを修正」から
+`review.corrected_reading`として手修正できる。境界座標は修正後の`annotation_reading`を基準にするため、
+読みを変更したrevisionでは古い許容経路を全て消去して状態を`pending`へ戻す。Lindera提案も元の読みに
+対する参考表示だけとし、修正後には自動転写しない。LLM提案はreview revisionと修正後読みのSHA-256へ
+束縛し、読み変更前の提案や生成中に陳腐化した応答を採用しない。export v3は
+`source.reading`に不変の元読み、`source.annotation_reading`に境界評価で使う実効読み、
+`review.corrected_reading`に人手修正値を分けて保持する。export上の経路境界は
+`path_units.reading_boundaries = annotation_reading_code_point`と明示し、元読みの座標と混同しない。
+
+LLM Top-3提案は任意で、認証済みCodex CLIのApp Serverを使い、ユーザーがボタンを押した場合だけ
+1件ずつ生成する。UIの「LLM設定」はApp Serverの`model/list`から現在利用できるモデルと、
+各モデルが公開するエフォート一覧を動的に取得する。「Codex既定モデル」は保存値`null`のままで、
+`isDefault`モデルのエフォート候補を表示する。一覧外や将来の値に備え、モデルIDとエフォートの
+カスタム入力も維持する。一覧取得に失敗してもレビューや保存済み設定は失わない。設定は
+`--workspace`直下の`llm-settings.json`へ保存され、次回起動後も維持する。
+提案は自動で正解にならず、人が下書きまたは許容経路として採用する。
+
+App Serverは一時的な隔離`CODEX_HOME`で起動し、通常の設定、skills、MCPを読み込ませない。
+ファイル認証では元の`auth.json`を複製せず、短命なaccess tokenとaccount IDだけを
+`account/login/start`の`chatgptAuthTokens`としてApp Serverへ渡すため、OAuthのrefresh tokenは通常の
+Codexだけが更新する。Codexのkeyringは元の`CODEX_HOME`へ束縛されるため、隔離経路では
+`CODEX_ACCESS_TOKEN`または`cli_auth_credentials_store = "file"`を明示したloginを使う。
+`auto`はkeyringかfileか安全に判別できないため、この経路ではkeyringとともにfail-closedで拒否する。各提案は
+ephemeral thread、read-only sandbox、tools無効で実行する。応答形式は
+`outputSchema`で制約した上で、読み連結、表層連結、境界範囲、Top-3の重複をsemantic validatorでも
+検査する。Codexのrefresh token、認証ファイル、access token、未検証の生応答はreview labelへ混ぜない。
+
+```sh
+python3 tools/dictionary/serve_mozc_boundary_annotations.py \
+  --queue build-grimodex/mozc-boundary-annotation-v1/preannotations.jsonl \
+  --workbook /home/grimodex/Grimodex/temp/mozc-boundary-annotation-1360.xlsx \
+  --workspace build-grimodex/mozc-boundary-annotation-ui \
+  --codex-executable codex \
+  --codex-model '<Codex model ID>' \
+  --codex-timeout-seconds 120 \
+  --codex-effort low \
+  --llm-few-shots 10
+```
+
+`--codex-executable`の既定値は`codex`で、`--codex-model`は省略できる。`--codex-effort`の既定値は
+対話的な補助用途向けの`low`である。これらのモデル・エフォート指定は新規workspaceの初期値であり、
+保存済みの`llm-settings.json`がある場合はUIで最後に保存した値を優先する。「設定を保存」だけでも保存でき、
+未保存の変更がある状態で「提案を取得」した場合は設定を先に保存する。生成中に別タブで設定が変わっても、
+実行中の提案は開始時のモデル・エフォートを使い、変更は次回の提案から適用する。各提案journalには実モデル、
+要求モデル、エフォートを記録する。設定更新もrevision付きで、別タブの古い値による上書きは409で拒否する。
+`--codex-timeout-seconds`、`--codex-effort`、`--llm-few-shots`は提案経路だけに適用され、通常のレビュー・
+保存・exportはCodex App Serverが利用できない場合も動作する。
+
+全1,360件のレビューが完了するまでは境界精度を主張しません。完了後も、これは既知corpusの
+診断でありformal adoption evidenceではありません。`--reviewed-boundaries`が測るのは
+composition element単位の境界だけで、候補表層の変換品質ではありません。境界精度とsurface精度を
+混同せず、レビューqueueのcode-point境界はABProbe v5のcomposition element境界と照合してから
+境界専用JSONLへ移します。正式な採用判断には未見の文節ラベル付きholdoutを使います。
+production既定値はH0のままです。
+
 未見の文節ラベル付きholdoutは、正本と独立review approvalからlabel-free ABProbe入力を
 content-addressed generationへ封印し、取得後に専用評価器でH0/H1/H2を比較します。
 ABProbeへ渡すのはgeneration内の`probe-input.jsonl`だけです。現在は重複screen、バックエンドからの

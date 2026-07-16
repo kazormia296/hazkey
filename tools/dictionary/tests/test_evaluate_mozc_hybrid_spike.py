@@ -724,6 +724,8 @@ class MozcHybridSpikeEvaluationTests(unittest.TestCase):
             },
         )
         self.assertNotIn("top1", report)
+        self.assertNotIn("reviewed_boundary_quality", report)
+        self.assertNotIn("reviewed_boundaries", report["inputs"])
         diagnostic = report["diagnostic_target_comparable"]
         self.assertNotIn("quality_decomposition", diagnostic)
         self.assertEqual(
@@ -1075,6 +1077,230 @@ class MozcHybridSpikeEvaluationTests(unittest.TestCase):
             ]
         )
 
+    def test_v5_reviewed_boundaries_report_boundary_only_all_and_formal_views(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            corpus, hazkey, mozc, hazkey_records, mozc_records = make_v5_inputs(
+                directory
+            )
+
+            for case_id in (
+                "whole-span-regression",
+                "protected-quality-excluded",
+            ):
+                record = next(
+                    value for value in hazkey_records if value["id"] == case_id
+                )
+                record["candidates"][0]["consuming_count"] = 1
+            mozc_wrong_boundary = next(
+                value
+                for value in mozc_records
+                if value["id"] == "same-surface-wrong-count"
+            )
+            mozc_wrong_boundary["candidates"][0]["consuming_count"] = 2
+            write_jsonl(hazkey, hazkey_records)
+            write_jsonl(mozc, mozc_records)
+
+            reviewed = directory / "reviewed-boundaries.jsonl"
+            boundary_counts = {
+                "whole-span-rescue": 2,
+                "whole-span-regression": 2,
+                "same-surface-wrong-count": 3,
+                "partial-span-excluded": 1,
+                "width-guarded-regression": 3,
+                "protected-quality-excluded": 2,
+            }
+            records = [
+                {
+                    "schema": (
+                        "hazkey.mozc-hybrid-first-segment-boundary.v1"
+                    ),
+                    "id": case_id,
+                    "span": {
+                        "start": 0,
+                        "count": count,
+                        "unit": "composition_element",
+                    },
+                }
+                for case_id, count in boundary_counts.items()
+            ]
+            write_jsonl(reviewed, records)
+            annotation_sha = "sha256:" + hashlib.sha256(
+                reviewed.read_bytes()
+            ).hexdigest()
+            report = evaluate_mozc_hybrid_spike.evaluate_paths(
+                corpus, hazkey, mozc, reviewed
+            )
+            output = directory / "reviewed-report.json"
+            cli = self.run_cli(
+                corpus, hazkey, mozc, output, reviewed_boundaries=reviewed
+            )
+            cli_report = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        quality = report["reviewed_boundary_quality"]
+        self.assertTrue(quality["diagnostic_only"])
+        self.assertFalse(quality["formal_authorized"])
+        self.assertFalse(quality["surface_quality_evaluated"])
+        self.assertEqual(quality["annotation"]["sha256"], annotation_sha)
+        self.assertEqual(
+            cli_report["reviewed_boundary_quality"]["annotation"]["sha256"],
+            annotation_sha,
+        )
+        self.assertEqual(
+            report["inputs"]["reviewed_boundaries"]["sha256"], annotation_sha
+        )
+
+        all_cases = quality["all_cases"]
+        self.assertEqual(all_cases["cases"], 6)
+        self.assertEqual(
+            all_cases["hazkey_mozc_top1_boundary_comparison"]["groups"],
+            {
+                "both_correct": 2,
+                "mozc_only": 2,
+                "hazkey_only": 1,
+                "neither": 1,
+            },
+        )
+        accuracy = all_cases["top1_boundary_accuracy"]
+        self.assertEqual(accuracy["before"]["hits"], 3)
+        self.assertEqual(accuracy["after"]["hits"], 4)
+        self.assertEqual(accuracy["delta"]["hits"], 1)
+        self.assertEqual(accuracy["delta"]["accuracy"], 1 / 6)
+        hazkey_boundary = all_cases["systems"]["hazkey"]["top1"]["boundary"]
+        self.assertEqual(
+            hazkey_boundary["ends_before_reviewed_boundary"]["count"], 2
+        )
+        self.assertEqual(
+            hazkey_boundary["ends_before_reviewed_boundary"]["element_delta"][
+                "sum"
+            ],
+            -2,
+        )
+        self.assertEqual(
+            hazkey_boundary["ends_after_reviewed_boundary"]["count"], 1
+        )
+
+        formal = quality["formal_quality_categories"]
+        self.assertEqual(formal["cases"], 5)
+        self.assertEqual(
+            formal["hazkey_mozc_top1_boundary_comparison"]["groups"],
+            {
+                "both_correct": 2,
+                "mozc_only": 1,
+                "hazkey_only": 1,
+                "neither": 1,
+            },
+        )
+        self.assertEqual(
+            formal["category_policy"]["excluded_categories_observed"],
+            ["protected"],
+        )
+        for system in ("hazkey", "mozc"):
+            self.assertEqual(
+                set(formal["systems"][system]),
+                {"top1"},
+            )
+
+    def test_reviewed_boundaries_fail_closed_on_schema_ids_and_spans(self) -> None:
+        valid_record = {
+            "schema": "hazkey.mozc-hybrid-first-segment-boundary.v1",
+            "id": "case",
+            "span": {
+                "start": 0,
+                "count": 1,
+                "unit": "composition_element",
+            },
+        }
+        invalid_jsonl = (
+            (
+                '{"schema":"hazkey.mozc-hybrid-first-segment-boundary.v1",'
+                '"id":"case","id":"duplicate","span":'
+                '{"start":0,"count":1,"unit":"composition_element"}}\n'
+            ).encode("utf-8"),
+            "duplicate JSON key 'id'",
+        )
+        with self.assertRaisesRegex(ValueError, invalid_jsonl[1]):
+            evaluate_mozc_hybrid_spike.load_reviewed_boundaries_bytes(
+                invalid_jsonl[0], "reviewed"
+            )
+        duplicate_id_data = (
+            json.dumps(valid_record) + "\n" + json.dumps(valid_record) + "\n"
+        ).encode("utf-8")
+        with self.assertRaisesRegex(ValueError, "duplicates id 'case'"):
+            evaluate_mozc_hybrid_spike.load_reviewed_boundaries_bytes(
+                duplicate_id_data, "reviewed"
+            )
+
+        for label, mutate, message in (
+            (
+                "unknown root field",
+                lambda record: record.__setitem__("unknown", True),
+                "fields do not match schema",
+            ),
+            (
+                "zero count",
+                lambda record: record["span"].__setitem__("count", 0),
+                "count must be a positive integer",
+            ),
+            (
+                "boolean count",
+                lambda record: record["span"].__setitem__("count", True),
+                "count must be a positive integer",
+            ),
+            (
+                "wrong unit",
+                lambda record: record["span"].__setitem__("unit", "codepoint"),
+                "unit must be 'composition_element'",
+            ),
+        ):
+            with self.subTest(label=label):
+                record = deepcopy(valid_record)
+                mutate(record)
+                data = (json.dumps(record) + "\n").encode("utf-8")
+                with self.assertRaisesRegex(ValueError, message):
+                    evaluate_mozc_hybrid_spike.load_reviewed_boundaries_bytes(
+                        data, "reviewed"
+                    )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            corpus, hazkey, mozc, _, _ = make_v5_inputs(directory)
+            missing = directory / "missing.jsonl"
+            write_jsonl(missing, [valid_record])
+            with self.assertRaisesRegex(ValueError, "does not match the corpus"):
+                evaluate_mozc_hybrid_spike.evaluate_paths(
+                    corpus, hazkey, mozc, missing
+                )
+
+            corpus_rows = evaluate_mozc_hybrid_spike.load_corpus_bytes(
+                corpus.read_bytes(), str(corpus)
+            )
+            exceeding = directory / "exceeding.jsonl"
+            write_jsonl(
+                exceeding,
+                [
+                    {
+                        "schema": (
+                            "hazkey.mozc-hybrid-first-segment-boundary.v1"
+                        ),
+                        "id": row["id"],
+                        "span": {
+                            "start": 0,
+                            "count": 99,
+                            "unit": "composition_element",
+                        },
+                    }
+                    for row in corpus_rows
+                ],
+            )
+            with self.assertRaisesRegex(ValueError, "exceeds composition_span"):
+                evaluate_mozc_hybrid_spike.evaluate_paths(
+                    corpus, hazkey, mozc, exceeding
+                )
+
     def test_v4_requires_segment_candidates_conversion_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             directory = Path(temporary_directory)
@@ -1199,21 +1425,31 @@ class MozcHybridSpikeEvaluationTests(unittest.TestCase):
 
     @staticmethod
     def run_cli(
-        corpus: Path, hazkey: Path, mozc: Path, output: Path
+        corpus: Path,
+        hazkey: Path,
+        mozc: Path,
+        output: Path,
+        *,
+        reviewed_boundaries: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
+        command = [
+            sys.executable,
+            str(SCRIPT),
+            "--corpus",
+            str(corpus),
+            "--hazkey-results",
+            str(hazkey),
+            "--mozc-results",
+            str(mozc),
+            "--output",
+            str(output),
+        ]
+        if reviewed_boundaries is not None:
+            command.extend(
+                ["--reviewed-boundaries", str(reviewed_boundaries)]
+            )
         return subprocess.run(
-            [
-                sys.executable,
-                str(SCRIPT),
-                "--corpus",
-                str(corpus),
-                "--hazkey-results",
-                str(hazkey),
-                "--mozc-results",
-                str(mozc),
-                "--output",
-                str(output),
-            ],
+            command,
             check=False,
             capture_output=True,
             text=True,

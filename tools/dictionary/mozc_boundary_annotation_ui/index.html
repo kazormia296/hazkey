@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    >
+    <meta name="color-scheme" content="light">
+    <title>IMEチャンク許容経路アノテーション</title>
+    <link rel="stylesheet" href="./style.css">
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#case-editor">編集領域へ移動</a>
+
+    <header class="app-header">
+      <div class="brand-block">
+        <p class="eyebrow">MOZC HYBRID SPIKE</p>
+        <h1>IMEチャンク許容経路アノテーション</h1>
+      </div>
+
+      <div class="header-progress" aria-label="レビュー進捗">
+        <div class="progress-copy">
+          <span id="progress-label">進捗を読み込み中</span>
+          <strong id="progress-count">— / —</strong>
+        </div>
+        <progress id="progress-bar" max="1" value="0">0%</progress>
+      </div>
+
+      <div class="header-actions">
+        <span id="connection-status" class="status-pill neutral" role="status">
+          接続中
+        </span>
+        <span id="save-status" class="status-pill neutral" aria-live="polite">
+          読み込み中
+        </span>
+        <button id="export-reviews" class="button ghost" type="button">
+          Reviews JSONL
+        </button>
+        <button id="export-manifest" class="button ghost" type="button">
+          Manifest
+        </button>
+      </div>
+    </header>
+
+    <section id="global-alert" class="global-alert" role="alert" hidden>
+      <div>
+        <strong id="global-alert-title">エラー</strong>
+        <p id="global-alert-message"></p>
+      </div>
+      <div class="alert-actions">
+        <button id="reload-conflict" class="button danger" type="button" hidden>
+          最新版を読み直す
+        </button>
+        <button id="dismiss-alert" class="icon-button" type="button" aria-label="通知を閉じる">
+          ×
+        </button>
+      </div>
+    </section>
+
+    <div class="workspace-shell">
+      <aside class="queue-panel" aria-label="アノテーション対象一覧">
+        <div class="queue-panel-header">
+          <div>
+            <p class="eyebrow">REVIEW QUEUE</p>
+            <h2>対象を絞り込む</h2>
+          </div>
+          <button
+            id="toggle-queue"
+            class="icon-button mobile-only"
+            type="button"
+            aria-expanded="true"
+            aria-controls="queue-body"
+            aria-label="対象一覧を折りたたむ"
+          >
+            −
+          </button>
+        </div>
+
+        <div id="queue-body">
+          <form id="filters" class="filters" role="search">
+            <label class="field-label" for="search-input">ID・読みを検索</label>
+            <input
+              id="search-input"
+              class="text-input"
+              type="search"
+              autocomplete="off"
+              placeholder="例: technical-001"
+            >
+
+            <div class="filter-grid">
+              <label>
+                <span class="field-label">状態</span>
+                <select id="status-filter" class="select-input">
+                  <option value="">すべて</option>
+                  <option value="pending">未確認</option>
+                  <option value="open">作業中</option>
+                  <option value="closed">完了</option>
+                  <option value="invalid">無効入力</option>
+                </select>
+              </label>
+
+              <label>
+                <span class="field-label">カテゴリ</span>
+                <select id="category-filter" class="select-input">
+                  <option value="">すべて</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="filter-toggles">
+              <label class="check-control">
+                <input id="long-only" type="checkbox">
+                <span>長文のみ</span>
+              </label>
+              <label class="check-control">
+                <input id="adjudication-only" type="checkbox">
+                <span>要裁定のみ</span>
+              </label>
+            </div>
+          </form>
+
+          <div class="queue-summary">
+            <span id="queue-count">0件</span>
+            <button id="next-pending" class="text-button" type="button">
+              次の未確認へ
+            </button>
+          </div>
+
+          <ol id="case-list" class="case-list" aria-label="ケース一覧"></ol>
+          <p id="empty-queue" class="empty-message" hidden>
+            条件に一致するケースはありません。
+          </p>
+        </div>
+      </aside>
+
+      <main id="case-editor" class="editor-panel" tabindex="-1">
+        <section id="editor-loading" class="editor-empty" aria-live="polite">
+          <div class="loading-mark" aria-hidden="true"></div>
+          <h2>アノテーションを読み込んでいます</h2>
+          <p>少しお待ちください。</p>
+        </section>
+
+        <section id="editor-empty" class="editor-empty" hidden>
+          <h2>対象を選択してください</h2>
+          <p>左の一覧からレビューするケースを選びます。</p>
+        </section>
+
+        <article id="editor-content" hidden>
+          <nav class="case-navigation" aria-label="ケース移動">
+            <button id="previous-case" class="button ghost" type="button">
+              ← 前へ
+            </button>
+            <div class="case-position">
+              <span id="case-position">— / —</span>
+              <span class="shortcut-hint">Alt + ← / →</span>
+            </div>
+            <button id="next-case" class="button ghost" type="button">
+              次へ →
+            </button>
+          </nav>
+
+          <header class="case-header">
+            <div>
+              <div class="case-meta-line">
+                <span id="case-category" class="category-chip">—</span>
+                <span id="case-id" class="case-id">—</span>
+                <span id="case-revision" class="revision-label">revision —</span>
+              </div>
+              <h2>読みと表層の対応を確認</h2>
+            </div>
+
+            <div class="case-state-controls">
+              <label>
+                <span class="field-label">経路集合の状態</span>
+                <select id="path-set-status" class="select-input state-select">
+                  <option value="pending">未確認</option>
+                  <option value="open">作業中</option>
+                  <option value="closed">完了</option>
+                  <option value="invalid">無効入力</option>
+                </select>
+              </label>
+              <label class="check-control adjudication-control">
+                <input id="needs-adjudication" type="checkbox">
+                <span>要裁定</span>
+              </label>
+            </div>
+          </header>
+
+          <section class="source-card" aria-labelledby="source-heading">
+            <div class="section-heading-row">
+              <div>
+                <p class="eyebrow">SOURCE</p>
+                <h3 id="source-heading">原文</h3>
+              </div>
+              <span id="reading-length" class="measure-chip">—要素</span>
+            </div>
+
+            <div class="source-block">
+              <div class="source-label-row">
+                <span class="source-label">元の読み（入力データ）</span>
+                <button id="edit-corrected-reading" class="text-button" type="button">
+                  読みを修正
+                </button>
+              </div>
+              <p id="source-reading" class="source-text reading-text" lang="ja"></p>
+            </div>
+
+            <div id="corrected-reading-summary" class="corrected-reading-summary" hidden>
+              <div>
+                <span class="source-label">アノテーションに使う修正読み</span>
+                <p id="corrected-reading-display" class="source-text reading-text" lang="ja"></p>
+              </div>
+              <button id="reset-corrected-reading" class="button ghost" type="button">
+                元の読みに戻す
+              </button>
+            </div>
+
+            <div id="corrected-reading-editor" class="corrected-reading-editor" hidden>
+              <label for="corrected-reading-input">
+                <span class="field-label">正しい読み</span>
+                <input
+                  id="corrected-reading-input"
+                  class="text-input"
+                  type="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  maxlength="4096"
+                  aria-describedby="corrected-reading-help corrected-reading-error"
+                >
+              </label>
+              <p id="corrected-reading-help" class="field-help">
+                元データは変更せず、修正読みをレビューに保存します。読みを変えると、古い読みを基準にした経路は安全のため初期化されます。
+              </p>
+              <p id="corrected-reading-error" class="inline-field-error" role="alert" hidden></p>
+              <div class="reading-correction-actions">
+                <button id="apply-corrected-reading" class="button secondary" type="button">
+                  修正読みを適用
+                </button>
+                <button id="cancel-corrected-reading" class="button ghost" type="button">
+                  キャンセル
+                </button>
+              </div>
+            </div>
+
+            <div class="source-block">
+              <span class="source-label">許容表層</span>
+              <ul id="surface-references" class="surface-reference-list"></ul>
+            </div>
+          </section>
+
+          <details id="lindera-details" class="disclosure-card">
+            <summary>
+              <span>Linderaプリアノテーション</span>
+              <span id="lindera-confidence" class="confidence-chip">—</span>
+            </summary>
+            <div class="disclosure-body">
+              <p id="lindera-nonapplicable" class="stale-data-note" hidden>
+                この提案は元の読みを基準にしています。修正読みの境界には適用しません。
+              </p>
+              <dl class="audit-summary">
+                <div>
+                  <dt>提案分割</dt>
+                  <dd id="lindera-marked-reading">—</dd>
+                </div>
+                <div>
+                  <dt>曖昧理由</dt>
+                  <dd id="lindera-ambiguity">なし</dd>
+                </div>
+              </dl>
+              <div id="lindera-tokens" class="token-list" aria-label="Linderaトークン監査"></div>
+            </div>
+          </details>
+
+          <section class="proposal-section" aria-labelledby="proposal-heading">
+            <div class="section-heading-row">
+              <div>
+                <p class="eyebrow">ASSISTED REVIEW</p>
+                <h3 id="proposal-heading">LLM 提案 Top 3</h3>
+                <p class="section-description">
+                  提案は正解に自動採用されません。人が下書きまたは許容経路として追加します。
+                </p>
+              </div>
+              <fieldset
+                id="llm-settings"
+                class="llm-settings"
+                aria-describedby="llm-settings-help llm-catalog-status llm-catalog-error llm-settings-status llm-settings-error"
+              >
+                <legend>LLM設定</legend>
+                <div class="llm-settings-fields">
+                  <div class="llm-setting-control">
+                    <label for="llm-model">
+                      <span class="field-label">モデル</span>
+                    </label>
+                    <select id="llm-model" class="select-input mono-input">
+                      <option value="">Codex既定モデル</option>
+                      <option value="&lt;custom&gt;">カスタムモデルID…</option>
+                    </select>
+                    <label id="llm-model-custom-field" class="llm-custom-field" hidden>
+                      <span class="field-label">カスタムモデルID</span>
+                      <input
+                        id="llm-model-custom"
+                        class="text-input mono-input"
+                        type="text"
+                        maxlength="128"
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder="例: gpt-5.6-sol"
+                      >
+                    </label>
+                  </div>
+                  <div class="llm-setting-control">
+                    <label for="llm-effort">
+                      <span class="field-label">エフォート</span>
+                    </label>
+                    <select id="llm-effort" class="select-input mono-input">
+                      <option value="low">low</option>
+                      <option value="medium">medium</option>
+                      <option value="high">high</option>
+                      <option value="&lt;custom&gt;">カスタムエフォート…</option>
+                    </select>
+                    <label id="llm-effort-custom-field" class="llm-custom-field" hidden>
+                      <span class="field-label">カスタムエフォート</span>
+                      <input
+                        id="llm-effort-custom"
+                        class="text-input mono-input"
+                        type="text"
+                        maxlength="32"
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder="例: xhigh"
+                      >
+                    </label>
+                  </div>
+                </div>
+                <div class="llm-catalog-row">
+                  <p id="llm-catalog-status" class="llm-catalog-status" role="status" aria-live="polite">
+                    モデル一覧を準備しています…
+                  </p>
+                  <button id="refresh-llm-catalog" class="text-button" type="button">
+                    一覧を再取得
+                  </button>
+                </div>
+                <p id="llm-catalog-error" class="inline-field-error" role="alert" hidden></p>
+                <div class="llm-settings-actions">
+                  <button id="save-llm-settings" class="button ghost" type="button">
+                    設定を保存
+                  </button>
+                  <button id="request-proposals" class="button secondary" type="button">
+                    提案を取得
+                  </button>
+                </div>
+                <p id="llm-settings-help" class="field-help">
+                  Codex App Serverの対応一覧から選択します。未掲載の値はカスタム入力でき、ワークスペースへ保存されます。
+                </p>
+                <p id="llm-settings-status" class="llm-settings-status" role="status" aria-live="polite"></p>
+                <p id="llm-settings-error" class="inline-field-error" role="alert" hidden></p>
+              </fieldset>
+            </div>
+            <div id="proposal-list" class="proposal-grid"></div>
+            <p id="proposal-nonapplicable" class="stale-data-note" hidden>
+              読みを変更したため、以前の読み向けのLLM提案は使用しません。修正読みを保存してから新しい提案を取得してください。
+            </p>
+            <p id="proposal-empty" class="empty-message">
+              提案はまだありません。「提案を取得」で生成します。
+            </p>
+          </section>
+
+          <section class="paths-section" aria-labelledby="paths-heading">
+            <div class="section-heading-row paths-heading-row">
+              <div>
+                <p class="eyebrow">ACCEPTABLE PATHS</p>
+                <h3 id="paths-heading">許容経路</h3>
+                <p class="section-description">
+                  自然な分割が複数ある場合は、曖昧にせず経路を追加します。
+                </p>
+              </div>
+              <div class="path-toolbar">
+                <button id="add-path" class="button secondary" type="button">＋ 新規</button>
+                <button id="duplicate-path" class="button ghost" type="button">複製</button>
+                <button id="delete-path" class="button ghost danger-text" type="button">削除</button>
+              </div>
+            </div>
+
+            <div id="path-tabs" class="path-tabs" role="group" aria-label="許容経路"></div>
+
+            <div id="path-empty" class="path-empty" hidden>
+              <p>許容経路がありません。</p>
+              <button id="create-first-path" class="button primary" type="button">
+                最初の経路を作る
+              </button>
+            </div>
+
+            <div id="path-editor" class="path-editor">
+              <div class="path-editor-header">
+                <label>
+                  <span class="field-label">対応する表層</span>
+                  <select id="path-surface-reference" class="select-input"></select>
+                </label>
+                <label>
+                  <span class="field-label">経路の扱い</span>
+                  <select id="path-status" class="select-input">
+                    <option value="draft">下書き</option>
+                    <option value="acceptable">許容する</option>
+                  </select>
+                </label>
+                <span id="path-alignment-status" class="status-pill neutral">読みのみ</span>
+              </div>
+
+              <div id="path-validation" class="inline-validation" role="status" hidden></div>
+
+              <section id="reading-only-editor" class="reading-only-editor">
+                <div class="editor-mode-heading">
+                  <div>
+                    <h4>読み境界</h4>
+                    <p>文字間をクリックして境界を切り替えます。</p>
+                  </div>
+                  <button id="start-surface-alignment" class="button secondary" type="button">
+                    表層対応を開始
+                  </button>
+                </div>
+                <div id="reading-gap-editor" class="gap-editor" aria-label="読み境界エディター"></div>
+                <label class="marked-reading-field">
+                  <span class="field-label">区切り記法</span>
+                  <input id="marked-reading-input" class="text-input mono-input" type="text" spellcheck="false">
+                  <span class="field-help">`|`で区切ります。元の読み文字は変更できません。</span>
+                </label>
+              </section>
+
+              <section id="aligned-editor" class="aligned-editor" hidden>
+                <div class="editor-mode-heading">
+                  <div>
+                    <h4>読み・表層チャンク対応</h4>
+                    <p>分割・結合・境界移動は常に読みと表層の対を保ちます。</p>
+                  </div>
+                  <button id="return-reading-only" class="button ghost" type="button">
+                    読みのみへ戻す
+                  </button>
+                </div>
+                <div id="aligned-chunk-list" class="aligned-chunk-list"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="notes-section">
+            <label for="case-notes">
+              <span class="field-label">注記</span>
+              <textarea
+                id="case-notes"
+                class="notes-input"
+                rows="4"
+                placeholder="判断理由、別解、読み間違いの正案など"
+              ></textarea>
+            </label>
+          </section>
+
+          <footer class="editor-footer">
+            <div class="keyboard-help" aria-label="キーボードショートカット">
+              <span><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> 提案を下書きへ</span>
+              <span><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd> 保存して次へ</span>
+            </div>
+            <div class="footer-actions">
+              <button id="save-case" class="button secondary" type="button">保存</button>
+              <button id="save-next" class="button primary" type="button">保存して次へ →</button>
+            </div>
+          </footer>
+        </article>
+      </main>
+    </div>
+
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  </body>
+</html>

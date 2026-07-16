@@ -59,6 +59,9 @@ except ImportError:  # Direct execution from tools/dictionary.
 
 
 OUTPUT_SCHEMA = "hazkey.mozc-hybrid-spike-evaluation.v3"
+REVIEWED_BOUNDARY_SCHEMA = (
+    "hazkey.mozc-hybrid-first-segment-boundary.v1"
+)
 POLICY_ID = "mozc-first-one-sided-consensus-v1"
 WIDTH_GUARDED_POLICY_ID = "mozc-first-one-sided-consensus-width-guard-v1"
 MOZC_STABLE_PREFIX = 3
@@ -100,6 +103,99 @@ MISS_CLASSES = (
 
 def _sha256_bytes(value: bytes) -> str:
     return "sha256:" + hashlib.sha256(value).hexdigest()
+
+
+def _object_without_duplicate_keys(
+    pairs: list[tuple[str, Any]],
+) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key {key!r}")
+        result[key] = value
+    return result
+
+
+def _exact_object_fields(
+    value: Any, expected: Iterable[str], context: str
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{context} must be an object")
+    expected_fields = set(expected)
+    actual_fields = set(value)
+    if actual_fields != expected_fields:
+        raise ValueError(
+            f"{context} fields do not match schema; "
+            f"missing={sorted(expected_fields - actual_fields)!r}, "
+            f"unexpected={sorted(actual_fields - expected_fields)!r}"
+        )
+    return value
+
+
+def _reviewed_boundary_span(value: Any, context: str) -> dict[str, Any]:
+    span = _exact_object_fields(
+        value, {"start", "count", "unit"}, context
+    )
+    start = span["start"]
+    count = span["count"]
+    unit = span["unit"]
+    if isinstance(start, bool) or not isinstance(start, int) or start < 0:
+        raise ValueError(f"{context}.start must be a non-negative integer")
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        raise ValueError(f"{context}.count must be a positive integer")
+    if unit != "composition_element":
+        raise ValueError(
+            f"{context}.unit must be 'composition_element'"
+        )
+    return {"start": start, "count": count, "unit": unit}
+
+
+def load_reviewed_boundaries_bytes(
+    data: bytes, context: str
+) -> dict[str, dict[str, Any]]:
+    """Load strict, complete-by-ID boundary labels from UTF-8 JSONL bytes."""
+
+    if data.startswith(b"\xef\xbb\xbf") or b"\r" in data:
+        raise ValueError(
+            f"{context} must be BOM-free UTF-8 JSONL with LF endings"
+        )
+    if not data.endswith(b"\n"):
+        raise ValueError(f"{context} must end with one LF")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{context} is not valid UTF-8") from error
+    lines = text[:-1].split("\n")
+    if not lines or any(not line for line in lines):
+        raise ValueError(f"{context} must contain non-empty JSON lines")
+
+    boundaries: dict[str, dict[str, Any]] = {}
+    for line_number, line in enumerate(lines, 1):
+        line_context = f"{context}:{line_number}"
+        try:
+            parsed = json.loads(
+                line, object_pairs_hook=_object_without_duplicate_keys
+            )
+        except (json.JSONDecodeError, ValueError) as error:
+            raise ValueError(
+                f"{line_context} is not valid JSON: {error}"
+            ) from error
+        record = _exact_object_fields(
+            parsed, {"schema", "id", "span"}, line_context
+        )
+        if record["schema"] != REVIEWED_BOUNDARY_SCHEMA:
+            raise ValueError(
+                f"{line_context}.schema must be {REVIEWED_BOUNDARY_SCHEMA!r}"
+            )
+        case_id = record["id"]
+        if not isinstance(case_id, str) or not case_id:
+            raise ValueError(f"{line_context}.id must be a non-empty string")
+        if case_id in boundaries:
+            raise ValueError(f"{line_context} duplicates id {case_id!r}")
+        boundaries[case_id] = _reviewed_boundary_span(
+            record["span"], f"{line_context}.span"
+        )
+    return boundaries
 
 
 def _rate(numerator: int, denominator: int) -> float:
@@ -502,6 +598,110 @@ def _validate_reviewed_first_segment_targets(
     return validated
 
 
+def _validate_reviewed_first_segment_boundaries(
+    boundaries: dict[str, dict[str, Any]],
+    corpus: list[dict[str, str]],
+    mozc_run: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Validate boundary-only labels against corpus coverage and v5 spans."""
+
+    if not isinstance(boundaries, dict):
+        raise ValueError("reviewed first-segment boundaries must be an object")
+    corpus_ids = {row["id"] for row in corpus}
+    boundary_ids = set(boundaries)
+    if boundary_ids != corpus_ids:
+        raise ValueError(
+            "reviewed first-segment boundary set does not match the corpus; "
+            f"missing={sorted(corpus_ids - boundary_ids)!r}, "
+            f"unexpected={sorted(boundary_ids - corpus_ids)!r}"
+        )
+
+    validated: dict[str, dict[str, Any]] = {}
+    for row in corpus:
+        case_id = row["id"]
+        context = f"reviewed first-segment boundary for {case_id!r}"
+        span = _reviewed_boundary_span(boundaries[case_id], context)
+        composition_span = mozc_run["cases"][case_id]["composition_span"]
+        if span["start"] != composition_span["start"]:
+            raise ValueError(
+                f"{context}.start must equal composition_span.start"
+            )
+        if (
+            span["start"] + span["count"]
+            > composition_span["start"] + composition_span["count"]
+        ):
+            raise ValueError(f"{context} exceeds composition_span")
+        validated[case_id] = span
+    return validated
+
+
+def _canonical_reviewed_boundaries_bytes(
+    boundaries: dict[str, dict[str, Any]],
+    corpus: list[dict[str, str]],
+) -> bytes:
+    return b"".join(
+        (
+            json.dumps(
+                {
+                    "schema": REVIEWED_BOUNDARY_SCHEMA,
+                    "id": row["id"],
+                    "span": boundaries[row["id"]],
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+        for row in corpus
+    )
+
+
+def _validated_reviewed_boundary_metadata(
+    metadata: dict[str, Any] | None,
+    boundaries: dict[str, dict[str, Any]],
+    corpus: list[dict[str, str]],
+) -> dict[str, Any]:
+    if metadata is None:
+        return {
+            "schema": REVIEWED_BOUNDARY_SCHEMA,
+            "sha256": _sha256_bytes(
+                _canonical_reviewed_boundaries_bytes(boundaries, corpus)
+            ),
+            "cases": len(boundaries),
+            "sha256_basis": "canonicalized_validated_records",
+        }
+    fields = _exact_object_fields(
+        metadata,
+        {"schema", "sha256", "cases"},
+        "reviewed_boundary_metadata",
+    )
+    if fields["schema"] != REVIEWED_BOUNDARY_SCHEMA:
+        raise ValueError(
+            "reviewed_boundary_metadata.schema does not match the annotation schema"
+        )
+    if fields["cases"] != len(boundaries):
+        raise ValueError(
+            "reviewed_boundary_metadata.cases does not match the annotation"
+        )
+    sha256 = fields["sha256"]
+    if (
+        not isinstance(sha256, str)
+        or len(sha256) != 71
+        or not sha256.startswith("sha256:")
+        or any(character not in "0123456789abcdef" for character in sha256[7:])
+    ):
+        raise ValueError(
+            "reviewed_boundary_metadata.sha256 must be sha256:<64 lowercase hex>"
+        )
+    return {
+        "schema": REVIEWED_BOUNDARY_SCHEMA,
+        "sha256": sha256,
+        "cases": len(boundaries),
+        "sha256_basis": "exact_input_bytes",
+    }
+
+
 def _whole_span_target_count(
     input_schema: str,
     mozc_records: list[dict[str, Any]],
@@ -619,6 +819,214 @@ def _element_delta_summary(values: list[int]) -> dict[str, Any]:
         ),
         "minimum": min(values) if values else None,
         "maximum": max(values) if values else None,
+    }
+
+
+def _structured_boundary_quality(
+    candidates: list[dict[str, Any]], reviewed_consuming_count: int
+) -> dict[str, Any]:
+    """Describe Top-1 boundary quality without consulting candidate surfaces."""
+
+    top1 = candidates[0] if candidates else None
+    predicted_count = top1["consuming_count"] if top1 is not None else None
+    if predicted_count is None:
+        classification = "missing_candidate"
+        element_delta = None
+    else:
+        element_delta = predicted_count - reviewed_consuming_count
+        if element_delta == 0:
+            classification = "matches_reviewed_boundary"
+        elif element_delta < 0:
+            classification = "ends_before_reviewed_boundary"
+        else:
+            classification = "ends_after_reviewed_boundary"
+    return {
+        "top1": {
+            "candidate_present": top1 is not None,
+            "predicted_consuming_count": predicted_count,
+            "boundary": {
+                "correct": element_delta == 0,
+                "classification": classification,
+                "element_delta": element_delta,
+            },
+        }
+    }
+
+
+def _boundary_only_system_view(
+    evaluated_cases: list[dict[str, Any]], system: str
+) -> dict[str, Any]:
+    evidence = [
+        case["reviewed_boundary_quality"]["systems"][system]["top1"]
+        for case in evaluated_cases
+    ]
+    total = len(evidence)
+    hits = sum(item["boundary"]["correct"] for item in evidence)
+    missing = sum(not item["candidate_present"] for item in evidence)
+    before_deltas = [
+        item["boundary"]["element_delta"]
+        for item in evidence
+        if item["boundary"]["classification"]
+        == "ends_before_reviewed_boundary"
+    ]
+    after_deltas = [
+        item["boundary"]["element_delta"]
+        for item in evidence
+        if item["boundary"]["classification"]
+        == "ends_after_reviewed_boundary"
+    ]
+    if hits + missing + len(before_deltas) + len(after_deltas) != total:
+        raise AssertionError("boundary-only Top-1 decomposition is not exhaustive")
+    return {
+        "top1": {
+            "boundary": {
+                "cases": total,
+                "hits": hits,
+                "misses": total - hits,
+                "accuracy": _rate(hits, total),
+                "missing_candidate": missing,
+                "ends_before_reviewed_boundary": {
+                    "segmentation": "over_segmentation",
+                    "count": len(before_deltas),
+                    "element_delta": _element_delta_summary(before_deltas),
+                },
+                "ends_after_reviewed_boundary": {
+                    "segmentation": "under_segmentation",
+                    "count": len(after_deltas),
+                    "element_delta": _element_delta_summary(after_deltas),
+                },
+            }
+        }
+    }
+
+
+def _build_boundary_only_view(
+    evaluated_cases: list[dict[str, Any]],
+) -> dict[str, Any]:
+    systems = {
+        system: _boundary_only_system_view(evaluated_cases, system)
+        for system in ("hazkey", "mozc")
+    }
+    groups: Counter[str] = Counter(
+        {
+            name: 0
+            for name in (
+                "both_correct",
+                "mozc_only",
+                "hazkey_only",
+                "neither",
+            )
+        }
+    )
+    for case in evaluated_cases:
+        evidence = case["reviewed_boundary_quality"]["systems"]
+        hazkey_correct = evidence["hazkey"]["top1"]["boundary"]["correct"]
+        mozc_correct = evidence["mozc"]["top1"]["boundary"]["correct"]
+        if hazkey_correct and mozc_correct:
+            group = "both_correct"
+        elif mozc_correct:
+            group = "mozc_only"
+        elif hazkey_correct:
+            group = "hazkey_only"
+        else:
+            group = "neither"
+        groups[group] += 1
+    if sum(groups.values()) != len(evaluated_cases):
+        raise AssertionError("Hazkey/Mozc boundary groups are not exhaustive")
+
+    hazkey_boundary = systems["hazkey"]["top1"]["boundary"]
+    mozc_boundary = systems["mozc"]["top1"]["boundary"]
+    return {
+        "cases": len(evaluated_cases),
+        "systems": systems,
+        "top1_boundary_accuracy": {
+            "before": {
+                "system": "hazkey",
+                "cases": len(evaluated_cases),
+                "hits": hazkey_boundary["hits"],
+                "accuracy": hazkey_boundary["accuracy"],
+            },
+            "after": {
+                "system": "mozc",
+                "cases": len(evaluated_cases),
+                "hits": mozc_boundary["hits"],
+                "accuracy": mozc_boundary["accuracy"],
+            },
+            "delta": {
+                "definition": "after_mozc - before_hazkey",
+                "hits": mozc_boundary["hits"] - hazkey_boundary["hits"],
+                "accuracy": _rate(
+                    mozc_boundary["hits"] - hazkey_boundary["hits"],
+                    len(evaluated_cases),
+                ),
+            },
+        },
+        "hazkey_mozc_top1_boundary_comparison": {
+            "exhaustive": True,
+            "disjoint": True,
+            "groups": dict(groups),
+        },
+    }
+
+
+def _build_reviewed_boundary_quality(
+    cases: list[dict[str, Any]],
+    *,
+    annotation_metadata: dict[str, Any],
+    formal_quality_categories: tuple[str, ...],
+    formal_quality_category_policy_id: str,
+) -> dict[str, Any]:
+    formal_category_set = set(formal_quality_categories)
+    formal_cases = [
+        case for case in cases if case["category"] in formal_category_set
+    ]
+    return {
+        "diagnostic_only": True,
+        "formal_authorized": False,
+        "surface_quality_evaluated": False,
+        "annotation": annotation_metadata,
+        "metric_contract": {
+            "metric": "top1_first_segment_boundary_accuracy",
+            "boundary_match": "reviewed_composition_element_count",
+            "missing_candidate_is_boundary_miss": True,
+            "surface_quality_evaluated": False,
+            "element_delta": (
+                "predicted_consuming_count - reviewed_consuming_count"
+            ),
+            "selection_basis": "human_reviewed_boundary_not_backend_output",
+        },
+        "all_cases": {
+            "diagnostic_only": True,
+            "formal_authorized": False,
+            "category_scope": {
+                "policy": "all_categories",
+                "by_category": dict(
+                    sorted(Counter(case["category"] for case in cases).items())
+                ),
+            },
+            **_build_boundary_only_view(cases),
+        },
+        "formal_quality_categories": {
+            "diagnostic_only": True,
+            "formal_authorized": False,
+            "category_policy": {
+                "id": formal_quality_category_policy_id,
+                "included_categories": list(formal_quality_categories),
+                "excluded_categories_observed": sorted(
+                    {
+                        case["category"]
+                        for case in cases
+                        if case["category"] not in formal_category_set
+                    }
+                ),
+            },
+            "case_scope": {
+                "corpus_cases": len(cases),
+                "eligible_category_cases": len(formal_cases),
+                "excluded_non_quality_cases": len(cases) - len(formal_cases),
+            },
+            **_build_boundary_only_view(formal_cases),
+        },
     }
 
 
@@ -1168,9 +1576,11 @@ def evaluate_runs(
     hazkey_context: str = "hazkey_results",
     mozc_context: str = "mozc_results",
     reviewed_first_segment_targets: dict[str, dict[str, Any]] | None = None,
+    reviewed_first_segment_boundaries: dict[str, dict[str, Any]] | None = None,
     formal_quality_categories: Iterable[str] | None = None,
     formal_quality_category_policy_id: str | None = None,
     reviewed_target_metadata: dict[str, Any] | None = None,
+    reviewed_boundary_metadata: dict[str, Any] | None = None,
     additional_input_metadata: dict[str, Any] | None = None,
     report_schema: str = OUTPUT_SCHEMA,
     new_holdout_required: bool = True,
@@ -1190,8 +1600,13 @@ def evaluate_runs(
     input_schema = hazkey_run["schema"]
     boundary_aware = input_schema in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5)
     reviewed_target_mode = reviewed_first_segment_targets is not None
+    reviewed_boundary_mode = reviewed_first_segment_boundaries is not None
     if reviewed_target_mode and input_schema != INPUT_SCHEMA_V5:
         raise ValueError("reviewed first-segment targets require ABProbe v5 inputs")
+    if reviewed_boundary_mode and input_schema != INPUT_SCHEMA_V5:
+        raise ValueError(
+            "reviewed first-segment boundaries require ABProbe v5 inputs"
+        )
     reviewed_targets = (
         _validate_reviewed_first_segment_targets(
             reviewed_first_segment_targets,
@@ -1201,6 +1616,35 @@ def evaluate_runs(
         if reviewed_first_segment_targets is not None
         else None
     )
+    reviewed_boundaries = (
+        _validate_reviewed_first_segment_boundaries(
+            reviewed_first_segment_boundaries,
+            corpus,
+            mozc_run,
+        )
+        if reviewed_first_segment_boundaries is not None
+        else None
+    )
+    boundary_annotation_metadata = (
+        _validated_reviewed_boundary_metadata(
+            reviewed_boundary_metadata,
+            reviewed_boundaries,
+            corpus,
+        )
+        if reviewed_boundaries is not None
+        else None
+    )
+    if reviewed_boundary_metadata is not None and reviewed_boundaries is None:
+        raise ValueError(
+            "reviewed_boundary_metadata requires reviewed first-segment boundaries"
+        )
+    if reviewed_targets is not None and reviewed_boundaries is not None:
+        for case_id in reviewed_targets:
+            if reviewed_targets[case_id]["span"] != reviewed_boundaries[case_id]:
+                raise ValueError(
+                    "reviewed target and boundary annotation disagree for "
+                    f"{case_id!r}"
+                )
     if formal_quality_categories is None:
         selected_formal_quality_categories = FORMAL_V2_QUALITY_CATEGORIES
     else:
@@ -1230,7 +1674,12 @@ def evaluate_runs(
     if additional_input_metadata is not None:
         if not isinstance(additional_input_metadata, dict):
             raise ValueError("additional_input_metadata must be an object")
-        reserved_input_fields = {"corpus", "hazkey", "mozc"}
+        reserved_input_fields = {
+            "corpus",
+            "hazkey",
+            "mozc",
+            "reviewed_boundaries",
+        }
         overlap = reserved_input_fields & set(additional_input_metadata)
         if overlap:
             raise ValueError(
@@ -1289,6 +1738,11 @@ def evaluate_runs(
         case_id = row["id"]
         reviewed_target = (
             reviewed_targets[case_id] if reviewed_targets is not None else None
+        )
+        reviewed_boundary = (
+            reviewed_boundaries[case_id]
+            if reviewed_boundaries is not None
+            else None
         )
         expected = (
             reviewed_target["surfaces"]
@@ -1533,6 +1987,24 @@ def evaluate_runs(
                 },
             }
 
+        reviewed_boundary_quality = None
+        if reviewed_boundary is not None:
+            reviewed_boundary_quality = {
+                "reviewed": {
+                    "consuming_count": reviewed_boundary["count"],
+                    "boundary_unit": reviewed_boundary["unit"],
+                },
+                "surface_quality_evaluated": False,
+                "systems": {
+                    "hazkey": _structured_boundary_quality(
+                        hazkey_records, reviewed_boundary["count"]
+                    ),
+                    "mozc": _structured_boundary_quality(
+                        mozc_records, reviewed_boundary["count"]
+                    ),
+                },
+            }
+
         cases.append(
             {
                 "id": case_id,
@@ -1547,6 +2019,14 @@ def evaluate_runs(
                 **(
                     {"top1_quality": top1_quality}
                     if top1_quality is not None
+                    else {}
+                ),
+                **(
+                    {
+                        "reviewed_first_segment_boundary": reviewed_boundary,
+                        "reviewed_boundary_quality": reviewed_boundary_quality,
+                    }
+                    if reviewed_boundary is not None
                     else {}
                 ),
                 "expected_rank": {
@@ -2299,6 +2779,19 @@ def evaluate_runs(
         diagnostic_target_comparable = None
         formal_quality = None
 
+    reviewed_boundary_quality_report = None
+    if reviewed_boundaries is not None:
+        if boundary_annotation_metadata is None:
+            raise AssertionError("boundary annotation metadata is missing")
+        reviewed_boundary_quality_report = _build_reviewed_boundary_quality(
+            cases,
+            annotation_metadata=boundary_annotation_metadata,
+            formal_quality_categories=selected_formal_quality_categories,
+            formal_quality_category_policy_id=(
+                selected_formal_quality_category_policy_id
+            ),
+        )
+
     return {
         "schema": report_schema,
         "diagnostic_only": True,
@@ -2311,6 +2804,11 @@ def evaluate_runs(
         **(
             {"boundary_evidence": boundary_evidence}
             if boundary_evidence is not None
+            else {}
+        ),
+        **(
+            {"reviewed_boundary_quality": reviewed_boundary_quality_report}
+            if reviewed_boundary_quality_report is not None
             else {}
         ),
         "policy": {
@@ -2423,6 +2921,11 @@ def evaluate_runs(
             },
             "hazkey": _input_metadata(hazkey_bytes, hazkey_run),
             "mozc": _input_metadata(mozc_bytes, mozc_run),
+            **(
+                {"reviewed_boundaries": boundary_annotation_metadata}
+                if boundary_annotation_metadata is not None
+                else {}
+            ),
             **(additional_input_metadata or {}),
         },
         **(
@@ -2448,7 +2951,10 @@ def evaluate_runs(
 
 
 def evaluate_paths(
-    corpus_path: Path, hazkey_path: Path, mozc_path: Path
+    corpus_path: Path,
+    hazkey_path: Path,
+    mozc_path: Path,
+    reviewed_boundaries_path: Path | None = None,
 ) -> dict[str, Any]:
     """Read each input once, validate its identity, and return the report."""
 
@@ -2458,6 +2964,18 @@ def evaluate_paths(
     corpus = load_corpus_bytes(corpus_bytes, str(corpus_path))
     hazkey_run = load_run_bytes(hazkey_bytes, hazkey_path)
     mozc_run = load_run_bytes(mozc_bytes, mozc_path)
+    reviewed_boundaries_bytes = (
+        reviewed_boundaries_path.read_bytes()
+        if reviewed_boundaries_path is not None
+        else None
+    )
+    reviewed_boundaries = (
+        load_reviewed_boundaries_bytes(
+            reviewed_boundaries_bytes, str(reviewed_boundaries_path)
+        )
+        if reviewed_boundaries_bytes is not None
+        else None
+    )
     return evaluate_runs(
         corpus,
         hazkey_run,
@@ -2468,6 +2986,17 @@ def evaluate_paths(
         mozc_bytes=mozc_bytes,
         hazkey_context=str(hazkey_path),
         mozc_context=str(mozc_path),
+        reviewed_first_segment_boundaries=reviewed_boundaries,
+        reviewed_boundary_metadata=(
+            {
+                "schema": REVIEWED_BOUNDARY_SCHEMA,
+                "sha256": _sha256_bytes(reviewed_boundaries_bytes),
+                "cases": len(reviewed_boundaries),
+            }
+            if reviewed_boundaries_bytes is not None
+            and reviewed_boundaries is not None
+            else None
+        ),
     )
 
 
@@ -2478,11 +3007,15 @@ def main() -> int:
     parser.add_argument("--corpus", type=Path, required=True)
     parser.add_argument("--hazkey-results", type=Path, required=True)
     parser.add_argument("--mozc-results", type=Path, required=True)
+    parser.add_argument("--reviewed-boundaries", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     try:
         report = evaluate_paths(
-            args.corpus, args.hazkey_results, args.mozc_results
+            args.corpus,
+            args.hazkey_results,
+            args.mozc_results,
+            args.reviewed_boundaries,
         )
         encoded = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
         if args.output is None:

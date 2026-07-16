@@ -136,6 +136,157 @@ v5取得のアダプター診断値は、Hazkeyが中央値16.73 ms・P95 73.08 
 ランタイム既定値はH0のままとし、昇格を有効化する前に、規則を固定してから取得した未公開の
 文節ラベル付きholdoutが必要である。
 
+## 既知1,360件の境界アノテーション診断
+
+既知corpusでも、全文の`expected`表層とは別に先頭文節境界を人手レビューすれば、HazkeyとMozcの
+境界傾向を診断できる。1,360件を一から手で区切る負担を減らすため、Linderaの組み込みUniDicによる
+プリアノテーションを作り、その後に全件を人手で確定する。この経路は候補表層の正誤を評価するものではなく、
+未見holdoutを置き換えるものでもない。
+
+プリアノテーションでは、各ケースの`expected`に`|`区切りの許容表層が複数ある場合、一つだけを代表値に
+選ばず全てをLinderaで解析する。各tokenの読みをcorpusのreadingへ対応付け、全表層の先頭境界が
+`source_reading_code_point`単位で一致する場合だけconsensusを提案する。提案根拠は次の3状態で保持する。
+
+- `exact`: UniDicのtoken読みとcorpusのreadingが完全一致し、先頭境界を一意に対応付けられた。
+- `aligned`: token読みとcorpusのreadingを整列することで先頭境界を一意に対応付けられた。
+- `ambiguous`: 複数表層の境界が一致しない、または一意に対応付けられないため自動確定できない。
+
+レビュー時にHazkey/Mozcの候補出力を見せると、正解境界が比較対象の出力へ引っ張られるため、
+preannotationとreview成果物には両バックエンドの候補を含めない。レビュー担当者は各行を次のいずれかで
+確定する。
+
+1. 提案境界を承認する。
+2. source readingのcode point単位で境界を修正する。
+3. 解釈が一意でない行を曖昧として保留する。
+4. corpus入力またはラベルとして成立しない行を無効とする。
+
+準備は次のコマンドで行う。Lindera tokenizerは
+`tools/dictionary/lindera_boundary_tokenizer`からbuildした実行ファイルを指定する。
+
+```sh
+python3 tools/dictionary/prepare_mozc_hybrid_boundary_annotations.py \
+  --corpus /path/to/formal-corpus.tsv \
+  --lindera-tokenizer /path/to/lindera-boundary-tokenizer \
+  --output /path/to/boundary-review-queue.jsonl \
+  --summary-output /path/to/boundary-review-summary.json
+```
+
+今回のローカル生成では1,360件を全件処理し、許容表層の全alternativeを含む15,494 tokenを解析した。
+45件が複数の許容表層を持ち、そのうち3件は表層間で提案境界が一致しなかった。レビューqueueの
+信頼度内訳は`exact` 738件、`aligned` 334件、`ambiguous` 288件で、canonical JSONLのSHA-256は
+`sha256:3753789ee6545512a90d78e7f81dde571cf05d25b5d9be9539d0f9141288d594`である。この内訳は
+プリアノテーションの機械的な確信度であり、文節境界の正解率ではない。
+
+### 許容経路UIへの移行
+
+単一の「正解分割」では、国語的な文節とIMEで操作しやすいチャンクの両方が自然なケースを表せない。
+そのため、新しいレビュー正本は一列の境界ではなく、読み区間と表層区間の組を並べた複数の
+`acceptable_paths`として扱う。読み境界だけ確定して表層対応が未確定の経路は`reading_only`、
+両側を対応付けた経路は`aligned`として分ける。特定IMEで実際に観測したsegment列や操作履歴は、
+人手で許容した経路とは別の`observations`として将来追加し、観測されたことだけで正解にはしない。
+
+2026-07-16時点のExcel中間成果物を読み取り専用で移行した結果は次のとおりである。
+
+| 項目 | 件数 |
+|---|---:|
+| 全ケース | 1,360 |
+| 人手レビュー済み | 841 (61.8%) |
+| 承認または修正から復元した作業中経路集合 | 828 |
+| 未確認 | 519 |
+| 曖昧・要裁定 | 5 |
+| 無効入力 | 8 |
+
+`曖昧`5件には既存の「レビュー済み分割」が入っていたため、消去せず`draft`経路として復元した。
+Linderaと異なる人手修正もLLM few-shotから除外せず、読み境界の確定例として渡す。一方、表層境界が
+未確認なら`aligned_chunks=null`と明示し、LLMへ人手確定済みの表層対応だと誤認させない。複数の
+許容経路があるケースは最大3経路を同じfew-shot例に残し、要裁定ケースはgold例から除外する。
+
+ローカルUIはPython標準ライブラリのloopback serverと静的HTML/CSS/JavaScriptで実装した。元Excelと
+queueは変更せず、`review.snapshot.json`、`review.events.jsonl`、`proposals.jsonl`をsidecar workspaceへ
+保存する。revision競合、同一workspaceの二重起動、queue/ExcelのSHA-256不一致、event revisionの欠落を
+fail-closedで拒否する。exportするreview JSONLとmanifestは同じlock世代から生成し、manifestの
+`reviewed_paths_sha256`が必ず同じJSONLを指す。
+
+corpus側の読みが誤っている行は、無効入力へ落とすだけでなく、UIから修正読みをsidecar reviewへ保存できる。
+このときqueueの`source.reading`とrow hashは監査入力として不変に保ち、境界編集、few-shot、LLM target、
+semantic validationは`corrected_reading ?? source.reading`を実効読みとして使う。読み変更時には、文字数が
+同じでも境界の意味が変わり得るため既存経路を再利用せず、`pending`かつ空経路のrevisionを一度保存してから
+新しい境界を付け直す。Linderaプリアノテーションは元読みにだけ適用可能と明示する。LLM提案は開始時の
+review revisionと実効読みSHA-256へ束縛し、変更前の提案は一覧から除外し、生成中にrevisionが変わった
+応答はjournalへ書かず409として破棄する。review exportはv3へ上げ、元読み、実効読み、人手修正値を
+それぞれ`source.reading`、`source.annotation_reading`、`review.corrected_reading`として分離した。
+経路の`reading_boundaries`は`annotation_reading_code_point`単位であることを`path_units`へ明示し、
+元読み用の`source_reading_code_point`を修正読みの境界へ流用しない。
+
+LLM Top-3は補助提案に限定する。認証済みCodex CLIのApp Serverをユーザー操作時だけ起動し、1件ずつ
+オンデマンドで生成する。モデルIDを省略した場合はCodexの既定モデルを使う。モデルIDとエフォートは
+アノテーションUIから変更し、workspace固有の`llm-settings.json`へrevision付きで永続化できる。
+UIはApp Serverの`model/list`を最後のページまで取得し、サーバーが返すモデル順と各モデルの
+`supportedReasoningEfforts`順をそのまま表示する。エフォートは固定enumにせず、一覧にない保存済み値や
+将来の値のためにモデル・エフォートともカスタム入力を残す。一覧取得の成否は設定のdirty状態や
+settings revisionを変えず、取得失敗時も前回の一覧と現在の入力値を保持する。
+App Serverには一時的な
+隔離`CODEX_HOME`を渡し、通常の設定、skills、MCPは読み込ませない。ファイル認証では元の`auth.json`を
+コピーせず、access tokenとaccount IDだけを`account/login/start`の`chatgptAuthTokens`として渡し、
+refresh tokenの更新権限を通常のCodexに一本化する。
+keyring credentialは元の`CODEX_HOME`の識別子へ束縛されており隔離homeから安全に共有できないため、
+この経路は`CODEX_ACCESS_TOKEN`または`cli_auth_credentials_store = "file"`を明示したloginを要求する。
+`auto`はkeyringかfileか安全に判別できないため、keyringとともにfail-closedで拒否する。各提案は
+ephemeral thread、read-only sandbox、tools無効で実行し、`outputSchema`とsemantic validatorの両方で
+応答を検査する。提案は専用journalへ保存するが、自動で許容経路へ昇格せず、人が採否を決める。
+
+経路確認時の単発計測では、通常の`CODEX_HOME`が17,315 input tokenだったのに対し、認証以外の通常設定を
+除いた隔離`CODEX_HOME`は7,713 input tokenで、55.5%減少した。隔離経路のturn時間は4.049秒、App Serverの
+起動と終了を含むend-to-end時間は4.638秒だった。ただし単発計測なので、隔離によるlatency優位はまだ
+断定できない。1件ごとの補助提案には利用できる一方、1,360件を一括生成する用途には起動・推論時間が重く、
+bulkプリアノテーション経路としては採用しない。
+
+2026-07-16の最終実機確認では、file-backed ChatGPT認証を`chatgptAuthTokens` RPCで隔離App Serverへ
+渡し、既定モデル`gpt-5.6-sol`で「きょうはあめです」から`きょうは｜あめです`を3.779秒で生成した。
+隔離homeに`auth.json`は作られず、元の`auth.json`のSHA-256も前後で一致した。さらに1,360件queueの
+`v2-technical-0002`を実workspace契約で生成し、読み境界`[6, 14]`、表層境界`[6, 12]`の1経路が
+semantic validatorと提案journalを通過した。これは経路の動作確認であり、境界精度の評価値ではない。
+
+起動オプションは`--codex-executable`、`--codex-model`、`--codex-timeout-seconds`、`--codex-effort`、
+`--llm-few-shots`とする。`--codex-executable`の既定値は`codex`、`--codex-model`は任意であり、
+`--codex-effort`の既定値は`low`とする。CLIのモデル・エフォートは新規workspaceの初期値にだけ使い、
+保存済みworkspaceではUI設定を優先する。設定保存とレビュー保存のdirty状態は分離し、未保存設定で
+提案を要求した場合は設定を先に保存する。複数タブの古いsettings revisionは拒否し、利用者の入力を
+保持したまま再確認を求める。生成開始後の設定変更は実行中の提案へ混ぜず、次回生成から反映する。
+提案journalにはApp Serverが返した実モデルに加え、開始時の要求モデルとエフォートを記録する。
+Codex App Serverを利用できない場合も通常のレビュー経路は維持する。
+
+ブラウザ検証では、Excel由来の841/1,360件を表示し、長文フィルター233件、要裁定5件、長文ケースの
+読み境界修正、複数行注記、autosave、revision付き再読込、review JSONLとmanifestの書き出しを確認した。
+検証用workspaceだけを変更し、元Excelは変更していない。実作業用workspaceは
+`build-grimodex/mozc-boundary-annotation-ui`へ841件の初期状態で作成した。
+
+承認または修正によって全1,360件の境界が確定し、曖昧・無効行が解消されるまでは、境界精度を集計・主張
+しない。preannotation queueの単位は`source_reading_code_point`だが、legacy TSVを読むABProbeが作る
+境界単位はSwift `Character`ごとの`composition_element`である。複数scalarから成るgraphemeでは両者が
+一致しない可能性があるため、単位名だけを置き換えてはならない。各レビュー境界を対応するABProbe v5の
+composition element境界と照合した後、確定JSONLを
+`{schema,id,span:{start,count,unit:"composition_element"}}`の境界専用schemaで作る。paired結果との評価は
+次のとおりである。
+
+```sh
+python3 tools/dictionary/evaluate_mozc_hybrid_spike.py \
+  --corpus /path/to/formal-corpus.tsv \
+  --hazkey-results /path/to/hazkey-ab-probe-v5.jsonl \
+  --mozc-results /path/to/mozc-ab-probe-v5.jsonl \
+  --reviewed-boundaries /path/to/reviewed-boundaries.jsonl \
+  --output /tmp/mozc-hybrid-reviewed-boundaries.json
+```
+
+評価器はラベルのexact schema、重複のない全corpus ID coverage、v5のcomposition span内に収まる
+`composition_element`境界をfail-closedで要求する。全件とformal-qualityカテゴリを別の分母で集計し、
+Hazkey/Mozc Top-1境界を「両方正しい」「Mozcだけ正しい」「Hazkeyだけ正しい」「両方誤り」の4群へ分け、
+Mozc対Hazkeyの境界精度差も記録する。ただし表層ラベルを参照しないため、ここから変換surfaceの正解率や
+End-to-End品質を推論してはならない。surface評価には、境界と許容表層を独立にレビューしたラベルが必要である。
+
+この1,360件は規則策定前から既知のcorpusなので、レビュー完了後の値もdiagnostic-onlyであり、formal adoption
+evidenceにはしない。H1/H2の採用判断には未見holdoutを使い、それまではproduction H0を維持する。
+
 ## 未見・文節ラベル付きholdout経路の実装スパイク
 
 既知1,360件から新しい採否スコアを作るのではなく、H0/H1/H2を固定した後に人手で作成・レビューする
