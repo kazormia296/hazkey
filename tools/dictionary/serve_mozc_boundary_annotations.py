@@ -47,6 +47,7 @@ SNAPSHOT_SCHEMA = "hazkey.mozc-boundary-annotation-workspace.v1"
 EVENT_SCHEMA = "hazkey.mozc-boundary-annotation-event.v1"
 EXPORT_SCHEMA = "hazkey.mozc-hybrid-acceptable-paths.v3"
 PROPOSAL_SCHEMA = "hazkey.mozc-boundary-llm-proposal.v1"
+PROPOSAL_QUEUE_SCHEMA = "hazkey.mozc-boundary-proposal-queue.v1"
 LLM_SETTINGS_SCHEMA = "hazkey.mozc-boundary-llm-settings.v1"
 MANIFEST_SCHEMA = "hazkey.mozc-boundary-annotation-export-manifest.v1"
 ELEMENT_UNIT = "source_reading_code_point"
@@ -83,6 +84,11 @@ APP_SERVER_MODEL_PAGE_SIZE = 50
 APP_SERVER_RPC_TIMEOUT_SECONDS = 30
 APP_SERVER_INTERRUPT_GRACE_SECONDS = 1
 APP_SERVER_SHUTDOWN_GRACE_SECONDS = 2
+MAX_PROPOSAL_BATCH_CASES = 2048
+MAX_PROPOSAL_ACTIVE_JOBS = 4096
+MAX_PROPOSAL_JOB_HISTORY = 4096
+MAX_PROPOSAL_BATCH_REQUESTS = 512
+PROPOSAL_QUEUE_JOIN_TIMEOUT_SECONDS = 5.0
 LONG_READING_THRESHOLD = 48
 XLSX_REQUIRED_HEADERS = (
     "ID",
@@ -163,6 +169,10 @@ class CodexAppServerTimeout(CodexAppServerError):
 
 class CodexAppServerStale(CodexAppServerError):
     """A review or LLM setting changed before a proposal could be generated."""
+
+
+class ProposalQueueFull(AnnotationError):
+    """The bounded in-memory proposal queue cannot accept another batch."""
 
 
 @dataclass(frozen=True)
@@ -2388,6 +2398,10 @@ class Workspace:
                 f"annotation workspace is already open: {root}"
             ) from exc
         self.lock = threading.RLock()
+        # Coordinates model catalog and proposal operations before they reach
+        # the backend's fail-fast lock. Queue workers wait for their FIFO turn;
+        # legacy synchronous requests retain the existing immediate Busy error.
+        self._proposal_operation_lock = threading.Lock()
         self._closed = False
         self.snapshot_path = root / "review.snapshot.json"
         self.events_path = root / "review.events.jsonl"
@@ -2475,15 +2489,16 @@ class Workspace:
                 proposal_backend = getattr(self, "proposal_backend", None)
         else:
             proposal_backend = getattr(self, "proposal_backend", None)
-        if proposal_backend is not None:
-            proposal_backend.close()
         lock_file = getattr(self, "_workspace_lock_file", None)
-        if lock_file is None or lock_file.closed:
-            return
         try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            if proposal_backend is not None:
+                proposal_backend.close()
         finally:
-            lock_file.close()
+            if lock_file is not None and not lock_file.closed:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                finally:
+                    lock_file.close()
 
     def __del__(self) -> None:
         self.close()
@@ -2876,16 +2891,25 @@ class Workspace:
             }
 
     def llm_model_catalog(self) -> dict[str, Any]:
-        with self.lock:
-            if self._closed:
-                raise CodexAppServerUnavailable("annotation workspace is closed")
-            proposal_backend = self.proposal_backend
-            unavailable_message = self.proposal_backend_message
-        if proposal_backend is None:
-            raise CodexAppServerUnavailable(
-                unavailable_message or "Codex App Server is unavailable"
+        if not self._proposal_operation_lock.acquire(blocking=False):
+            raise CodexAppServerBusy(
+                "another Codex App Server operation is in progress"
             )
-        return proposal_backend.list_models()
+        try:
+            with self.lock:
+                if self._closed:
+                    raise CodexAppServerUnavailable(
+                        "annotation workspace is closed"
+                    )
+                proposal_backend = self.proposal_backend
+                unavailable_message = self.proposal_backend_message
+            if proposal_backend is None:
+                raise CodexAppServerUnavailable(
+                    unavailable_message or "Codex App Server is unavailable"
+                )
+            return proposal_backend.list_models()
+        finally:
+            self._proposal_operation_lock.release()
 
     def list_cases(self, filters: dict[str, str]) -> dict[str, Any]:
         status = filters.get("status", "")
@@ -2981,6 +3005,68 @@ class Workspace:
             "review": review,
             "proposals": proposals,
         }
+
+    def prepare_proposal_jobs(
+        self,
+        case_ids: Any,
+        *,
+        expected_llm_settings_revision: Any,
+    ) -> list[dict[str, Any]]:
+        if not isinstance(case_ids, list) or not case_ids:
+            raise AnnotationError("proposal case_ids must be a non-empty array")
+        if len(case_ids) > MAX_PROPOSAL_BATCH_CASES:
+            raise AnnotationError(
+                f"proposal batch exceeds {MAX_PROPOSAL_BATCH_CASES} cases"
+            )
+        if (
+            type(expected_llm_settings_revision) is not int
+            or expected_llm_settings_revision < 0
+        ):
+            raise AnnotationError(
+                "proposal request llm_settings_revision is invalid"
+            )
+        normalized_case_ids: list[str] = []
+        seen: set[str] = set()
+        for index, raw_case_id in enumerate(case_ids):
+            case_id = _require_text(raw_case_id, f"proposal case_ids[{index}]")
+            if case_id in seen:
+                raise AnnotationError("proposal case_ids contains duplicates")
+            if case_id not in self.queue.by_id:
+                raise AnnotationError(f"unknown case {case_id!r}")
+            seen.add(case_id)
+            normalized_case_ids.append(case_id)
+        with self.lock:
+            if self._closed:
+                raise CodexAppServerUnavailable(
+                    "annotation workspace is closed"
+                )
+            if self.proposal_backend is None:
+                raise CodexAppServerUnavailable(
+                    self.proposal_backend_message
+                    or "Codex App Server is unavailable"
+                )
+            current_settings_revision = self.llm_settings["revision"]
+            if current_settings_revision != expected_llm_settings_revision:
+                raise RevisionConflict(
+                    "LLM settings revision is "
+                    f"{current_settings_revision}, not "
+                    f"{expected_llm_settings_revision}"
+                )
+            bindings: list[dict[str, Any]] = []
+            for case_id in normalized_case_ids:
+                review = self.reviews[case_id]
+                reading = _effective_reading(self.queue.by_id[case_id], review)
+                bindings.append(
+                    {
+                        "case_id": case_id,
+                        "review_revision": review["revision"],
+                        "effective_reading_sha256": (
+                            _effective_reading_sha256(reading)
+                        ),
+                        "llm_settings_revision": current_settings_revision,
+                    }
+                )
+            return bindings
 
     @staticmethod
     def _proposal_for_browser(proposal: dict[str, Any]) -> dict[str, Any]:
@@ -3425,6 +3511,37 @@ class Workspace:
         case_id: str,
         *,
         expected_llm_settings_revision: int | None = None,
+        expected_review_revision: int | None = None,
+        expected_effective_reading_sha256: str | None = None,
+        wait_for_slot: bool = False,
+    ) -> dict[str, Any]:
+        if type(wait_for_slot) is not bool:
+            raise AnnotationError("proposal wait_for_slot is invalid")
+        if not self._proposal_operation_lock.acquire(blocking=wait_for_slot):
+            raise CodexAppServerBusy(
+                "another Codex App Server operation is in progress"
+            )
+        try:
+            return self._generate_proposals_with_operation_lock(
+                case_id,
+                expected_llm_settings_revision=(
+                    expected_llm_settings_revision
+                ),
+                expected_review_revision=expected_review_revision,
+                expected_effective_reading_sha256=(
+                    expected_effective_reading_sha256
+                ),
+            )
+        finally:
+            self._proposal_operation_lock.release()
+
+    def _generate_proposals_with_operation_lock(
+        self,
+        case_id: str,
+        *,
+        expected_llm_settings_revision: int | None = None,
+        expected_review_revision: int | None = None,
+        expected_effective_reading_sha256: str | None = None,
     ) -> dict[str, Any]:
         if case_id not in self.queue.by_id:
             raise AnnotationError(f"unknown case {case_id!r}")
@@ -3436,6 +3553,19 @@ class Workspace:
             )
         ):
             raise AnnotationError("expected LLM settings revision is invalid")
+        if (
+            expected_review_revision is not None
+            and (
+                type(expected_review_revision) is not int
+                or expected_review_revision < 0
+            )
+        ):
+            raise AnnotationError("expected review revision is invalid")
+        if expected_effective_reading_sha256 is not None:
+            _require_sha256(
+                expected_effective_reading_sha256,
+                "expected effective reading sha256",
+            )
         with self.lock:
             if self._closed:
                 raise CodexAppServerUnavailable("annotation workspace is closed")
@@ -3457,6 +3587,24 @@ class Workspace:
             effective_reading = _effective_reading(
                 self.queue.by_id[case_id], target_review
             )
+            effective_reading_sha256 = _effective_reading_sha256(
+                effective_reading
+            )
+            if (
+                expected_review_revision is not None
+                and review_revision != expected_review_revision
+            ):
+                raise CodexAppServerStale(
+                    "case review changed before proposal generation started"
+                )
+            if (
+                expected_effective_reading_sha256 is not None
+                and effective_reading_sha256
+                != expected_effective_reading_sha256
+            ):
+                raise CodexAppServerStale(
+                    "case reading changed before proposal generation started"
+                )
         if proposal_backend is None:
             raise CodexAppServerUnavailable(
                 self.proposal_backend_message or "Codex App Server is unavailable"
@@ -3536,9 +3684,7 @@ class Workspace:
             "case_id": case_id,
             "source_row_sha256": record["source"]["row_sha256"],
             "review_revision": review_revision,
-            "effective_reading_sha256": _effective_reading_sha256(
-                effective_reading
-            ),
+            "effective_reading_sha256": effective_reading_sha256,
             "created_at": now_iso8601(),
             "ambiguous": ambiguous,
             "ambiguity_reasons": reasons,
@@ -3590,15 +3736,458 @@ class Workspace:
         return self._proposal_for_browser(proposal)
 
 
+PROPOSAL_JOB_TERMINAL_STATUSES = frozenset(
+    {"succeeded", "stale", "failed", "cancelled"}
+)
+
+
+class ProposalJobManager:
+    """Bounded, process-local FIFO for user-requested proposal generation."""
+
+    def __init__(self, workspace: Workspace) -> None:
+        self.workspace = workspace
+        self._condition = threading.Condition()
+        self._instance_id = "proposal-queue-" + uuid.uuid4().hex
+        self._revision = 0
+        self._closed = False
+        self._pending: deque[str] = deque()
+        self._jobs: dict[str, dict[str, Any]] = {}
+        self._job_order: deque[str] = deque()
+        self._active_keys: dict[tuple[Any, ...], str] = {}
+        self._batch_requests: dict[str, dict[str, Any]] = {}
+        self._batch_request_order: deque[str] = deque()
+        self._worker: threading.Thread | None = None
+
+    @staticmethod
+    def _binding_key(binding: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            binding["case_id"],
+            binding["review_revision"],
+            binding["effective_reading_sha256"],
+            binding["llm_settings_revision"],
+        )
+
+    def _touch_locked(self) -> None:
+        self._revision += 1
+
+    def _job_for_browser_locked(
+        self,
+        job: dict[str, Any],
+        positions: dict[str, int],
+    ) -> dict[str, Any]:
+        return {
+            "job_id": job["job_id"],
+            "batch_id": job["batch_id"],
+            "case_id": job["case_id"],
+            "status": job["status"],
+            "queue_position": positions.get(job["job_id"]),
+            "review_revision": job["review_revision"],
+            "effective_reading_sha256": job[
+                "effective_reading_sha256"
+            ],
+            "llm_settings_revision": job["llm_settings_revision"],
+            "created_at": job["created_at"],
+            "started_at": job["started_at"],
+            "finished_at": job["finished_at"],
+            "proposal_id": job["proposal_id"],
+            "error": deepcopy(job["error"]),
+        }
+
+    def _status_locked(self) -> dict[str, Any]:
+        positions = {
+            job_id: index
+            for index, job_id in enumerate(self._pending, 1)
+        }
+        counts = {
+            "queued": 0,
+            "running": 0,
+            "succeeded": 0,
+            "stale": 0,
+            "failed": 0,
+            "cancelled": 0,
+        }
+        jobs: list[dict[str, Any]] = []
+        running_job_id: str | None = None
+        for job_id in self._job_order:
+            job = self._jobs[job_id]
+            counts[job["status"]] += 1
+            if job["status"] == "running":
+                running_job_id = job_id
+            jobs.append(self._job_for_browser_locked(job, positions))
+        return {
+            "schema": PROPOSAL_QUEUE_SCHEMA,
+            "instance_id": self._instance_id,
+            "revision": self._revision,
+            "accepting": not self._closed,
+            "running_job_id": running_job_id,
+            "pending_count": len(self._pending),
+            "counts": counts,
+            "jobs": jobs,
+        }
+
+    def status(self) -> dict[str, Any]:
+        with self._condition:
+            return self._status_locked()
+
+    def _drop_job_locked(self, job_id: str) -> None:
+        self._jobs.pop(job_id, None)
+        try:
+            self._job_order.remove(job_id)
+        except ValueError:
+            pass
+        stale_request_ids = [
+            request_id
+            for request_id, request in self._batch_requests.items()
+            if job_id in request["job_ids"]
+        ]
+        for request_id in stale_request_ids:
+            self._batch_requests.pop(request_id, None)
+            try:
+                self._batch_request_order.remove(request_id)
+            except ValueError:
+                pass
+
+    def _ensure_capacity_locked(self, required: int) -> None:
+        if len(self._active_keys) + required > MAX_PROPOSAL_ACTIVE_JOBS:
+            raise ProposalQueueFull("proposal queue active-job limit reached")
+        while len(self._job_order) + required > MAX_PROPOSAL_JOB_HISTORY:
+            removable = next(
+                (
+                    job_id
+                    for job_id in self._job_order
+                    if self._jobs[job_id]["status"]
+                    in PROPOSAL_JOB_TERMINAL_STATUSES
+                ),
+                None,
+            )
+            if removable is None:
+                raise ProposalQueueFull("proposal queue history limit reached")
+            self._drop_job_locked(removable)
+
+    def _response_for_request_locked(
+        self,
+        request: dict[str, Any],
+        *,
+        idempotent: bool,
+    ) -> dict[str, Any]:
+        positions = {
+            job_id: index
+            for index, job_id in enumerate(self._pending, 1)
+        }
+        jobs: list[dict[str, Any]] = []
+        for job_id, enqueued in zip(
+            request["job_ids"], request["enqueued"], strict=True
+        ):
+            job = self._jobs.get(job_id)
+            if job is None:
+                continue
+            item = self._job_for_browser_locked(job, positions)
+            item["deduplicated"] = not enqueued
+            jobs.append(item)
+        return {
+            "batch_id": request["client_request_id"],
+            "idempotent": idempotent,
+            "requested_count": len(request["case_ids"]),
+            "enqueued_count": sum(request["enqueued"]),
+            "deduplicated_count": len(request["enqueued"])
+            - sum(request["enqueued"]),
+            "jobs": jobs,
+            "queue": self._status_locked(),
+        }
+
+    def enqueue(
+        self,
+        case_ids: Any,
+        *,
+        expected_llm_settings_revision: Any,
+        client_request_id: Any,
+    ) -> dict[str, Any]:
+        request_id = _require_text(
+            client_request_id, "proposal client_request_id"
+        )
+        if not PATH_ID.fullmatch(request_id):
+            raise AnnotationError("proposal client_request_id is invalid")
+        if not isinstance(case_ids, list) or not case_ids:
+            raise AnnotationError("proposal case_ids must be a non-empty array")
+        if len(case_ids) > MAX_PROPOSAL_BATCH_CASES:
+            raise AnnotationError(
+                f"proposal batch exceeds {MAX_PROPOSAL_BATCH_CASES} cases"
+            )
+        normalized_case_ids: list[str] = []
+        seen: set[str] = set()
+        for index, raw_case_id in enumerate(case_ids):
+            case_id = _require_text(raw_case_id, f"proposal case_ids[{index}]")
+            if case_id in seen:
+                raise AnnotationError("proposal case_ids contains duplicates")
+            if case_id not in self.workspace.queue.by_id:
+                raise AnnotationError(f"unknown case {case_id!r}")
+            seen.add(case_id)
+            normalized_case_ids.append(case_id)
+        if (
+            type(expected_llm_settings_revision) is not int
+            or expected_llm_settings_revision < 0
+        ):
+            raise AnnotationError(
+                "proposal request llm_settings_revision is invalid"
+            )
+        request_signature = (
+            tuple(normalized_case_ids),
+            expected_llm_settings_revision,
+        )
+        with self._condition:
+            existing_request = self._batch_requests.get(request_id)
+            if existing_request is not None:
+                if existing_request["signature"] != request_signature:
+                    raise AnnotationError(
+                        "proposal client_request_id was reused with different input"
+                    )
+                return self._response_for_request_locked(
+                    existing_request, idempotent=True
+                )
+            if self._closed:
+                raise CodexAppServerUnavailable("proposal queue is closed")
+            # Keep settings updates and job binding/insertion linearizable.
+            # This operation only snapshots in-memory workspace state and does
+            # not call the proposal backend.
+            bindings = self.workspace.prepare_proposal_jobs(
+                normalized_case_ids,
+                expected_llm_settings_revision=(
+                    expected_llm_settings_revision
+                ),
+            )
+            pending_bindings = [
+                binding
+                for binding in bindings
+                if self._binding_key(binding) not in self._active_keys
+            ]
+            self._ensure_capacity_locked(len(pending_bindings))
+            job_ids: list[str] = []
+            enqueued: list[bool] = []
+            created_at = now_iso8601()
+            for binding in bindings:
+                key = self._binding_key(binding)
+                existing_job_id = self._active_keys.get(key)
+                if existing_job_id is not None:
+                    job_ids.append(existing_job_id)
+                    enqueued.append(False)
+                    continue
+                job_id = "proposal-job-" + uuid.uuid4().hex
+                job = {
+                    "job_id": job_id,
+                    "batch_id": request_id,
+                    **binding,
+                    "status": "queued",
+                    "created_at": created_at,
+                    "started_at": None,
+                    "finished_at": None,
+                    "proposal_id": None,
+                    "error": None,
+                }
+                self._jobs[job_id] = job
+                self._job_order.append(job_id)
+                self._pending.append(job_id)
+                self._active_keys[key] = job_id
+                job_ids.append(job_id)
+                enqueued.append(True)
+            request = {
+                "client_request_id": request_id,
+                "signature": request_signature,
+                "case_ids": tuple(normalized_case_ids),
+                "job_ids": tuple(job_ids),
+                "enqueued": tuple(enqueued),
+            }
+            self._batch_requests[request_id] = request
+            self._batch_request_order.append(request_id)
+            while (
+                len(self._batch_request_order)
+                > MAX_PROPOSAL_BATCH_REQUESTS
+            ):
+                expired = self._batch_request_order.popleft()
+                self._batch_requests.pop(expired, None)
+            if pending_bindings and (
+                self._worker is None or not self._worker.is_alive()
+            ):
+                self._worker = threading.Thread(
+                    target=self._worker_main,
+                    name="mozc-proposal-queue",
+                    daemon=True,
+                )
+                self._worker.start()
+            self._touch_locked()
+            self._condition.notify_all()
+            return self._response_for_request_locked(
+                request, idempotent=False
+            )
+
+    def patch_llm_settings(self, payload: Any) -> dict[str, Any]:
+        """Change settings only while no queued/running binding exists."""
+        with self._condition:
+            if self._closed:
+                raise CodexAppServerUnavailable("proposal queue is closed")
+            if self._active_keys:
+                raise CodexAppServerBusy(
+                    "LLM settings cannot change while proposal jobs are active"
+                )
+            return self.workspace.patch_llm_settings(payload)
+
+    @staticmethod
+    def _error_for_job(error: BaseException) -> tuple[str, dict[str, Any]]:
+        message = str(error)[:4096] or type(error).__name__
+        if isinstance(error, (CodexAppServerStale, RevisionConflict)):
+            return "stale", {
+                "code": "stale",
+                "message": message,
+                "retryable": True,
+            }
+        if isinstance(error, CodexAppServerTimeout):
+            code = "timeout"
+            retryable = True
+        elif isinstance(error, CodexAppServerBusy):
+            code = "busy"
+            retryable = True
+        elif isinstance(error, CodexAppServerUnavailable):
+            code = "unavailable"
+            retryable = True
+        elif isinstance(error, CodexAppServerError):
+            code = "backend_error"
+            retryable = True
+        elif isinstance(error, AnnotationError):
+            code = "annotation_error"
+            retryable = False
+        elif isinstance(error, OSError):
+            code = "io_error"
+            retryable = True
+        else:
+            code = "internal_error"
+            retryable = False
+        return "failed", {
+            "code": code,
+            "message": message,
+            "retryable": retryable,
+        }
+
+    def _worker_main(self) -> None:
+        while True:
+            with self._condition:
+                while not self._closed and not self._pending:
+                    self._condition.wait()
+                if self._closed:
+                    return
+                job_id = self._pending.popleft()
+                job = self._jobs[job_id]
+                if job["status"] != "queued":
+                    continue
+                job["status"] = "running"
+                job["started_at"] = now_iso8601()
+                self._touch_locked()
+                self._condition.notify_all()
+                binding = {
+                    key: job[key]
+                    for key in (
+                        "case_id",
+                        "review_revision",
+                        "effective_reading_sha256",
+                        "llm_settings_revision",
+                    )
+                }
+            proposal: dict[str, Any] | None = None
+            failure: BaseException | None = None
+            try:
+                proposal = self.workspace.generate_proposals(
+                    binding["case_id"],
+                    expected_llm_settings_revision=binding[
+                        "llm_settings_revision"
+                    ],
+                    expected_review_revision=binding["review_revision"],
+                    expected_effective_reading_sha256=binding[
+                        "effective_reading_sha256"
+                    ],
+                    wait_for_slot=True,
+                )
+            except Exception as exc:  # Keep one bad job from killing FIFO.
+                failure = exc
+            with self._condition:
+                job = self._jobs[job_id]
+                self._active_keys.pop(self._binding_key(job), None)
+                job["finished_at"] = now_iso8601()
+                if proposal is not None:
+                    job["status"] = "succeeded"
+                    job["proposal_id"] = proposal["proposal_id"]
+                elif self._closed:
+                    job["status"] = "cancelled"
+                    job["error"] = {
+                        "code": "shutdown",
+                        "message": "proposal queue stopped during generation",
+                        "retryable": True,
+                    }
+                elif failure is not None:
+                    status, error = self._error_for_job(failure)
+                    job["status"] = status
+                    job["error"] = error
+                else:
+                    raise AssertionError(
+                        "proposal worker completed without a result or failure"
+                    )
+                self._touch_locked()
+                self._condition.notify_all()
+
+    def stop(self) -> None:
+        with self._condition:
+            if self._closed:
+                return
+            self._closed = True
+            finished_at = now_iso8601()
+            while self._pending:
+                job_id = self._pending.popleft()
+                job = self._jobs[job_id]
+                if job["status"] != "queued":
+                    continue
+                self._active_keys.pop(self._binding_key(job), None)
+                job["status"] = "cancelled"
+                job["finished_at"] = finished_at
+                job["error"] = {
+                    "code": "shutdown",
+                    "message": "proposal queue stopped before generation",
+                    "retryable": True,
+                }
+            self._touch_locked()
+            self._condition.notify_all()
+
+    def join(
+        self,
+        timeout: float = PROPOSAL_QUEUE_JOIN_TIMEOUT_SECONDS,
+    ) -> bool:
+        if timeout < 0:
+            raise ValueError("proposal queue join timeout must be non-negative")
+        with self._condition:
+            worker = self._worker
+        if worker is not None and worker is not threading.current_thread():
+            worker.join(timeout=timeout)
+            return not worker.is_alive()
+        return True
+
+
 class AnnotationApplication:
     def __init__(self, workspace: Workspace, static_dir: Path, token: str) -> None:
         self.workspace = workspace
         self.static_dir = static_dir
         self.token = token
+        self._closed = False
         for filename, _ in STATIC_FILES.values():
             path = static_dir / filename
             if not path.is_file():
                 raise AnnotationError(f"UI asset is missing: {path}")
+        self.proposal_jobs = ProposalJobManager(workspace)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self.proposal_jobs.stop()
+        try:
+            self.workspace.close()
+        finally:
+            self.proposal_jobs.join()
 
 
 class AnnotationRequestHandler(BaseHTTPRequestHandler):
@@ -3693,6 +4282,11 @@ class AnnotationRequestHandler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/api/meta":
                 self._send_json(HTTPStatus.OK, self.application.workspace.meta())
+            elif parsed.path == "/api/proposal-jobs":
+                self._send_json(
+                    HTTPStatus.OK,
+                    self.application.proposal_jobs.status(),
+                )
             elif parsed.path == "/api/llm/models":
                 self._send_json(
                     HTTPStatus.OK,
@@ -3756,8 +4350,12 @@ class AnnotationRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/settings/llm":
             try:
                 payload = self._read_json_body()
-                llm = self.application.workspace.patch_llm_settings(payload)
+                llm = self.application.proposal_jobs.patch_llm_settings(
+                    payload
+                )
                 self._send_json(HTTPStatus.OK, {"llm": llm})
+            except CodexAppServerBusy as exc:
+                self._send_error_json(HTTPStatus.LOCKED, str(exc))
             except RevisionConflict as exc:
                 self._send_error_json(HTTPStatus.CONFLICT, str(exc))
             except CodexAppServerUnavailable as exc:
@@ -3786,6 +4384,41 @@ class AnnotationRequestHandler(BaseHTTPRequestHandler):
         parsed = urllib_parse.urlsplit(self.path)
         if not self._require_authorized():
             return
+        if parsed.path == "/api/proposal-jobs":
+            try:
+                payload = self._read_json_body()
+                if set(payload) != {
+                    "case_ids",
+                    "llm_settings_revision",
+                    "client_request_id",
+                }:
+                    raise AnnotationError(
+                        "proposal batch request must contain case_ids, "
+                        "llm_settings_revision, and client_request_id"
+                    )
+                result = self.application.proposal_jobs.enqueue(
+                    payload.get("case_ids"),
+                    expected_llm_settings_revision=payload.get(
+                        "llm_settings_revision"
+                    ),
+                    client_request_id=payload.get("client_request_id"),
+                )
+                self._send_json(HTTPStatus.ACCEPTED, result)
+            except ProposalQueueFull as exc:
+                self._send_error_json(HTTPStatus.TOO_MANY_REQUESTS, str(exc))
+            except RevisionConflict as exc:
+                self._send_error_json(HTTPStatus.CONFLICT, str(exc))
+            except CodexAppServerUnavailable as exc:
+                self._send_error_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE, str(exc)
+                )
+            except AnnotationError as exc:
+                self._send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+            except OSError as exc:
+                self._send_error_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR, str(exc)
+                )
+            return
         case_id = self._case_id_from_path(parsed.path, "/proposals")
         if case_id is None:
             self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
@@ -3801,23 +4434,20 @@ class AnnotationRequestHandler(BaseHTTPRequestHandler):
                 raise AnnotationError(
                     "proposal request llm_settings_revision is invalid"
                 )
-            proposal = self.application.workspace.generate_proposals(
-                case_id,
+            result = self.application.proposal_jobs.enqueue(
+                [case_id],
                 expected_llm_settings_revision=settings_revision,
+                client_request_id=(
+                    "proposal-batch-legacy-" + uuid.uuid4().hex
+                ),
             )
-            self._send_json(HTTPStatus.OK, {"proposal": proposal})
+            self._send_json(HTTPStatus.ACCEPTED, result)
+        except ProposalQueueFull as exc:
+            self._send_error_json(HTTPStatus.TOO_MANY_REQUESTS, str(exc))
         except RevisionConflict as exc:
             self._send_error_json(HTTPStatus.CONFLICT, str(exc))
-        except CodexAppServerStale as exc:
-            self._send_error_json(HTTPStatus.CONFLICT, str(exc))
-        except CodexAppServerBusy as exc:
-            self._send_error_json(HTTPStatus.CONFLICT, str(exc))
-        except CodexAppServerTimeout as exc:
-            self._send_error_json(HTTPStatus.GATEWAY_TIMEOUT, str(exc))
         except CodexAppServerUnavailable as exc:
             self._send_error_json(HTTPStatus.SERVICE_UNAVAILABLE, str(exc))
-        except CodexAppServerError as exc:
-            self._send_error_json(HTTPStatus.BAD_GATEWAY, str(exc))
         except AnnotationError as exc:
             self._send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
         except OSError as exc:
@@ -3893,7 +4523,13 @@ def create_application(args: argparse.Namespace) -> AnnotationApplication:
             proposal_backend.close()
         raise
     static_dir = Path(__file__).with_name("mozc_boundary_annotation_ui")
-    return AnnotationApplication(workspace, static_dir, secrets.token_urlsafe(32))
+    try:
+        return AnnotationApplication(
+            workspace, static_dir, secrets.token_urlsafe(32)
+        )
+    except BaseException:
+        workspace.close()
+        raise
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -3906,7 +4542,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     except (AnnotationError, OSError, zipfile.BadZipFile) as exc:
         if application is not None:
-            application.workspace.close()
+            application.close()
         print(f"error: {exc}", file=os.sys.stderr)
         return 2
     host, port = server.server_address
@@ -3919,7 +4555,7 @@ def main(argv: list[str] | None = None) -> int:
         pass
     finally:
         server.server_close()
-        application.workspace.close()
+        application.close()
     return 0
 
 

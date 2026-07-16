@@ -129,6 +129,37 @@
             </button>
           </div>
 
+          <section class="proposal-batch-panel" aria-labelledby="proposal-batch-heading">
+            <div class="proposal-batch-heading-row">
+              <div>
+                <span class="field-label" id="proposal-batch-heading">LLM提案の一括取得</span>
+                <span id="proposal-selection-count" class="selection-count">0件選択</span>
+              </div>
+              <button id="clear-proposal-selection" class="text-button" type="button">
+                選択解除
+              </button>
+            </div>
+            <label class="check-control proposal-select-visible">
+              <input id="select-visible-proposals" type="checkbox">
+              <span>表示中をすべて選択</span>
+            </label>
+            <button id="queue-selected-proposals" class="button secondary proposal-batch-button" type="button">
+              選択したケースの提案を取得
+            </button>
+            <div class="proposal-queue-progress">
+              <div class="proposal-queue-progress-heading">
+                <span>生成キュー</span>
+                <span id="proposal-queue-counts">待機 0 · 実行 0</span>
+              </div>
+              <progress id="proposal-queue-progress" max="1" value="0"
+                aria-label="選択した提案取得の進捗"></progress>
+              <p id="proposal-queue-status" role="status" aria-live="polite">
+                キューを確認しています…
+              </p>
+              <p id="proposal-queue-error" class="inline-field-error" role="alert" hidden></p>
+            </div>
+          </section>
+
           <ol id="case-list" class="case-list" aria-label="ケース一覧"></ol>
           <p id="empty-queue" class="empty-message" hidden>
             条件に一致するケースはありません。
@@ -356,6 +387,7 @@
                   Codex App Serverの対応一覧から選択します。未掲載の値はカスタム入力でき、ワークスペースへ保存されます。
                 </p>
                 <p id="llm-settings-status" class="llm-settings-status" role="status" aria-live="polite"></p>
+                <p id="current-proposal-job-status" class="llm-settings-status" role="status" aria-live="polite"></p>
                 <p id="llm-settings-error" class="inline-field-error" role="alert" hidden></p>
               </fieldset>
             </div>

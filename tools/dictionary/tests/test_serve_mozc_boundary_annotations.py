@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 import hashlib
 import io
@@ -8,6 +9,7 @@ from pathlib import Path
 import tempfile
 import textwrap
 import threading
+import time
 import unittest
 from unittest import mock
 from xml.sax.saxutils import escape
@@ -1102,6 +1104,24 @@ class WorkspaceTests(unittest.TestCase):
             proposal_backend_message=proposal_backend_message,
         )
 
+    @staticmethod
+    def wait_for_proposal_jobs(
+        manager: serve.ProposalJobManager,
+        predicate: Callable[[dict[str, object]], bool],
+        *,
+        timeout: float = 5.0,
+    ) -> dict[str, object]:
+        deadline = time.monotonic() + timeout
+        while True:
+            status = manager.status()
+            if predicate(status):
+                return status
+            if time.monotonic() >= deadline:
+                raise AssertionError(
+                    f"proposal queue did not reach expected state: {status}"
+                )
+            time.sleep(0.01)
+
     def test_revision_conflict_reload_and_deterministic_export(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -1766,6 +1786,500 @@ class WorkspaceTests(unittest.TestCase):
                 )
             finally:
                 workspace.close()
+
+    def test_proposal_queue_is_fifo_nonblocking_and_deduplicates_active_job(
+        self,
+    ) -> None:
+        class BlockingSerialBackend(FakeProposalBackend):
+            def __init__(self) -> None:
+                super().__init__({})
+                self.first_started = threading.Event()
+                self.release_first = threading.Event()
+                self.readings: list[str] = []
+
+            def generate(
+                self,
+                *,
+                instructions: str,
+                input_text: str,
+                output_schema: dict[str, object],
+                expected_settings_revision: int | None = None,
+            ) -> serve.CodexProposalResult:
+                target = json.loads(input_text)
+                reading = target["reading"]
+                surface = target["surface_references"][0]["text"]
+                self.readings.append(reading)
+                if len(self.readings) == 1:
+                    self.first_started.set()
+                    if not self.release_first.wait(timeout=5):
+                        raise AssertionError(
+                            "test did not release proposal backend"
+                        )
+                self.output = {
+                    "ambiguous": False,
+                    "ambiguity_reasons": [],
+                    "candidates": [
+                        {
+                            "surface_reference_index": 0,
+                            "chunks": [
+                                {"reading": reading, "surface": surface}
+                            ],
+                        }
+                    ],
+                }
+                return super().generate(
+                    instructions=instructions,
+                    input_text=input_text,
+                    output_schema=output_schema,
+                    expected_settings_revision=expected_settings_revision,
+                )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            write_queue(
+                queue_path,
+                [
+                    queue_record(
+                        "case-1",
+                        reading="いち",
+                        expected_surfaces=["一"],
+                        marked_reading="いち",
+                    ),
+                    queue_record(
+                        "case-2",
+                        reading="に",
+                        expected_surfaces=["二"],
+                        marked_reading="に",
+                    ),
+                    queue_record(
+                        "case-3",
+                        reading="さん",
+                        expected_surfaces=["三"],
+                        marked_reading="さん",
+                    ),
+                ],
+            )
+            backend = BlockingSerialBackend()
+            workspace = self.make_workspace(
+                queue_path,
+                root / "workspace",
+                proposal_backend=backend,
+            )
+            manager = serve.ProposalJobManager(workspace)
+            try:
+                queued = manager.enqueue(
+                    ["case-1", "case-2", "case-3"],
+                    expected_llm_settings_revision=0,
+                    client_request_id="batch-fifo",
+                )
+                self.assertEqual(queued["enqueued_count"], 3)
+                self.assertTrue(backend.first_started.wait(timeout=2))
+                active = manager.status()
+                self.assertEqual(active["counts"]["running"], 1)
+                self.assertEqual(active["counts"]["queued"], 2)
+
+                duplicate = manager.enqueue(
+                    ["case-1"],
+                    expected_llm_settings_revision=0,
+                    client_request_id="batch-duplicate",
+                )
+                self.assertEqual(duplicate["enqueued_count"], 0)
+                self.assertEqual(duplicate["deduplicated_count"], 1)
+                replay = manager.enqueue(
+                    ["case-1", "case-2", "case-3"],
+                    expected_llm_settings_revision=0,
+                    client_request_id="batch-fifo",
+                )
+                self.assertTrue(replay["idempotent"])
+
+                backend.release_first.set()
+                completed = self.wait_for_proposal_jobs(
+                    manager,
+                    lambda status: status["counts"]["succeeded"] == 3,
+                )
+                self.assertEqual(completed["pending_count"], 0)
+                self.assertEqual(backend.readings, ["いち", "に", "さん"])
+                for case_id in ("case-1", "case-2", "case-3"):
+                    self.assertEqual(
+                        len(workspace.case_detail(case_id)["proposals"]), 1
+                    )
+            finally:
+                backend.release_first.set()
+                manager.stop()
+                workspace.close()
+                manager.join()
+
+    def test_proposal_queue_stales_changed_waiter_without_backend_call(
+        self,
+    ) -> None:
+        class BlockingSerialBackend(FakeProposalBackend):
+            def __init__(self) -> None:
+                super().__init__({})
+                self.first_started = threading.Event()
+                self.release_first = threading.Event()
+                self.readings: list[str] = []
+
+            def generate(
+                self,
+                *,
+                instructions: str,
+                input_text: str,
+                output_schema: dict[str, object],
+                expected_settings_revision: int | None = None,
+            ) -> serve.CodexProposalResult:
+                target = json.loads(input_text)
+                reading = target["reading"]
+                surface = target["surface_references"][0]["text"]
+                self.readings.append(reading)
+                if len(self.readings) == 1:
+                    self.first_started.set()
+                    if not self.release_first.wait(timeout=5):
+                        raise AssertionError(
+                            "test did not release proposal backend"
+                        )
+                self.output = {
+                    "ambiguous": False,
+                    "ambiguity_reasons": [],
+                    "candidates": [
+                        {
+                            "surface_reference_index": 0,
+                            "chunks": [
+                                {"reading": reading, "surface": surface}
+                            ],
+                        }
+                    ],
+                }
+                return super().generate(
+                    instructions=instructions,
+                    input_text=input_text,
+                    output_schema=output_schema,
+                    expected_settings_revision=expected_settings_revision,
+                )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            write_queue(
+                queue_path,
+                [
+                    queue_record(
+                        "case-1",
+                        reading="いち",
+                        expected_surfaces=["一"],
+                        marked_reading="いち",
+                    ),
+                    queue_record(
+                        "case-2",
+                        reading="に",
+                        expected_surfaces=["二"],
+                        marked_reading="に",
+                    ),
+                    queue_record(
+                        "case-3",
+                        reading="さん",
+                        expected_surfaces=["三"],
+                        marked_reading="さん",
+                    ),
+                ],
+            )
+            backend = BlockingSerialBackend()
+            workspace = self.make_workspace(
+                queue_path,
+                root / "workspace",
+                proposal_backend=backend,
+            )
+            manager = serve.ProposalJobManager(workspace)
+            try:
+                manager.enqueue(
+                    ["case-1", "case-2", "case-3"],
+                    expected_llm_settings_revision=0,
+                    client_request_id="batch-stale",
+                )
+                self.assertTrue(backend.first_started.wait(timeout=2))
+                workspace.patch_review(
+                    "case-2",
+                    review_payload(
+                        path_set_status="pending",
+                        paths=[],
+                        notes="changed while queued",
+                    ),
+                )
+                backend.release_first.set()
+                completed = self.wait_for_proposal_jobs(
+                    manager,
+                    lambda status: sum(
+                        status["counts"][name]
+                        for name in ("succeeded", "stale", "failed")
+                    )
+                    == 3,
+                )
+                by_case = {
+                    job["case_id"]: job for job in completed["jobs"]
+                }
+                self.assertEqual(by_case["case-1"]["status"], "succeeded")
+                self.assertEqual(by_case["case-2"]["status"], "stale")
+                self.assertEqual(by_case["case-3"]["status"], "succeeded")
+                self.assertEqual(backend.readings, ["いち", "さん"])
+                self.assertEqual(
+                    workspace.case_detail("case-2")["proposals"], []
+                )
+            finally:
+                backend.release_first.set()
+                manager.stop()
+                workspace.close()
+                manager.join()
+
+    def test_proposal_queue_continues_after_one_backend_failure(self) -> None:
+        class FailOnceBackend(FakeProposalBackend):
+            def __init__(self) -> None:
+                super().__init__({})
+                self.readings: list[str] = []
+
+            def generate(
+                self,
+                *,
+                instructions: str,
+                input_text: str,
+                output_schema: dict[str, object],
+                expected_settings_revision: int | None = None,
+            ) -> serve.CodexProposalResult:
+                target = json.loads(input_text)
+                reading = target["reading"]
+                self.readings.append(reading)
+                if len(self.readings) == 1:
+                    raise serve.CodexAppServerTimeout("fixture timeout")
+                surface = target["surface_references"][0]["text"]
+                self.output = {
+                    "ambiguous": False,
+                    "ambiguity_reasons": [],
+                    "candidates": [
+                        {
+                            "surface_reference_index": 0,
+                            "chunks": [
+                                {"reading": reading, "surface": surface}
+                            ],
+                        }
+                    ],
+                }
+                return super().generate(
+                    instructions=instructions,
+                    input_text=input_text,
+                    output_schema=output_schema,
+                    expected_settings_revision=expected_settings_revision,
+                )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            write_queue(
+                queue_path,
+                [
+                    queue_record(
+                        "case-1",
+                        reading="いち",
+                        expected_surfaces=["一"],
+                        marked_reading="いち",
+                    ),
+                    queue_record(
+                        "case-2",
+                        reading="に",
+                        expected_surfaces=["二"],
+                        marked_reading="に",
+                    ),
+                ],
+            )
+            backend = FailOnceBackend()
+            workspace = self.make_workspace(
+                queue_path,
+                root / "workspace",
+                proposal_backend=backend,
+            )
+            manager = serve.ProposalJobManager(workspace)
+            try:
+                manager.enqueue(
+                    ["case-1", "case-2"],
+                    expected_llm_settings_revision=0,
+                    client_request_id="batch-failure",
+                )
+                completed = self.wait_for_proposal_jobs(
+                    manager,
+                    lambda status: (
+                        status["counts"]["failed"] == 1
+                        and status["counts"]["succeeded"] == 1
+                    ),
+                )
+                by_case = {
+                    job["case_id"]: job for job in completed["jobs"]
+                }
+                self.assertEqual(by_case["case-1"]["status"], "failed")
+                self.assertEqual(
+                    by_case["case-1"]["error"]["code"], "timeout"
+                )
+                self.assertTrue(
+                    by_case["case-1"]["error"]["retryable"]
+                )
+                self.assertEqual(by_case["case-2"]["status"], "succeeded")
+                self.assertEqual(backend.readings, ["いち", "に"])
+            finally:
+                manager.stop()
+                workspace.close()
+                manager.join()
+
+    def test_proposal_queue_locks_settings_until_active_jobs_finish(
+        self,
+    ) -> None:
+        class BlockingBackend(FakeProposalBackend):
+            def __init__(self) -> None:
+                super().__init__({})
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            def generate(
+                self,
+                *,
+                instructions: str,
+                input_text: str,
+                output_schema: dict[str, object],
+                expected_settings_revision: int | None = None,
+            ) -> serve.CodexProposalResult:
+                target = json.loads(input_text)
+                self.started.set()
+                if not self.release.wait(timeout=5):
+                    raise AssertionError("test did not release proposal backend")
+                self.output = {
+                    "ambiguous": False,
+                    "ambiguity_reasons": [],
+                    "candidates": [
+                        {
+                            "surface_reference_index": 0,
+                            "chunks": [
+                                {
+                                    "reading": target["reading"],
+                                    "surface": target["surface_references"][0][
+                                        "text"
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+                return super().generate(
+                    instructions=instructions,
+                    input_text=input_text,
+                    output_schema=output_schema,
+                    expected_settings_revision=expected_settings_revision,
+                )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            write_queue(queue_path, [queue_record("case-1")])
+            backend = BlockingBackend()
+            workspace = self.make_workspace(
+                queue_path,
+                root / "workspace",
+                proposal_backend=backend,
+            )
+            manager = serve.ProposalJobManager(workspace)
+            try:
+                manager.enqueue(
+                    ["case-1"],
+                    expected_llm_settings_revision=0,
+                    client_request_id="batch-settings-lock",
+                )
+                self.assertTrue(backend.started.wait(timeout=2))
+                settings_payload = {
+                    "base_revision": 0,
+                    "model": "fixture-next-model",
+                    "effort": "high",
+                }
+                with self.assertRaisesRegex(
+                    serve.CodexAppServerBusy, "cannot change"
+                ):
+                    manager.patch_llm_settings(settings_payload)
+                backend.release.set()
+                self.wait_for_proposal_jobs(
+                    manager,
+                    lambda status: status["counts"]["succeeded"] == 1,
+                )
+                llm = manager.patch_llm_settings(settings_payload)
+                self.assertEqual(llm["settings_revision"], 1)
+                self.assertEqual(llm["model"], "fixture-next-model")
+            finally:
+                backend.release.set()
+                manager.stop()
+                workspace.close()
+                manager.join()
+
+    def test_saved_proposal_remains_succeeded_when_queue_stops(
+        self,
+    ) -> None:
+        output = {
+            "ambiguous": False,
+            "ambiguity_reasons": [],
+            "candidates": [
+                {
+                    "surface_reference_index": 0,
+                    "chunks": [
+                        {"reading": "きょうは", "surface": "今日は"},
+                        {"reading": "あめ", "surface": "雨"},
+                    ],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            write_queue(queue_path, [queue_record("case-1")])
+            workspace = self.make_workspace(
+                queue_path,
+                root / "workspace",
+                proposal_backend=FakeProposalBackend(output),
+            )
+            manager = serve.ProposalJobManager(workspace)
+            proposal_saved = threading.Event()
+            allow_worker_return = threading.Event()
+            original_generate = workspace.generate_proposals
+
+            def delayed_return(*args: object, **kwargs: object) -> dict[str, object]:
+                proposal = original_generate(*args, **kwargs)
+                proposal_saved.set()
+                if not allow_worker_return.wait(timeout=5):
+                    raise AssertionError("test did not release proposal worker")
+                return proposal
+
+            try:
+                with mock.patch.object(
+                    workspace,
+                    "generate_proposals",
+                    side_effect=delayed_return,
+                ):
+                    manager.enqueue(
+                        ["case-1"],
+                        expected_llm_settings_revision=0,
+                        client_request_id="batch-stop-after-save",
+                    )
+                    self.assertTrue(proposal_saved.wait(timeout=2))
+                    manager.stop()
+                    self.assertFalse(manager.join(timeout=0.01))
+                    allow_worker_return.set()
+                    completed = self.wait_for_proposal_jobs(
+                        manager,
+                        lambda status: status["counts"]["succeeded"] == 1,
+                    )
+                    self.assertEqual(
+                        completed["jobs"][0]["status"], "succeeded"
+                    )
+                    self.assertTrue(manager.join(timeout=1))
+                    self.assertEqual(
+                        len(workspace.case_detail("case-1")["proposals"]), 1
+                    )
+            finally:
+                allow_worker_return.set()
+                manager.stop()
+                workspace.close()
+                manager.join()
 
     def test_proposal_survives_review_save_until_effective_reading_changes(
         self,
@@ -3822,7 +4336,24 @@ class HttpSmokeTests(unittest.TestCase):
             workspace = WorkspaceTests.make_workspace(
                 queue_path,
                 root / "workspace",
-                proposal_backend=FakeProposalBackend(),
+                proposal_backend=FakeProposalBackend(
+                    {
+                        "ambiguous": False,
+                        "ambiguity_reasons": [],
+                        "candidates": [
+                            {
+                                "surface_reference_index": 0,
+                                "chunks": [
+                                    {
+                                        "reading": "きょうは",
+                                        "surface": "今日は",
+                                    },
+                                    {"reading": "あめ", "surface": "雨"},
+                                ],
+                            }
+                        ],
+                    }
+                ),
             )
             token = "fixture-token"
             application = serve.AnnotationApplication(workspace, static_dir, token)
@@ -3889,6 +4420,21 @@ class HttpSmokeTests(unittest.TestCase):
             )
             self.assertEqual(status, 403)
             status, _, body = request(
+                "GET", "/api/proposal-jobs", authorized=False
+            )
+            self.assertEqual(status, 403)
+            status, _, body = request(
+                "POST",
+                "/api/proposal-jobs",
+                body={
+                    "case_ids": ["case-1"],
+                    "llm_settings_revision": 0,
+                    "client_request_id": "unauthorized-batch",
+                },
+                authorized=False,
+            )
+            self.assertEqual(status, 403)
+            status, _, body = request(
                 "PATCH",
                 "/api/settings/llm",
                 body={
@@ -3916,6 +4462,12 @@ class HttpSmokeTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(json.loads(body)["total"], 1)
             self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+
+            status, _, body = request("GET", "/api/proposal-jobs")
+            self.assertEqual(status, 200)
+            proposal_queue = json.loads(body)
+            self.assertEqual(proposal_queue["schema"], serve.PROPOSAL_QUEUE_SCHEMA)
+            self.assertEqual(proposal_queue["jobs"], [])
 
             status, _, body = request("GET", "/api/llm/models")
             self.assertEqual(status, 200)
@@ -3987,6 +4539,91 @@ class HttpSmokeTests(unittest.TestCase):
                 },
             )
             self.assertEqual(status, 400)
+
+            status, _, body = request(
+                "POST",
+                "/api/proposal-jobs",
+                body={
+                    "case_ids": ["case-1", "case-1"],
+                    "llm_settings_revision": 1,
+                    "client_request_id": "duplicate-cases",
+                },
+            )
+            self.assertEqual(status, 400)
+            self.assertEqual(application.proposal_jobs.status()["jobs"], [])
+
+            proposal_batch = {
+                "case_ids": ["case-1"],
+                "llm_settings_revision": 1,
+                "client_request_id": "http-batch-1",
+            }
+            generation_started = threading.Event()
+            release_generation = threading.Event()
+            original_generate = workspace.generate_proposals
+
+            def blocking_generate(
+                *args: object, **kwargs: object
+            ) -> dict[str, object]:
+                generation_started.set()
+                if not release_generation.wait(timeout=5):
+                    raise AssertionError("test did not release HTTP proposal")
+                return original_generate(*args, **kwargs)
+
+            with mock.patch.object(
+                workspace,
+                "generate_proposals",
+                side_effect=blocking_generate,
+            ):
+                try:
+                    status, _, body = request(
+                        "POST", "/api/proposal-jobs", body=proposal_batch
+                    )
+                    self.assertEqual(status, 202)
+                    accepted_batch = json.loads(body)
+                    self.assertEqual(accepted_batch["enqueued_count"], 1)
+                    self.assertTrue(generation_started.wait(timeout=2))
+
+                    status, _, body = request(
+                        "PATCH",
+                        "/api/settings/llm",
+                        body={
+                            "base_revision": 1,
+                            "model": "must-wait-for-queue",
+                            "effort": "low",
+                        },
+                    )
+                    self.assertEqual(status, 423)
+                    self.assertIn("active", json.loads(body)["error"])
+
+                    status, _, body = request(
+                        "POST", "/api/proposal-jobs", body=proposal_batch
+                    )
+                    self.assertEqual(status, 202)
+                    self.assertTrue(json.loads(body)["idempotent"])
+                    release_generation.set()
+                    WorkspaceTests.wait_for_proposal_jobs(
+                        application.proposal_jobs,
+                        lambda queue_status: (
+                            queue_status["counts"]["succeeded"] == 1
+                        ),
+                    )
+                finally:
+                    release_generation.set()
+
+            status, _, body = request(
+                "POST",
+                "/api/cases/case-1/proposals",
+                body={"llm_settings_revision": 1},
+            )
+            self.assertEqual(status, 202)
+            legacy_alias = json.loads(body)
+            self.assertEqual(legacy_alias["enqueued_count"], 1)
+            WorkspaceTests.wait_for_proposal_jobs(
+                application.proposal_jobs,
+                lambda queue_status: (
+                    queue_status["counts"]["succeeded"] == 2
+                ),
+            )
 
             status, _, body = request("GET", "/api/cases/case-1")
             self.assertEqual(status, 200)
@@ -4069,28 +4706,14 @@ class HttpSmokeTests(unittest.TestCase):
             self.assertEqual(status, 400)
             self.assertIn("NFC", json.loads(body)["error"])
 
-            proposal_failures = (
-                (serve.CodexAppServerBusy("busy"), 409),
-                (serve.CodexAppServerTimeout("timeout"), 504),
-                (serve.CodexAppServerUnavailable("unavailable"), 503),
-                (serve.CodexAppServerError("upstream"), 502),
-                (serve.AnnotationError("bad request"), 400),
+            status, _, body = request(
+                "POST",
+                "/api/cases/case-1/proposals",
+                body={"llm_settings_revision": 0},
             )
-            for failure, expected_status in proposal_failures:
-                with self.subTest(proposal_failure=type(failure).__name__):
-                    with mock.patch.object(
-                        workspace, "generate_proposals", side_effect=failure
-                    ):
-                        status, _, body = request(
-                            "POST",
-                            "/api/cases/case-1/proposals",
-                            body={"llm_settings_revision": 1},
-                        )
-                    self.assertEqual(status, expected_status)
-                    self.assertEqual(
-                        json.loads(body)["error"], str(failure)
-                    )
-            workspace.close()
+            self.assertEqual(status, 409)
+            self.assertIn("revision", json.loads(body)["error"])
+            application.close()
 
 
 class SyntheticFixtureTests(unittest.TestCase):

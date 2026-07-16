@@ -23,7 +23,18 @@ const state = {
   editGeneration: 0,
   caseRequestGeneration: 0,
   listRequestGeneration: 0,
-  proposalRequestId: null,
+  selectedCaseIds: new Set(),
+  proposalQueue: null,
+  proposalJobsByCase: new Map(),
+  activeProposalJobsByCase: new Map(),
+  proposalProgressJobIds: new Set(),
+  proposalQueueError: null,
+  proposalRefreshError: null,
+  proposalQueueLoading: false,
+  proposalQueueInitialized: false,
+  proposalQueueRequestGeneration: 0,
+  proposalQueueTimer: null,
+  proposalEnqueueing: false,
   proposalsStaleForReading: false,
   proposalStaleMessage: null,
   readingChangeSavePending: false,
@@ -49,6 +60,10 @@ if (state.token) {
 
 const $ = (id) => document.getElementById(id);
 
+function setTextContent(target, value) {
+  if (target.textContent !== value) target.textContent = value;
+}
+
 const dom = {
   progressLabel: $("progress-label"),
   progressCount: $("progress-count"),
@@ -65,6 +80,14 @@ const dom = {
   longOnly: $("long-only"),
   adjudicationOnly: $("adjudication-only"),
   queueCount: $("queue-count"),
+  selectVisibleProposals: $("select-visible-proposals"),
+  clearProposalSelection: $("clear-proposal-selection"),
+  queueSelectedProposals: $("queue-selected-proposals"),
+  proposalSelectionCount: $("proposal-selection-count"),
+  proposalQueueCounts: $("proposal-queue-counts"),
+  proposalQueueProgress: $("proposal-queue-progress"),
+  proposalQueueStatus: $("proposal-queue-status"),
+  proposalQueueError: $("proposal-queue-error"),
   caseList: $("case-list"),
   emptyQueue: $("empty-queue"),
   editorLoading: $("editor-loading"),
@@ -94,6 +117,7 @@ const dom = {
   linderaTokens: $("lindera-tokens"),
   linderaNonapplicable: $("lindera-nonapplicable"),
   requestProposals: $("request-proposals"),
+  currentProposalJobStatus: $("current-proposal-job-status"),
   llmSettings: $("llm-settings"),
   llmModel: $("llm-model"),
   llmModelCustomField: $("llm-model-custom-field"),
@@ -657,6 +681,235 @@ function llmSettingsLabel() {
   return `${model} · ${effort}`;
 }
 
+function normalizedProposalQueue(payload) {
+  if (
+    !payload
+    || typeof payload !== "object"
+    || payload.schema !== "hazkey.mozc-boundary-proposal-queue.v1"
+    || typeof payload.instance_id !== "string"
+    || !Number.isInteger(payload.revision)
+    || payload.revision < 0
+    || !payload.counts
+    || typeof payload.counts !== "object"
+    || !Array.isArray(payload.jobs)
+  ) {
+    throw new Error("提案キューの応答形式が不正です");
+  }
+  const statuses = [
+    "queued",
+    "running",
+    "succeeded",
+    "stale",
+    "failed",
+    "cancelled",
+  ];
+  for (const status of statuses) {
+    if (!Number.isInteger(payload.counts[status]) || payload.counts[status] < 0) {
+      throw new Error("提案キューの件数が不正です");
+    }
+  }
+  for (const job of payload.jobs) {
+    if (
+      !job
+      || typeof job !== "object"
+      || typeof job.job_id !== "string"
+      || typeof job.batch_id !== "string"
+      || typeof job.case_id !== "string"
+      || !statuses.includes(job.status)
+    ) {
+      throw new Error("提案キューのジョブ形式が不正です");
+    }
+  }
+  return payload;
+}
+
+function proposalQueueCounts() {
+  return state.proposalQueue?.counts || {
+    queued: 0,
+    running: 0,
+    succeeded: 0,
+    stale: 0,
+    failed: 0,
+    cancelled: 0,
+  };
+}
+
+function proposalQueueHasActiveJobs() {
+  const counts = proposalQueueCounts();
+  return counts.queued + counts.running > 0;
+}
+
+function latestProposalJob(caseId, {activeOnly = false} = {}) {
+  const jobsByCase = activeOnly
+    ? state.activeProposalJobsByCase
+    : state.proposalJobsByCase;
+  return jobsByCase.get(caseId) || null;
+}
+
+function indexProposalJobs(queue) {
+  const latest = new Map();
+  const active = new Map();
+  for (const job of queue.jobs) {
+    latest.set(job.case_id, job);
+    if (["queued", "running"].includes(job.status)) {
+      active.set(job.case_id, job);
+    }
+  }
+  state.proposalJobsByCase = latest;
+  state.activeProposalJobsByCase = active;
+}
+
+function syncProposalProgressScope(queue, previous) {
+  if (previous && previous.instance_id !== queue.instance_id) {
+    state.proposalProgressJobIds.clear();
+  }
+  const active = queue.jobs.filter(
+    (job) => ["queued", "running"].includes(job.status),
+  );
+  if (active.length) {
+    const previousBusy = Boolean(
+      previous?.counts
+      && (previous.counts.queued || previous.counts.running),
+    );
+    if (!previousBusy) state.proposalProgressJobIds.clear();
+    const activeBatchIds = new Set(active.map((job) => job.batch_id));
+    for (const job of queue.jobs) {
+      if (activeBatchIds.has(job.batch_id)) {
+        state.proposalProgressJobIds.add(job.job_id);
+      }
+    }
+    return;
+  }
+  if (state.proposalProgressJobIds.size) return;
+  const latestBatchId = queue.jobs.at(-1)?.batch_id;
+  if (latestBatchId) {
+    state.proposalProgressJobIds = new Set(
+      queue.jobs
+        .filter((job) => job.batch_id === latestBatchId)
+        .map((job) => job.job_id),
+    );
+  }
+}
+
+function proposalJobFlag(job) {
+  if (!job) return null;
+  if (job.status === "running") return ["生成中", "queue-running"];
+  if (job.status === "queued") {
+    const position = job.queue_position ? `待${job.queue_position}` : "待機";
+    return [position, "queue-queued"];
+  }
+  if (job.status === "succeeded") return ["案完了", "queue-succeeded"];
+  if (job.status === "stale") return ["要再取得", "queue-stale"];
+  if (job.status === "failed") return ["案失敗", "queue-failed"];
+  return ["取消", "queue-cancelled"];
+}
+
+function renderProposalQueueControls() {
+  const selectedCount = state.selectedCaseIds.size;
+  const visibleIds = state.cases.map((item) => item.id);
+  const selectedVisibleCount = visibleIds.filter(
+    (caseId) => state.selectedCaseIds.has(caseId),
+  ).length;
+  dom.proposalSelectionCount.textContent = `${selectedCount.toLocaleString()}件選択`;
+  dom.selectVisibleProposals.disabled = visibleIds.length === 0;
+  dom.selectVisibleProposals.checked = (
+    visibleIds.length > 0 && selectedVisibleCount === visibleIds.length
+  );
+  dom.selectVisibleProposals.indeterminate = (
+    selectedVisibleCount > 0 && selectedVisibleCount < visibleIds.length
+  );
+  dom.clearProposalSelection.disabled = selectedCount === 0;
+
+  const enabled = Boolean(state.meta?.llm.enabled);
+  const selectedCurrent = Boolean(
+    state.currentId && state.selectedCaseIds.has(state.currentId),
+  );
+  dom.queueSelectedProposals.disabled = !enabled
+    || !state.proposalQueueInitialized
+    || selectedCount === 0
+    || state.proposalEnqueueing
+    || state.llmSettingsSaving
+    || state.llmCatalogLoading
+    || (state.saving && selectedCurrent);
+  dom.queueSelectedProposals.textContent = state.proposalEnqueueing
+    ? "キューへ追加中…"
+    : `選択した${selectedCount.toLocaleString()}件の提案を取得`;
+
+  const counts = proposalQueueCounts();
+  const scopedJobs = (state.proposalQueue?.jobs || []).filter(
+    (job) => state.proposalProgressJobIds.has(job.job_id),
+  );
+  const scopedCounts = {
+    queued: 0,
+    running: 0,
+    succeeded: 0,
+    stale: 0,
+    failed: 0,
+    cancelled: 0,
+  };
+  for (const job of scopedJobs) scopedCounts[job.status] += 1;
+  const terminalCount = scopedCounts.succeeded + scopedCounts.stale
+    + scopedCounts.failed + scopedCounts.cancelled;
+  const totalCount = terminalCount + scopedCounts.queued + scopedCounts.running;
+  dom.proposalQueueProgress.max = Math.max(1, totalCount);
+  dom.proposalQueueProgress.value = terminalCount;
+  dom.proposalQueueCounts.textContent = (
+    `待機 ${counts.queued.toLocaleString()} · 実行 ${counts.running.toLocaleString()}`
+  );
+  const running = state.proposalQueue?.jobs.find(
+    (job) => job.status === "running",
+  );
+  if (state.proposalQueueLoading && !state.proposalQueue) {
+    setTextContent(dom.proposalQueueStatus, "キューを確認しています…");
+  } else if (counts.queued || counts.running) {
+    const current = running ? ` · ${running.case_id}を生成中` : "";
+    setTextContent(dom.proposalQueueStatus, (
+      `選択分: 成功 ${scopedCounts.succeeded} · 要再取得 ${scopedCounts.stale}`
+      + ` · 失敗 ${scopedCounts.failed}${current}`
+    ));
+  } else if (totalCount) {
+    setTextContent(dom.proposalQueueStatus, (
+      `キューは空です · 選択分: 成功 ${scopedCounts.succeeded}`
+      + ` · 要再取得 ${scopedCounts.stale} · 失敗 ${scopedCounts.failed}`
+    ));
+  } else {
+    setTextContent(dom.proposalQueueStatus, "キューは空です");
+  }
+  const proposalError = [
+    state.proposalQueueError,
+    state.proposalRefreshError,
+  ].filter(Boolean).join(" / ");
+  setTextContent(dom.proposalQueueError, proposalError);
+  dom.proposalQueueError.hidden = !proposalError;
+
+  const currentJob = state.currentId
+    ? latestProposalJob(state.currentId)
+    : null;
+  if (!currentJob) {
+    setTextContent(dom.currentProposalJobStatus, "");
+  } else if (currentJob.status === "running") {
+    setTextContent(
+      dom.currentProposalJobStatus,
+      "このケースの提案を生成中です。",
+    );
+  } else if (currentJob.status === "queued") {
+    const position = currentJob.queue_position || "—";
+    setTextContent(
+      dom.currentProposalJobStatus,
+      `このケースは生成待ち ${position}番目です。`,
+    );
+  } else if (currentJob.status === "succeeded") {
+    setTextContent(
+      dom.currentProposalJobStatus,
+      "このケースの提案取得が完了しました。",
+    );
+  } else {
+    setTextContent(dom.currentProposalJobStatus, currentJob.error?.message
+      ? `このケースは再取得が必要です: ${currentJob.error.message}`
+      : "このケースの提案取得は完了しませんでした。");
+  }
+}
+
 function renderLlmCatalogStatus() {
   dom.llmCatalogError.textContent = state.llmCatalogError || "";
   dom.llmCatalogError.hidden = !state.llmCatalogError;
@@ -679,9 +932,17 @@ function renderLlmCatalogStatus() {
 function renderLlmControls() {
   if (!state.meta) return;
   const enabled = Boolean(state.meta.llm.enabled);
-  const proposalBusy = state.proposalRequestId !== null;
-  const controlsBusy = proposalBusy || state.llmSettingsSaving || state.saving;
-  const anyBusy = controlsBusy || state.llmCatalogLoading;
+  const queueUnknown = !state.proposalQueueInitialized;
+  const queueBusy = proposalQueueHasActiveJobs();
+  const controlsBusy = queueUnknown
+    || queueBusy
+    || state.proposalEnqueueing
+    || state.llmSettingsSaving
+    || state.saving;
+  const anyBusy = state.proposalEnqueueing
+    || state.llmSettingsSaving
+    || state.llmCatalogLoading
+    || state.saving;
   dom.llmSettings.setAttribute("aria-busy", anyBusy ? "true" : "false");
   for (const control of [
     dom.llmModel,
@@ -692,8 +953,10 @@ function renderLlmControls() {
     control.disabled = !enabled || controlsBusy;
   }
   dom.refreshLlmCatalog.disabled = !enabled
+    || queueUnknown
     || state.llmCatalogLoading
-    || proposalBusy
+    || queueBusy
+    || state.proposalEnqueueing
     || state.llmSettingsSaving;
   dom.refreshLlmCatalog.textContent = state.llmCatalogLoading
     ? "一覧を取得中…"
@@ -705,20 +968,15 @@ function renderLlmControls() {
     ? "設定を保存中…"
     : "設定を保存";
   dom.requestProposals.disabled = !enabled
-    || proposalBusy
+    || queueUnknown
+    || state.proposalEnqueueing
     || state.llmCatalogLoading
     || state.readingChangeSavePending
     || state.llmSettingsSaving
     || state.saving;
-  if (proposalBusy) {
-    dom.requestProposals.textContent = state.llmSettingsSaving
-      ? "設定を保存中…"
-      : state.saving
-        ? "先に保存中…"
-        : "生成中…";
-  } else {
-    dom.requestProposals.textContent = "提案を取得";
-  }
+  dom.requestProposals.textContent = state.proposalEnqueueing
+    ? "キューへ追加中…"
+    : "提案を取得（キューへ）";
   if (!enabled) {
     dom.llmSettingsStatus.textContent = state.meta.llm.message
       || "Codex App Serverを利用できません";
@@ -731,13 +989,19 @@ function renderLlmControls() {
   }
   dom.requestProposals.title = state.readingChangeSavePending
     ? "読み修正の保存完了後に候補を生成できます"
+    : queueUnknown
+      ? "提案キューの確認完了後に候補を生成できます"
     : state.llmCatalogLoading
       ? "モデル一覧の取得完了後に候補を生成できます"
       : enabled
-        ? `${llmSettingsLabel()}でCodex App Server候補を生成`
+        ? (
+          `${llmSettingsLabel()}でCodex App Server候補を生成キューへ追加します。`
+          + "同じ内容が待機中なら重複生成しません。"
+        )
         : state.meta.llm.message
           || "認証済みCodex CLIが利用可能になると有効になります";
   renderLlmCatalogStatus();
+  renderProposalQueueControls();
 }
 
 function handleLlmModelSelectionChange() {
@@ -772,6 +1036,14 @@ async function loadLlmCatalog() {
   if (!state.meta?.llm.enabled) {
     state.llmCatalogError = state.meta?.llm.message
       || "Codex App Serverを利用できません。";
+    renderLlmControls();
+    return false;
+  }
+  if (!state.proposalQueueInitialized || proposalQueueHasActiveJobs()) {
+    state.llmCatalogNotice = state.proposalQueueInitialized
+      ? "モデル一覧は提案キューが空になってから取得します。"
+      : "提案キューを確認してからモデル一覧を取得します。";
+    renderLlmCatalogStatus();
     renderLlmControls();
     return false;
   }
@@ -847,7 +1119,9 @@ async function loadCases({preserveSelection = true} = {}) {
   const result = await apiJson(`/api/cases?${caseQuery()}`);
   if (requestGeneration !== state.listRequestGeneration) return;
   state.cases = result.cases;
+  if (!preserveSelection) state.selectedCaseIds.clear();
   renderCaseList();
+  renderProposalQueueControls();
   if (!preserveSelection && state.cases.length) {
     await selectCase(state.cases[0].id, {saveFirst: false});
   }
@@ -859,6 +1133,21 @@ function renderCaseList() {
   dom.emptyQueue.hidden = state.cases.length !== 0;
   for (const summary of state.cases) {
     const item = element("li", "case-list-item");
+    const selectLabel = element("label", "case-list-select");
+    selectLabel.title = `${summary.id}を一括提案の対象に選択`;
+    const select = document.createElement("input");
+    select.type = "checkbox";
+    select.checked = state.selectedCaseIds.has(summary.id);
+    select.setAttribute(
+      "aria-label",
+      `${summary.id}を一括提案の対象に選択`,
+    );
+    select.addEventListener("change", () => {
+      if (select.checked) state.selectedCaseIds.add(summary.id);
+      else state.selectedCaseIds.delete(summary.id);
+      renderProposalQueueControls();
+    });
+    selectLabel.append(select);
     const button = element("button", "case-list-button");
     button.type = "button";
     button.dataset.caseId = summary.id;
@@ -883,9 +1172,14 @@ function renderCaseList() {
     if (summary.proposal_count) {
       flags.append(element("span", "mini-flag", `案${summary.proposal_count}`));
     }
+    const proposalJob = latestProposalJob(summary.id);
+    const jobFlag = proposalJobFlag(proposalJob);
+    if (jobFlag && !(proposalJob.status === "succeeded" && summary.proposal_count)) {
+      flags.append(element("span", `mini-flag ${jobFlag[1]}`, jobFlag[0]));
+    }
     button.append(dot, main, flags);
     button.addEventListener("click", () => selectCase(summary.id));
-    item.append(button);
+    item.append(selectLabel, button);
     dom.caseList.append(item);
   }
 }
@@ -1366,6 +1660,7 @@ function renderCase() {
   renderProposals();
   renderReview();
   renderCaseList();
+  renderProposalQueueControls();
   const index = state.cases.findIndex((item) => item.id === state.currentId);
   dom.casePosition.textContent = index >= 0
     ? `${index + 1} / ${state.cases.length}`
@@ -1697,6 +1992,12 @@ async function saveLlmSettings({quiet = false} = {}) {
     return false;
   }
   if (state.llmSettingsSaving) return false;
+  if (!state.proposalQueueInitialized || proposalQueueHasActiveJobs()) {
+    if (!quiet) {
+      toast("LLM設定は提案キューが空になってから保存してください");
+    }
+    return false;
+  }
   if (state.saving) {
     if (!quiet) toast("レビューの保存完了後に設定を保存してください");
     return false;
@@ -1757,100 +2058,225 @@ async function saveLlmSettings({quiet = false} = {}) {
   }
 }
 
-async function requestProposals() {
-  if (!state.detail || !state.meta.llm.enabled || state.proposalRequestId !== null) return;
-  if (!applyOpenCorrectedReadingEditor()) return;
-  if (!ensureReadingChangeSaved()) return;
-  const caseId = state.currentId;
-  const requestId = `${caseId}:${Date.now()}`;
-  state.proposalRequestId = requestId;
-  renderLlmControls();
+function newProposalBatchId() {
+  const suffix = window.crypto?.randomUUID
+    ? window.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `proposal-batch-${suffix}`;
+}
+
+async function refreshCurrentProposals(caseId) {
   try {
-    if (state.saving) {
-      toast("保存完了後にもう一度、提案を取得してください");
-      return;
-    }
-    if (state.llmSettingsDirty) {
-      const settingsSaved = await saveLlmSettings({quiet: true});
-      if (!settingsSaved || state.currentId !== caseId) return;
-    }
-    if (state.dirty) {
-      const saved = await saveCurrent({
-        advance: false,
-        actionType: "save-before-proposal",
-        quiet: false,
-      });
-      if (!saved || state.currentId !== caseId || state.pendingAdvance) return;
-    }
-    renderLlmControls();
-    const proposalReading = effectiveReading();
-    const proposalRevision = state.draft.revision;
-    const proposalEditGeneration = state.editGeneration;
-    const proposalSettingsRevision = state.llmSettingsRevision;
-    const result = await apiJson(
-      `/api/cases/${encodeURIComponent(caseId)}/proposals`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          llm_settings_revision: proposalSettingsRevision,
-        }),
-      },
-    );
-    if (state.currentId !== caseId || !state.detail) return;
-    if (
-      effectiveReading() !== proposalReading
-      || state.draft.revision !== proposalRevision
-      || state.editGeneration !== proposalEditGeneration
-      || result.proposal.review_revision !== proposalRevision
-    ) {
-      state.proposalsStaleForReading = true;
-      state.proposalStaleMessage = (
-        "LLM提案の生成中にケースが更新されたため、この提案は使用しません。"
-        + "現在の内容で改めて提案を取得してください。"
-      );
-      renderProposals();
-      toast("更新前のLLM提案を破棄しました");
-      return;
-    }
-    state.detail.proposals.push(result.proposal);
+    const detail = await apiJson(`/api/cases/${encodeURIComponent(caseId)}`);
+    if (state.currentId !== caseId || !state.detail || !state.draft) return;
+    if (detail.case.annotation_reading !== effectiveReading()) return;
+    state.detail.proposals = detail.proposals;
     state.proposalsStaleForReading = false;
     state.proposalStaleMessage = null;
+    state.proposalRefreshError = null;
     renderProposals();
-    const discardedCount = result.proposal.discarded_candidate_count || 0;
-    toast(
-      discardedCount
-        ? `LLM候補を${result.proposal.paths.length}件受け取り、不整合な${discardedCount}件を除外しました`
-        : "LLM候補を受け取りました",
-    );
   } catch (error) {
-    if (state.currentId === caseId) {
-      if (error.status === 409) {
-        try {
-          const latestMeta = await apiJson("/api/meta");
-          const settingsChanged = (
-            latestMeta.llm.settings_revision !== state.llmSettingsRevision
-          );
-          applyMeta(latestMeta);
-          renderMeta();
-          if (settingsChanged) {
-            showAlert(
-              "LLM設定が別タブで更新されました",
-              "最新のモデル・エフォートを表示しました。内容を確認して、もう一度提案を取得してください。",
-            );
-            return;
-          }
-        } catch {
-          // Preserve the proposal error when meta refresh is unavailable.
-        }
-      }
-      showAlert("LLM候補を生成できません", error.message);
+    state.proposalRefreshError = `完了した提案を表示できません: ${error.message}`;
+    renderProposalQueueControls();
+  }
+}
+
+function applyProposalQueue(payload, {announce = true} = {}) {
+  const queue = normalizedProposalQueue(payload);
+  const previous = state.proposalQueue;
+  if (
+    previous
+    && previous.instance_id === queue.instance_id
+    && queue.revision <= previous.revision
+  ) {
+    if (state.proposalQueueError) {
+      state.proposalQueueError = null;
+      renderProposalQueueControls();
     }
+    return false;
+  }
+  const previousById = new Map(
+    (previous?.jobs || []).map((job) => [job.job_id, job]),
+  );
+  const wasInitialized = state.proposalQueueInitialized;
+  state.proposalQueue = queue;
+  indexProposalJobs(queue);
+  syncProposalProgressScope(queue, previous);
+  state.proposalQueueInitialized = true;
+  state.proposalQueueError = null;
+  renderCaseList();
+  renderLlmControls();
+
+  if (!announce || !wasInitialized) return true;
+  const terminal = new Set(["succeeded", "stale", "failed", "cancelled"]);
+  const completed = queue.jobs.filter((job) => {
+    if (!terminal.has(job.status)) return false;
+    const oldStatus = previousById.get(job.job_id)?.status;
+    return oldStatus !== job.status && !terminal.has(oldStatus);
+  });
+  if (!completed.length) return true;
+
+  const succeeded = completed.filter((job) => job.status === "succeeded");
+  const needsAttention = completed.length - succeeded.length;
+  void loadCases({preserveSelection: true}).then(() => {
+    state.proposalRefreshError = null;
+    renderProposalQueueControls();
+  }).catch((error) => {
+    state.proposalRefreshError = `提案件数を一覧へ反映できません: ${error.message}`;
+    renderProposalQueueControls();
+  });
+  if (state.currentId && succeeded.some((job) => job.case_id === state.currentId)) {
+    void refreshCurrentProposals(state.currentId);
+  }
+  toast(
+    needsAttention
+      ? `LLM提案 ${succeeded.length}件完了 · ${needsAttention}件は再確認が必要です`
+      : `LLM提案 ${succeeded.length}件の取得が完了しました`,
+  );
+  const previousCounts = previous?.counts;
+  const previouslyBusy = Boolean(
+    previousCounts && (previousCounts.queued || previousCounts.running),
+  );
+  if (
+    previouslyBusy
+    && !proposalQueueHasActiveJobs()
+    && !state.llmCatalog
+    && !state.llmCatalogLoading
+  ) {
+    void loadLlmCatalog();
+  }
+  return true;
+}
+
+function scheduleProposalQueuePoll() {
+  window.clearTimeout(state.proposalQueueTimer);
+  const activeDelay = document.hidden ? 2500 : 800;
+  const delay = proposalQueueHasActiveJobs() ? activeDelay : 5000;
+  state.proposalQueueTimer = window.setTimeout(() => {
+    void loadProposalQueue();
+  }, delay);
+}
+
+async function loadProposalQueue({announce = true} = {}) {
+  if (state.proposalQueueLoading) return false;
+  const requestGeneration = ++state.proposalQueueRequestGeneration;
+  state.proposalQueueLoading = true;
+  if (!state.proposalQueue) renderProposalQueueControls();
+  try {
+    const payload = await apiJson("/api/proposal-jobs");
+    if (requestGeneration !== state.proposalQueueRequestGeneration) return false;
+    applyProposalQueue(payload, {announce});
+    return true;
+  } catch (error) {
+    if (requestGeneration !== state.proposalQueueRequestGeneration) return false;
+    state.proposalQueueError = `提案キューを取得できません: ${error.message}`;
+    return false;
   } finally {
-    if (state.proposalRequestId === requestId) {
-      state.proposalRequestId = null;
-      renderLlmControls();
+    if (requestGeneration === state.proposalQueueRequestGeneration) {
+      state.proposalQueueLoading = false;
+      renderProposalQueueControls();
+      scheduleProposalQueuePoll();
     }
   }
+}
+
+async function enqueueProposalCases(caseIds, {clearSelection = false} = {}) {
+  if (!state.meta?.llm.enabled || state.proposalEnqueueing) return false;
+  const requestedCaseIds = [...new Set(caseIds)].filter(Boolean);
+  if (!requestedCaseIds.length) return false;
+  const includesCurrent = requestedCaseIds.includes(state.currentId);
+  if (includesCurrent && !applyOpenCorrectedReadingEditor()) return false;
+  if (includesCurrent && state.saving) {
+    toast("現在の保存完了後にもう一度キューへ追加してください");
+    return false;
+  }
+
+  state.proposalEnqueueing = true;
+  state.proposalQueueError = null;
+  renderLlmControls();
+  renderProposalQueueControls();
+  try {
+    const useSavedSettings = state.llmSettingsDirty
+      && proposalQueueHasActiveJobs();
+    if (state.llmSettingsDirty && !useSavedSettings) {
+      const settingsSaved = await saveLlmSettings({quiet: true});
+      if (!settingsSaved) return false;
+    }
+    if (includesCurrent && (state.dirty || state.readingChangeSavePending)) {
+      const caseId = state.currentId;
+      const saved = await saveCurrent({
+        advance: false,
+        actionType: "save-before-proposal-queue",
+        quiet: false,
+      });
+      if (!saved || state.currentId !== caseId || state.pendingAdvance) return false;
+    }
+    const queueWasActive = proposalQueueHasActiveJobs();
+    const result = await apiJson("/api/proposal-jobs", {
+      method: "POST",
+      body: JSON.stringify({
+        case_ids: requestedCaseIds,
+        llm_settings_revision: state.llmSettingsRevision,
+        client_request_id: newProposalBatchId(),
+      }),
+    });
+    if (!queueWasActive) state.proposalProgressJobIds.clear();
+    for (const job of result.jobs || []) {
+      state.proposalProgressJobIds.add(job.job_id);
+    }
+    applyProposalQueue(result.queue, {announce: false});
+    if (clearSelection) {
+      for (const caseId of requestedCaseIds) {
+        state.selectedCaseIds.delete(caseId);
+      }
+    }
+    renderCaseList();
+    renderProposalQueueControls();
+    hideAlert();
+    if (result.enqueued_count) {
+      toast(
+        `${result.enqueued_count}件を提案キューへ追加しました`
+        + (result.deduplicated_count
+          ? `（${result.deduplicated_count}件は追加済み）`
+          : ""),
+      );
+    } else {
+      toast("選択したケースはすでに提案キューへ追加済みです");
+    }
+    if (useSavedSettings) {
+      toast("未保存のLLM設定は今回のキューへ反映せず保持しています");
+    }
+    scheduleProposalQueuePoll();
+    return true;
+  } catch (error) {
+    if (error.status === 409) {
+      try {
+        const latestMeta = await apiJson("/api/meta");
+        applyMeta(latestMeta);
+        state.llmSettingsRevision = latestMeta.llm.settings_revision;
+        renderMeta();
+      } catch {
+        // Keep the original enqueue error when meta refresh also fails.
+      }
+    }
+    state.proposalQueueError = error.message;
+    showAlert("提案をキューへ追加できません", error.message);
+    return false;
+  } finally {
+    state.proposalEnqueueing = false;
+    renderLlmControls();
+    renderProposalQueueControls();
+  }
+}
+
+async function enqueueSelectedProposals() {
+  const caseIds = [...state.selectedCaseIds];
+  return enqueueProposalCases(caseIds, {clearSelection: true});
+}
+
+async function requestProposals() {
+  if (!state.currentId) return false;
+  return enqueueProposalCases([state.currentId]);
 }
 
 function addPath() {
@@ -2022,6 +2448,25 @@ function bindEvents() {
   ]) {
     control.addEventListener(control === dom.search ? "input" : "change", scheduleFilterRefresh);
   }
+  dom.selectVisibleProposals.addEventListener("change", () => {
+    for (const summary of state.cases) {
+      if (dom.selectVisibleProposals.checked) {
+        state.selectedCaseIds.add(summary.id);
+      } else {
+        state.selectedCaseIds.delete(summary.id);
+      }
+    }
+    renderCaseList();
+    renderProposalQueueControls();
+  });
+  dom.clearProposalSelection.addEventListener("click", () => {
+    state.selectedCaseIds.clear();
+    renderCaseList();
+    renderProposalQueueControls();
+  });
+  dom.queueSelectedProposals.addEventListener("click", () => {
+    void enqueueSelectedProposals();
+  });
   $("next-pending").addEventListener("click", async () => {
     try {
       if (!applyOpenCorrectedReadingEditor()) return;
@@ -2217,7 +2662,8 @@ async function initialize() {
     applyMeta(await apiJson("/api/meta"));
     renderMeta();
     fillCategoryFilter();
-    void loadLlmCatalog();
+    await loadProposalQueue({announce: false});
+    if (!proposalQueueHasActiveJobs()) void loadLlmCatalog();
     await loadCases({preserveSelection: false});
     if (!state.cases.length) {
       dom.editorLoading.hidden = true;
