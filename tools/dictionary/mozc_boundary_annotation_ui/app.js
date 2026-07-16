@@ -1477,11 +1477,18 @@ async function saveCurrent({
       state.readingChangeSavePending = false;
     }
     state.detail.review = result.review;
-    state.detail.proposals = state.detail.proposals.filter((proposal) => (
-      proposal.review_revision === null || proposal.review_revision === undefined
-        ? result.review.corrected_reading === null
-        : proposal.review_revision === result.review.revision
-    ));
+    state.detail.proposals = state.detail.proposals.filter((proposal) => {
+      if (proposal.review_revision !== null && proposal.review_revision !== undefined) {
+        // review_revision records which review produced the proposal. An ordinary
+        // save advances the review revision without changing the proposal input,
+        // so it must not make the proposal disappear. Corrected-reading changes
+        // explicitly clear proposals before saving.
+        return true;
+      }
+      // Legacy proposals have no effective-reading hash and are safe only while
+      // the immutable source reading remains active.
+      return result.review.corrected_reading === null;
+    });
     renderProposals();
     renderReadingChangeLock();
     if (editedBeforeResponse) {

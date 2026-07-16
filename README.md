@@ -217,8 +217,9 @@ UIは読み位置だけの暫定経路と、読み区間・表層区間を対応
 queueの読み自体が誤っているケースは、原データを変更せずUIの「読みを修正」から
 `review.corrected_reading`として手修正できる。境界座標は修正後の`annotation_reading`を基準にするため、
 読みを変更したrevisionでは古い許容経路を全て消去して状態を`pending`へ戻す。Lindera提案も元の読みに
-対する参考表示だけとし、修正後には自動転写しない。LLM提案はreview revisionと修正後読みのSHA-256へ
-束縛し、読み変更前の提案や生成中に陳腐化した応答を採用しない。export v3は
+対する参考表示だけとし、修正後には自動転写しない。LLM提案は生成開始時のreview revisionと実効読みの
+SHA-256を記録する。生成中にrevisionが進んだ応答は採用せず、生成済み提案は実効読みが同じ間は
+経路・状態・注記の保存後も保持する。読み変更前の提案だけを無効化する。export v3は
 `source.reading`に不変の元読み、`source.annotation_reading`に境界評価で使う実効読み、
 `review.corrected_reading`に人手修正値を分けて保持する。export上の経路境界は
 `path_units.reading_boundaries = annotation_reading_code_point`と明示し、元読みの座標と混同しない。

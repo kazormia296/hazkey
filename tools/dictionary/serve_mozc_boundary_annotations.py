@@ -2798,8 +2798,13 @@ class Workspace:
         reading_sha256 = proposal.get("effective_reading_sha256")
         if review_revision is None:
             return review.get("corrected_reading") is None
+        # review_revision records the snapshot used to generate the proposal and
+        # fences concurrent edits while generation is in flight.  Once the
+        # proposal has been generated, ordinary review saves (including copying
+        # one of its paths) must not make it disappear.  Its applicability is
+        # determined by the effective reading that the model actually saw.
         return (
-            review_revision == review["revision"]
+            review_revision <= review["revision"]
             and reading_sha256
             == _effective_reading_sha256(_effective_reading(case, review))
         )

@@ -1669,6 +1669,99 @@ class WorkspaceTests(unittest.TestCase):
             finally:
                 workspace.close()
 
+    def test_proposal_survives_review_save_until_effective_reading_changes(
+        self,
+    ) -> None:
+        parsed = {
+            "ambiguous": False,
+            "ambiguity_reasons": [],
+            "candidates": [
+                {
+                    "surface_reference_index": 0,
+                    "chunks": [
+                        {"reading": "きょうは", "surface": "今日は"},
+                        {"reading": "あめ", "surface": "雨"},
+                    ],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            workspace_root = root / "workspace"
+            write_queue(queue_path, [queue_record("case-1")])
+
+            workspace = self.make_workspace(
+                queue_path,
+                workspace_root,
+                proposal_backend=FakeProposalBackend(parsed),
+            )
+            try:
+                proposal = workspace.generate_proposals("case-1")
+                self.assertEqual(proposal["review_revision"], 0)
+
+                accepted_path = deepcopy(proposal["paths"][0])
+                accepted_path["status"] = "acceptable"
+                saved = workspace.patch_review(
+                    "case-1",
+                    review_payload(
+                        base_revision=0,
+                        path_set_status="open",
+                        paths=[accepted_path],
+                    ),
+                )
+                self.assertEqual(saved["revision"], 1)
+                detail = workspace.case_detail("case-1")
+                self.assertEqual(
+                    [item["proposal_id"] for item in detail["proposals"]],
+                    [proposal["proposal_id"]],
+                )
+                self.assertEqual(
+                    workspace.list_cases({})["cases"][0]["proposal_count"], 1
+                )
+            finally:
+                workspace.close()
+
+            reloaded = self.make_workspace(queue_path, workspace_root)
+            try:
+                detail = reloaded.case_detail("case-1")
+                self.assertEqual(
+                    [item["proposal_id"] for item in detail["proposals"]],
+                    [proposal["proposal_id"]],
+                )
+                self.assertEqual(
+                    reloaded.list_cases({})["cases"][0]["proposal_count"], 1
+                )
+
+                correction_payload = review_payload(
+                    base_revision=1,
+                    path_set_status="pending",
+                    paths=[],
+                )
+                correction_payload["corrected_reading"] = "きょうはあめです"
+                corrected = reloaded.patch_review("case-1", correction_payload)
+                self.assertEqual(corrected["revision"], 2)
+                self.assertEqual(
+                    reloaded.case_detail("case-1")["proposals"], []
+                )
+                self.assertEqual(
+                    reloaded.list_cases({})["cases"][0]["proposal_count"], 0
+                )
+            finally:
+                reloaded.close()
+
+            reloaded_again = self.make_workspace(queue_path, workspace_root)
+            try:
+                self.assertEqual(
+                    reloaded_again.case_detail("case-1")["proposals"], []
+                )
+                self.assertEqual(
+                    reloaded_again.list_cases({})["cases"][0]["proposal_count"],
+                    0,
+                )
+            finally:
+                reloaded_again.close()
+
     def test_correction_while_llm_is_running_discards_stale_proposal(self) -> None:
         parsed = {
             "ambiguous": False,
