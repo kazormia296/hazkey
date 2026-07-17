@@ -43,6 +43,7 @@ enum ABProbeBoundaryMode: String, Equatable, Sendable {
     case isolatedDictionary = "isolated_dictionary"
     case nativeZenzaiFirstClause = "native_zenzai_first_clause"
     case mozcFixed = "mozc_fixed"
+    case fullComposition = "full_composition"
 }
 
 enum ABProbeResultSchema: String, Equatable, Sendable {
@@ -67,6 +68,7 @@ enum ABProbeConversionPath: String, Equatable, Sendable {
     case segmentCandidates = "segment_candidates"
     case nativeSegmentCandidates = "native_segment_candidates"
     case mozcFixedSegmentCandidates = "mozc_fixed_segment_candidates"
+    case fullCompositionCandidates = "full_composition_candidates"
 }
 
 struct ABProbeOptions: Equatable {
@@ -267,7 +269,7 @@ struct ABProbeOptions: Equatable {
                 let value = try value(after: option)
                 guard let parsed = ABProbeBoundaryMode(rawValue: value) else {
                     throw ABProbeError.invalidArguments(
-                        "--boundary-mode must be isolated_dictionary, native_zenzai_first_clause, or mozc_fixed"
+                        "--boundary-mode must be isolated_dictionary, native_zenzai_first_clause, mozc_fixed, or full_composition"
                     )
                 }
                 boundaryMode = parsed
@@ -338,7 +340,10 @@ struct ABProbeOptions: Equatable {
                 "--result-schema v7 requires --left-contexts"
             )
         }
-        if boundaryMode == .nativeZenzaiFirstClause || boundaryMode == .mozcFixed {
+        if boundaryMode == .nativeZenzaiFirstClause
+            || boundaryMode == .mozcFixed
+            || boundaryMode == .fullComposition
+        {
             guard resultSchema == .v7 else {
                 throw ABProbeError.invalidArguments(
                     "\(boundaryMode.rawValue) requires --result-schema v7"
@@ -413,6 +418,8 @@ struct ABProbeOptions: Equatable {
             .nativeSegmentCandidates
         case .mozcFixed:
             .mozcFixedSegmentCandidates
+        case .fullComposition:
+            .fullCompositionCandidates
         }
     }
 }
@@ -1700,6 +1707,11 @@ struct ABProbeBoundaryPolicy: Encodable, Equatable {
             boundaryZenzaiEnabled = false
             surfaceZenzaiEnabled = true
             source = "mozc_top1_fixed_boundary_sidecar"
+        case .fullComposition:
+            self.mode = mode.rawValue
+            boundaryZenzaiEnabled = false
+            surfaceZenzaiEnabled = true
+            source = "entire_composition"
         }
     }
 
@@ -2986,7 +2998,7 @@ enum ABProbeZenzaiEvidenceValidation {
             switch mode {
             case .isolatedDictionary:
                 2
-            case .nativeZenzaiFirstClause, .mozcFixed:
+            case .nativeZenzaiFirstClause, .mozcFixed, .fullComposition:
                 1
             }
         }
@@ -3392,6 +3404,14 @@ enum ABProbeCommand {
                             "fixed-boundary candidates escaped the Mozc span for case \(testCase.id)"
                         )
                     }
+                    if options.boundaryMode == .fullComposition,
+                       !observedV6.allSatisfy({
+                           $0.consumingCount == composition.elements.count
+                       }) {
+                        throw ABProbeError.backendInstability(
+                            "full-composition candidates escaped the entire composition for case \(testCase.id)"
+                        )
+                    }
                     guard observedV6.allSatisfy({ candidate in
                         candidate.zenzaiScore == nil
                             || candidate.rankingInfluence
@@ -3572,7 +3592,7 @@ enum ABProbeCommand {
         }
     }
 
-    private static func requestCandidates(
+    static func requestCandidates(
         from adapter: any KanaKanjiConverting,
         for composition: CompositionInput,
         options: ConversionOptions,
@@ -3611,6 +3631,15 @@ enum ABProbeCommand {
             return ABProbeCandidateObservation.constrain(
                 output,
                 toFixedBoundary: targetCount
+            )
+        case .fullCompositionCandidates:
+            let output = try adapter.candidates(
+                for: composition,
+                options: options
+            )
+            return ABProbeCandidateObservation.constrain(
+                output,
+                toFixedBoundary: composition.elements.count
             )
         }
     }

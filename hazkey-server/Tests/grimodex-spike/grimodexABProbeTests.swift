@@ -8,6 +8,42 @@ import Darwin
 
 @testable import hazkey_server
 
+private final class ABProbeFullCompositionRecordingConverter: KanaKanjiConverting {
+  let output: ConversionOutput
+  private(set) var candidateCallCount = 0
+  private(set) var segmentCallCount = 0
+  private(set) var lastComposition: CompositionInput?
+  private(set) var lastOptions: ConversionOptions?
+
+  init(output: ConversionOutput) {
+    self.output = output
+  }
+
+  func candidates(
+    for composition: CompositionInput,
+    options: ConversionOptions
+  ) throws -> ConversionOutput {
+    candidateCallCount += 1
+    lastComposition = composition
+    lastOptions = options
+    return output
+  }
+
+  func segmentCandidates(
+    for composition: CompositionInput,
+    options: ConversionOptions
+  ) throws -> ConversionOutput {
+    segmentCallCount += 1
+    return ConversionOutput(candidates: [], pageSize: 0)
+  }
+
+  func setCompletedData(_ candidate: ConverterCandidate) {}
+  func updateLearningData(_ candidate: ConverterCandidate) {}
+  func commitLearning() {}
+  func forget(_ candidate: ConverterCandidate) {}
+  func stopComposition() {}
+}
+
 final class GrimodexABProbeTests: XCTestCase {
   func testOptionsParseStableDefaultsAndOverrides() throws {
     XCTAssertEqual(
@@ -136,6 +172,20 @@ final class GrimodexABProbeTests: XCTestCase {
     XCTAssertEqual(fixed.boundaryMode, .mozcFixed)
     XCTAssertEqual(fixed.mozcFixedBoundariesPath, "/tmp/fixed.jsonl")
     XCTAssertEqual(fixed.conversionPath, .mozcFixedSegmentCandidates)
+
+    let fullComposition = try ABProbeOptions.parse(arguments: [
+      "hazkey-server", "--ab-probe", "--corpus", "/tmp/corpus.tsv",
+      "--dictionary", "/tmp/dictionary", "--source-ref", "abc123",
+      "--result-schema", "v7", "--zenzai-model", "/tmp/zenzai.gguf",
+      "--left-contexts", "/tmp/context.jsonl", "--iterations", "1",
+      "--boundary-mode", "full_composition",
+    ])
+    XCTAssertEqual(fullComposition.boundaryMode, .fullComposition)
+    XCTAssertNil(fullComposition.mozcFixedBoundariesPath)
+    XCTAssertEqual(
+      fullComposition.conversionPath,
+      .fullCompositionCandidates
+    )
   }
 
   func testOptionsParseExplicitZenzaiV6Policy() throws {
@@ -288,6 +338,28 @@ final class GrimodexABProbeTests: XCTestCase {
           "--mozc-fixed-boundaries", "fixed.jsonl",
         ],
         .invalidArguments("mozc_fixed requires --result-schema v7")
+      ),
+      (
+        [
+          "hazkey-server", "--ab-probe", "--corpus", "x",
+          "--dictionary", "dict", "--source-ref", "ref",
+          "--result-schema", "v6", "--zenzai-model", "model.gguf",
+          "--iterations", "1", "--boundary-mode", "full_composition",
+        ],
+        .invalidArguments("full_composition requires --result-schema v7")
+      ),
+      (
+        [
+          "hazkey-server", "--ab-probe", "--corpus", "x",
+          "--dictionary", "dict", "--source-ref", "ref",
+          "--result-schema", "v7", "--zenzai-model", "model.gguf",
+          "--iterations", "1", "--left-contexts", "contexts.jsonl",
+          "--boundary-mode", "full_composition",
+          "--mozc-fixed-boundaries", "fixed.jsonl",
+        ],
+        .invalidArguments(
+          "--mozc-fixed-boundaries requires --boundary-mode mozc_fixed"
+        )
       ),
     ]
 
@@ -1215,6 +1287,41 @@ final class GrimodexABProbeTests: XCTestCase {
         inferenceLimit: 1
       )
     )
+
+    let fullComposition = ZenzaiExecutionEvidence(
+      requestCount: 1,
+      evaluationAttemptCount: 1,
+      attemptOutcomes: ZenzaiEvaluationOutcomeCounts(
+        pass: 1,
+        fixRequired: 0,
+        wholeResult: 0,
+        error: 0
+      ),
+      terminalOutcomes: ZenzaiTerminalOutcomeCounts(
+        pass: 1,
+        fixRequired: 0,
+        wholeResult: 0,
+        error: 0,
+        inferenceLimit: 0,
+        noCandidate: 0
+      )
+    )
+    XCTAssertNoThrow(
+      try ABProbeZenzaiEvidenceValidation.validateExecutionEvidence(
+        fullComposition,
+        caseID: "full-composition",
+        boundaryMode: .fullComposition,
+        inferenceLimit: 1
+      )
+    )
+    XCTAssertThrowsError(
+      try ABProbeZenzaiEvidenceValidation.validateExecutionEvidence(
+        isolated,
+        caseID: "full-composition-wrong-count",
+        boundaryMode: .fullComposition,
+        inferenceLimit: 10
+      )
+    )
   }
 
   func testProvenanceCanonicalizesDirectoryAndHashesFileContents() throws {
@@ -1913,6 +2020,28 @@ final class GrimodexABProbeTests: XCTestCase {
     )
   }
 
+  func testV7FullCompositionPolicyEncodesExplicitlyWithoutFixedBoundary() throws {
+    let policy = try XCTUnwrap(
+      JSONSerialization.jsonObject(
+        with: JSONEncoder().encode(
+          ABProbeBoundaryPolicy(mode: .fullComposition)
+        )
+      ) as? [String: Any]
+    )
+    XCTAssertEqual(policy["mode"] as? String, "full_composition")
+    XCTAssertEqual(policy["boundary_zenzai_enabled"] as? Bool, false)
+    XCTAssertEqual(policy["surface_zenzai_enabled"] as? Bool, true)
+    XCTAssertEqual(policy["source"] as? String, "entire_composition")
+
+    let fixedBoundary = try JSONSerialization.jsonObject(
+      with: JSONEncoder().encode(
+        ABProbeNullableFixedBoundaryEvidence(nil)
+      ),
+      options: [.fragmentsAllowed]
+    )
+    XCTAssertTrue(fixedBoundary is NSNull)
+  }
+
   func testCandidateObservationCapturesRankAndCompositionElementCount() {
     let observed = ABProbeCandidateObservation.capture(
       [
@@ -1967,6 +2096,73 @@ final class GrimodexABProbeTests: XCTestCase {
     XCTAssertEqual(constrained.candidates.map(\.text), ["今日は"])
     XCTAssertEqual(constrained.pageSize, 1)
     XCTAssertEqual(constrained.zenzaiExecutionEvidence, evidence)
+  }
+
+  func testFullCompositionPathUsesCandidatesPropagatesContextAndKeepsOnlyFullSpan() throws {
+    let evidence = ZenzaiExecutionEvidence(
+      requestCount: 1,
+      evaluationAttemptCount: 1,
+      attemptOutcomes: ZenzaiEvaluationOutcomeCounts(
+        pass: 1,
+        fixRequired: 0,
+        wholeResult: 0,
+        error: 0
+      ),
+      terminalOutcomes: ZenzaiTerminalOutcomeCounts(
+        pass: 1,
+        fixRequired: 0,
+        wholeResult: 0,
+        error: 0,
+        inferenceLimit: 0,
+        noCandidate: 0
+      )
+    )
+    let converter = ABProbeFullCompositionRecordingConverter(
+      output: ConversionOutput(
+        candidates: [
+          ConverterCandidate(text: "部分", consumingCount: 2),
+          ConverterCandidate(text: "全文第一", consumingCount: 4),
+          ConverterCandidate(text: "超過", consumingCount: 5),
+          ConverterCandidate(text: "全文第二", consumingCount: 4),
+        ],
+        pageSize: 4,
+        zenzaiExecutionEvidence: evidence
+      )
+    )
+    let elements = "よみかな".map {
+      CompositionElement(text: String($0), inputStyle: .direct)
+    }
+    let composition = CompositionInput(
+      elements: elements,
+      cursor: elements.count,
+      leftContext: "直前に確定した文脈。"
+    )
+    let options = ConversionOptions(
+      allowLearning: false,
+      zenzaiEnabled: true,
+      leftContext: composition.leftContext,
+      rightContext: "",
+      suggestionListMode: .normal,
+      suggestionListLimit: 5
+    )
+
+    let output = try ABProbeCommand.requestCandidates(
+      from: converter,
+      for: composition,
+      options: options,
+      path: .fullCompositionCandidates
+    )
+
+    XCTAssertEqual(converter.candidateCallCount, 1)
+    XCTAssertEqual(converter.segmentCallCount, 0)
+    XCTAssertEqual(converter.lastComposition?.leftContext, composition.leftContext)
+    XCTAssertEqual(converter.lastOptions?.leftContext, options.leftContext)
+    XCTAssertEqual(output.candidates.map(\.text), ["全文第一", "全文第二"])
+    XCTAssertTrue(output.candidates.allSatisfy {
+      $0.consumingCount == composition.elements.count
+    })
+    XCTAssertEqual(output.pageSize, 2)
+    XCTAssertEqual(output.zenzaiExecutionEvidence, evidence)
   }
 
   func testV6CandidateObservationCapturesEvidenceAndIgnoresScoreDrift() throws {
