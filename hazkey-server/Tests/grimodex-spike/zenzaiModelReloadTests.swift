@@ -6,6 +6,71 @@ import XCTest
 @testable import hazkey_server
 
 final class ZenzaiModelReloadTests: XCTestCase {
+  func testContextualModeOverrideTrueBeatsDisabledProfile() {
+    let config = makeEnabledZenzaiConfig()
+    let leftContext = "前の文脈"
+
+    config.currentProfile.zenzaiContextualMode = false
+    let profileDisabledMode = config.genZenzaiMode(leftContext: leftContext)
+    let overriddenMode = config.genZenzaiMode(
+      leftContext: leftContext,
+      contextualModeOverride: true
+    )
+
+    config.currentProfile.zenzaiContextualMode = true
+    let profileEnabledMode = config.genZenzaiMode(leftContext: leftContext)
+
+    XCTAssertNotEqual(overriddenMode, profileDisabledMode)
+    XCTAssertEqual(overriddenMode, profileEnabledMode)
+  }
+
+  func testContextualModeOverrideFalseBeatsEnabledProfile() {
+    let config = makeEnabledZenzaiConfig()
+    let leftContext = "前の文脈"
+
+    config.currentProfile.zenzaiContextualMode = true
+    let profileEnabledMode = config.genZenzaiMode(leftContext: leftContext)
+    let overriddenMode = config.genZenzaiMode(
+      leftContext: leftContext,
+      contextualModeOverride: false
+    )
+
+    config.currentProfile.zenzaiContextualMode = false
+    let profileDisabledMode = config.genZenzaiMode(leftContext: leftContext)
+
+    XCTAssertNotEqual(overriddenMode, profileEnabledMode)
+    XCTAssertEqual(overriddenMode, profileDisabledMode)
+  }
+
+  func testContextualModeOverrideNilFollowsProfile() {
+    let config = makeEnabledZenzaiConfig()
+    let leftContext = "前の文脈"
+
+    config.currentProfile.zenzaiContextualMode = false
+    let inheritedDisabledMode = config.genZenzaiMode(
+      leftContext: leftContext,
+      contextualModeOverride: nil
+    )
+    let explicitlyDisabledMode = config.genZenzaiMode(
+      leftContext: leftContext,
+      contextualModeOverride: false
+    )
+
+    config.currentProfile.zenzaiContextualMode = true
+    let inheritedEnabledMode = config.genZenzaiMode(
+      leftContext: leftContext,
+      contextualModeOverride: nil
+    )
+    let explicitlyEnabledMode = config.genZenzaiMode(
+      leftContext: leftContext,
+      contextualModeOverride: true
+    )
+
+    XCTAssertEqual(inheritedDisabledMode, explicitlyDisabledMode)
+    XCTAssertEqual(inheritedEnabledMode, explicitlyEnabledMode)
+    XCTAssertNotEqual(inheritedDisabledMode, inheritedEnabledMode)
+  }
+
   func testRuntimeGenerationChangesURLIdentityWithoutChangingFilesystemPath() {
     let modelURL = URL(fileURLWithPath: "/tmp/grimodex model/zenzai.gguf")
     let generation1 = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
@@ -169,5 +234,20 @@ final class ZenzaiModelReloadTests: XCTestCase {
       "load \(secondRuntimeURL.absoluteString)",
       "the same converter must load the replacement instead of reusing its old URL"
     )
+  }
+
+  private func makeEnabledZenzaiConfig() -> HazkeyServerConfig {
+    let modelURL = URL(fileURLWithPath: "/tmp/fake-zenzai-model.gguf")
+    let generation = UUID(
+      uuidString: "00000000-0000-0000-0000-000000000021"
+    )!
+    let config = HazkeyServerConfig(
+      zenzaiBackendDevicesProvider: { [] },
+      zenzaiModelPathProvider: { modelURL },
+      zenzaiRuntimeGenerationProvider: { generation },
+      zenzaiBackendAvailableOverride: true
+    )
+    config.currentProfile.zenzaiEnable = true
+    return config
   }
 }

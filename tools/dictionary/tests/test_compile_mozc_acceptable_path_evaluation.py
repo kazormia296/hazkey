@@ -269,6 +269,37 @@ class CompileMozcAcceptablePathEvaluationTests(unittest.TestCase):
             },
         )
 
+    def test_accepts_bound_gold_audit_and_rejects_audit_drift(self) -> None:
+        audit = {
+            "routing_batch_id": "00000000-0000-4000-8000-000000000001",
+            "annotation_tier": "gold",
+            "llm_unmodified": False,
+            "human_reviewed": True,
+        }
+        candidate = record("audited")
+        candidate["review"].update(audit)  # type: ignore[union-attr]
+        candidate["acceptable_paths"][0]["provenance"].update(audit)  # type: ignore[index,union-attr]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            fixture = Fixture(Path(temporary_directory), [candidate])
+            generated = fixture.prepare()
+        self.assertIn(compiler.PROBE_INPUT_NAME, generated)
+
+        drifted = copy.deepcopy(candidate)
+        drifted["acceptable_paths"][0]["provenance"][  # type: ignore[index]
+            "human_reviewed"
+        ] = False
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            fixture = Fixture(Path(temporary_directory), [drifted])
+            with self.assertRaisesRegex(ValueError, "human_reviewed must be true"):
+                fixture.prepare()
+
+        silver = copy.deepcopy(candidate)
+        silver["review"]["annotation_tier"] = "silver"  # type: ignore[index]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            fixture = Fixture(Path(temporary_directory), [silver])
+            with self.assertRaisesRegex(ValueError, "must be gold"):
+                fixture.prepare()
+
     def test_partial_alignment_is_not_marked_fully_evaluable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             fixture = Fixture(

@@ -324,6 +324,624 @@ final class GrimodexConverterAdapterTests: XCTestCase {
     XCTAssertEqual(output.pageSize, 1)
   }
 
+  func testZenzaiRankingInfluenceIsIndependentFromProvenanceAndPassScore() throws {
+    var requestOptions = HazkeyServerConfig().genBaseConvertRequestOptions()
+    requestOptions.learningType = .nothing
+    requestOptions.zenzaiMode = .off
+    let converters = makeDefaultConverterPair()
+    var composingText = ComposingText()
+    composingText.insertAtCursorPosition("かんそくせい", inputStyle: .direct)
+    let reference = converters.primary.requestCandidates(
+      composingText,
+      options: requestOptions
+    )
+    let scoredReference = try XCTUnwrap(reference.mainResults.first)
+    let scoredText = scoredReference.text
+    let scoredIdentity = ZenzaiCandidateIdentity(scoredReference)
+    let emptySuffixReference = try XCTUnwrap(reference.mainResults.dropFirst().first)
+    let emptySuffixIdentity = ZenzaiCandidateIdentity(emptySuffixReference)
+    converters.primary.stopComposition()
+
+    requestOptions.zenzaiMode = .on(
+      weight: FileManager.default.temporaryDirectory.appendingPathComponent(
+        "missing-zenzai-\(UUID().uuidString).gguf"
+      ),
+      personalizationMode: nil
+    )
+    let adapter = HazkeyKanaKanjiConverterAdapter(
+      converter: converters.primary,
+      boundaryConverter: converters.boundary,
+      optionsProvider: { _ in requestOptions },
+      zenzaiCandidateEvaluationMetadataProvider: {
+        [scoredIdentity, emptySuffixIdentity] in
+        [
+          scoredIdentity: ZenzaiCandidateEvaluationMetadata(
+            score: -1.25,
+            scoredTokenCount: 4,
+            coversFullCandidate: false
+          ),
+          emptySuffixIdentity: ZenzaiCandidateEvaluationMetadata(
+            score: 0,
+            scoredTokenCount: 0,
+            coversFullCandidate: false
+          )
+        ]
+      }
+    )
+    let elements = "かんそくせい".map {
+      CompositionElement(text: String($0), inputStyle: .direct)
+    }
+
+    let input = CompositionInput(
+      elements: elements,
+      cursor: elements.count,
+      leftContext: ""
+    )
+    let output = try adapter.candidates(
+      for: input,
+      options: .default
+    )
+
+    let scored = try XCTUnwrap(output.candidates.first { $0.text == scoredText })
+    XCTAssertEqual(scored.provenance, .standard)
+    XCTAssertEqual(scored.rankingInfluence, .zenzai)
+    XCTAssertEqual(scored.zenzaiScore, -1.25)
+    XCTAssertEqual(scored.zenzaiScoredTokenCount, 4)
+    XCTAssertEqual(scored.zenzaiScoreScope, .constraintSuffix)
+
+    let unscored = try XCTUnwrap(output.candidates.first {
+      $0.text == emptySuffixReference.text
+    })
+    XCTAssertEqual(unscored.rankingInfluence, .zenzai)
+    XCTAssertNil(unscored.zenzaiScore)
+    XCTAssertNil(unscored.zenzaiScoredTokenCount)
+    XCTAssertNil(unscored.zenzaiScoreScope)
+
+    let guardCandidate = try XCTUnwrap(output.candidates.first {
+      $0.text == "可観測性"
+    })
+    XCTAssertEqual(guardCandidate.provenance, .builtInGuard)
+    XCTAssertEqual(guardCandidate.rankingInfluence, .standard)
+    XCTAssertNil(guardCandidate.zenzaiScore)
+    XCTAssertNil(guardCandidate.zenzaiScoredTokenCount)
+    XCTAssertNil(guardCandidate.zenzaiScoreScope)
+  }
+
+  func testProjectInjectedSameSurfaceDoesNotBorrowZenzaiEvaluationMetadata() throws {
+    let reading = "せつな"
+    var requestOptions = HazkeyServerConfig().genBaseConvertRequestOptions()
+    requestOptions.learningType = .nothing
+    requestOptions.zenzaiMode = .off
+    let converters = makeDefaultConverterPair()
+    var composingText = ComposingText()
+    composingText.insertAtCursorPosition(reading, inputStyle: .direct)
+    let reference = converters.primary.requestCandidates(
+      composingText,
+      options: requestOptions
+    )
+    let evaluatedCandidate = try XCTUnwrap(reference.mainResults.first)
+    let evaluatedIdentity = ZenzaiCandidateIdentity(evaluatedCandidate)
+    converters.primary.stopComposition()
+
+    requestOptions.zenzaiMode = .on(
+      weight: FileManager.default.temporaryDirectory.appendingPathComponent(
+        "missing-zenzai-\(UUID().uuidString).gguf"
+      ),
+      personalizationMode: nil
+    )
+    let projectEntry = GrimodexMappedDictionaryEntry(
+      ruby: "セツナ",
+      word: evaluatedCandidate.text,
+      cid: 1289,
+      mid: 501,
+      value: -4,
+      priority: 3,
+      entryID: "same-surface-project"
+    )
+    let adapter = HazkeyKanaKanjiConverterAdapter(
+      converter: converters.primary,
+      boundaryConverter: converters.boundary,
+      optionsProvider: { _ in requestOptions },
+      projectDictionaryIndexProvider: {
+        GrimodexProjectDictionaryIndex(entries: [projectEntry])
+      },
+      zenzaiCandidateEvaluationMetadataProvider: { [evaluatedIdentity] in
+        [
+          evaluatedIdentity: ZenzaiCandidateEvaluationMetadata(
+            score: -0.5,
+            scoredTokenCount: 2,
+            coversFullCandidate: true
+          )
+        ]
+      }
+    )
+    let elements = reading.map {
+      CompositionElement(text: String($0), inputStyle: .direct)
+    }
+
+    let input = CompositionInput(
+      elements: elements,
+      cursor: elements.count,
+      leftContext: ""
+    )
+    let output = try adapter.candidates(
+      for: input,
+      options: .default
+    )
+
+    let projectCandidate = try XCTUnwrap(output.candidates.first {
+      $0.text == evaluatedCandidate.text
+    })
+    XCTAssertEqual(projectCandidate.provenance, .projectDictionary)
+    XCTAssertEqual(projectCandidate.rankingInfluence, .standard)
+    XCTAssertNil(projectCandidate.zenzaiScore)
+    XCTAssertNil(projectCandidate.zenzaiScoredTokenCount)
+    XCTAssertNil(projectCandidate.zenzaiScoreScope)
+
+    let realtime = try adapter.realtimeCandidates(
+      for: input,
+      options: .default
+    )
+    let realtimeProjectCandidate = try XCTUnwrap(realtime.liveCandidate)
+    XCTAssertEqual(realtimeProjectCandidate.text, evaluatedCandidate.text)
+    XCTAssertEqual(realtimeProjectCandidate.rankingInfluence, .standard)
+    XCTAssertNil(realtimeProjectCandidate.zenzaiScore)
+
+    let segment = try adapter.segmentCandidates(
+      for: input,
+      options: .default
+    )
+    let segmentProjectCandidate = try XCTUnwrap(segment.candidates.first {
+      $0.text == evaluatedCandidate.text
+    })
+    XCTAssertEqual(segmentProjectCandidate.rankingInfluence, .standard)
+    XCTAssertNil(segmentProjectCandidate.zenzaiScore)
+  }
+
+  func testSegmentPrefixUsesOnlyItsTargetedExactPassScore() throws {
+    let reading = "きょうはいしゃにいく"
+    var requestOptions = HazkeyServerConfig().genBaseConvertRequestOptions()
+    requestOptions.learningType = .nothing
+    requestOptions.zenzaiMode = .off
+    let converters = makeDefaultConverterPair()
+    var composingText = ComposingText()
+    composingText.insertAtCursorPosition(reading, inputStyle: .direct)
+    let reference = converters.primary.requestCandidates(
+      composingText,
+      options: requestOptions
+    )
+    let scoredFullCandidate = try XCTUnwrap(reference.mainResults.first { candidate in
+      !candidate.data.isEmpty
+        && Candidate.makePrefixClauseCandidate(data: candidate.data).text
+          != candidate.text
+    })
+    let derivedPrefixText = Candidate.makePrefixClauseCandidate(
+      data: scoredFullCandidate.data
+    ).text
+    let scoredFullIdentity = ZenzaiCandidateIdentity(scoredFullCandidate)
+    let derivedPrefixIdentity = ZenzaiCandidateIdentity(
+      Candidate.makePrefixClauseCandidate(data: scoredFullCandidate.data)
+    )
+    let metadataResponses: [[
+      ZenzaiCandidateIdentity: ZenzaiCandidateEvaluationMetadata
+    ]] = [
+      [
+        scoredFullIdentity: ZenzaiCandidateEvaluationMetadata(
+          score: -1,
+          scoredTokenCount: 8,
+          coversFullCandidate: true
+        )
+      ],
+      [
+        derivedPrefixIdentity: ZenzaiCandidateEvaluationMetadata(
+          score: -3,
+          scoredTokenCount: 2,
+          coversFullCandidate: false
+        )
+      ],
+    ]
+    var metadataResponseIndex = 0
+    converters.primary.stopComposition()
+
+    requestOptions.zenzaiMode = .on(
+      weight: FileManager.default.temporaryDirectory.appendingPathComponent(
+        "missing-zenzai-\(UUID().uuidString).gguf"
+      ),
+      personalizationMode: nil
+    )
+    let adapter = HazkeyKanaKanjiConverterAdapter(
+      converter: converters.primary,
+      boundaryConverter: converters.boundary,
+      optionsProvider: { _ in requestOptions },
+      zenzaiCandidateEvaluationMetadataProvider: {
+        defer { metadataResponseIndex += 1 }
+        return metadataResponses[
+          min(metadataResponseIndex, metadataResponses.count - 1)
+        ]
+      }
+    )
+    let elements = reading.map {
+      CompositionElement(text: String($0), inputStyle: .direct)
+    }
+
+    let output = try adapter.segmentCandidates(
+      for: CompositionInput(
+        elements: elements,
+        cursor: elements.count,
+        leftContext: ""
+      ),
+      options: .default
+    )
+
+    let derivedPrefix = try XCTUnwrap(output.candidates.first {
+      $0.text == derivedPrefixText && $0.consumingCount < elements.count
+    })
+    XCTAssertEqual(derivedPrefix.rankingInfluence, .zenzai)
+    XCTAssertEqual(derivedPrefix.zenzaiScore, -3)
+    XCTAssertEqual(derivedPrefix.zenzaiScoredTokenCount, 2)
+    XCTAssertEqual(derivedPrefix.zenzaiScoreScope, .constraintSuffix)
+
+    let exactReading = "とうきょう"
+    var exactComposingText = ComposingText()
+    exactComposingText.insertAtCursorPosition(exactReading, inputStyle: .direct)
+    requestOptions.zenzaiMode = .off
+    let exactConverters = makeDefaultConverterPair()
+    let exactReference = exactConverters.primary.requestCandidates(
+      exactComposingText,
+      options: requestOptions
+    )
+    let exactReferenceCandidate = try XCTUnwrap(exactReference.mainResults.first)
+    let exactText = exactReferenceCandidate.text
+    let exactIdentity = ZenzaiCandidateIdentity(exactReferenceCandidate)
+    exactConverters.primary.stopComposition()
+    requestOptions.zenzaiMode = .on(
+      weight: FileManager.default.temporaryDirectory.appendingPathComponent(
+        "missing-zenzai-\(UUID().uuidString).gguf"
+      ),
+      personalizationMode: nil
+    )
+    let exactAdapter = HazkeyKanaKanjiConverterAdapter(
+      converter: exactConverters.primary,
+      boundaryConverter: exactConverters.boundary,
+      optionsProvider: { _ in requestOptions },
+      zenzaiCandidateEvaluationMetadataProvider: { [exactIdentity] in
+        [
+          exactIdentity: ZenzaiCandidateEvaluationMetadata(
+            score: -7.5,
+            scoredTokenCount: 3,
+            coversFullCandidate: true
+          )
+        ]
+      }
+    )
+    let exactElements = exactReading.map {
+      CompositionElement(text: String($0), inputStyle: .direct)
+    }
+    let exactOutput = try exactAdapter.segmentCandidates(
+      for: CompositionInput(
+        elements: exactElements,
+        cursor: exactElements.count,
+        leftContext: ""
+      ),
+      options: .default
+    )
+    let exactCandidate = try XCTUnwrap(exactOutput.candidates.first {
+      $0.text == exactText && $0.consumingCount == exactElements.count
+    })
+    XCTAssertEqual(exactCandidate.rankingInfluence, .zenzai)
+    XCTAssertEqual(exactCandidate.zenzaiScore, -7.5)
+    XCTAssertEqual(exactCandidate.zenzaiScoredTokenCount, 3)
+    XCTAssertEqual(exactCandidate.zenzaiScoreScope, .fullCandidate)
+  }
+
+  func testZenzaiExecutionEvidenceMergesAllPrimaryRequests() {
+    let first = ZenzaiExecutionEvidence(
+      requestCount: 1,
+      evaluationAttemptCount: 1,
+      attemptOutcomes: ZenzaiEvaluationOutcomeCounts(
+        pass: 1,
+        fixRequired: 0,
+        wholeResult: 0,
+        error: 0
+      ),
+      terminalOutcomes: ZenzaiTerminalOutcomeCounts(
+        pass: 1,
+        fixRequired: 0,
+        wholeResult: 0,
+        error: 0,
+        inferenceLimit: 0,
+        noCandidate: 0
+      )
+    )
+    let second = ZenzaiExecutionEvidence(
+      requestCount: 1,
+      evaluationAttemptCount: 2,
+      attemptOutcomes: ZenzaiEvaluationOutcomeCounts(
+        pass: 0,
+        fixRequired: 1,
+        wholeResult: 1,
+        error: 0
+      ),
+      terminalOutcomes: ZenzaiTerminalOutcomeCounts(
+        pass: 0,
+        fixRequired: 0,
+        wholeResult: 1,
+        error: 0,
+        inferenceLimit: 0,
+        noCandidate: 0
+      )
+    )
+    XCTAssertEqual(
+      HazkeyKanaKanjiConverterAdapter.mergeZenzaiExecutionEvidence(
+        first,
+        second
+      ),
+      first.merged(with: second)
+    )
+    XCTAssertEqual(
+      HazkeyKanaKanjiConverterAdapter.mergeZenzaiExecutionEvidence(first, nil),
+      first
+    )
+    XCTAssertEqual(
+      HazkeyKanaKanjiConverterAdapter.mergeZenzaiExecutionEvidence(nil, second),
+      second
+    )
+    XCTAssertNil(
+      HazkeyKanaKanjiConverterAdapter.mergeZenzaiExecutionEvidence(nil, nil)
+    )
+  }
+
+  func testZenzaiExecutionEvidenceFollowsMeasuredPrimaryRequestCount() throws {
+    let reading = "きょうはいしゃにいく"
+    let elements = reading.map {
+      CompositionElement(text: String($0), inputStyle: .direct)
+    }
+    let input = CompositionInput(
+      elements: elements,
+      cursor: elements.count,
+      leftContext: ""
+    )
+    var dictionaryOptions = HazkeyServerConfig().genBaseConvertRequestOptions()
+    dictionaryOptions.learningType = .nothing
+    dictionaryOptions.zenzaiMode = .off
+    var composingText = ComposingText()
+    composingText.insertAtCursorPosition(reading, inputStyle: .direct)
+
+    let first = ZenzaiExecutionEvidence(
+      requestCount: 1,
+      evaluationAttemptCount: 1,
+      attemptOutcomes: ZenzaiEvaluationOutcomeCounts(
+        pass: 1,
+        fixRequired: 0,
+        wholeResult: 0,
+        error: 0
+      ),
+      terminalOutcomes: ZenzaiTerminalOutcomeCounts(
+        pass: 1,
+        fixRequired: 0,
+        wholeResult: 0,
+        error: 0,
+        inferenceLimit: 0,
+        noCandidate: 0
+      )
+    )
+    let second = ZenzaiExecutionEvidence(
+      requestCount: 1,
+      evaluationAttemptCount: 2,
+      attemptOutcomes: ZenzaiEvaluationOutcomeCounts(
+        pass: 0,
+        fixRequired: 1,
+        wholeResult: 1,
+        error: 0
+      ),
+      terminalOutcomes: ZenzaiTerminalOutcomeCounts(
+        pass: 0,
+        fixRequired: 0,
+        wholeResult: 1,
+        error: 0,
+        inferenceLimit: 0,
+        noCandidate: 0
+      )
+    )
+
+    func makeAdapter(
+      evidence: [ZenzaiExecutionEvidence]
+    ) -> (
+      adapter: HazkeyKanaKanjiConverterAdapter,
+      requestCount: () -> Int,
+      evidenceCount: () -> Int
+    ) {
+      let converters = makeDefaultConverterPair()
+      let reference = converters.primary.requestCandidates(
+        composingText,
+        options: dictionaryOptions
+      )
+      converters.primary.stopComposition()
+      var requestCount = 0
+      var evidenceCount = 0
+      var zenzaiOptions = dictionaryOptions
+      zenzaiOptions.zenzaiMode = .on(
+        weight: FileManager.default.temporaryDirectory.appendingPathComponent(
+          "unopened-zenzai-\(UUID().uuidString).gguf"
+        ),
+        personalizationMode: nil
+      )
+      let adapter = HazkeyKanaKanjiConverterAdapter(
+        converter: converters.primary,
+        boundaryConverter: converters.boundary,
+        optionsProvider: { _ in zenzaiOptions },
+        primaryCandidateRequestProvider: { _, _ in
+          requestCount += 1
+          return reference
+        },
+        zenzaiExecutionEvidenceProvider: {
+          defer { evidenceCount += 1 }
+          return evidence[min(evidenceCount, evidence.count - 1)]
+        }
+      )
+      return (adapter, { requestCount }, { evidenceCount })
+    }
+
+    do {
+      let harness = makeAdapter(evidence: [first])
+      let output = try harness.adapter.candidates(for: input, options: .default)
+      XCTAssertEqual(harness.requestCount(), 1)
+      XCTAssertEqual(harness.evidenceCount(), 1)
+      XCTAssertEqual(output.zenzaiExecutionEvidence, first)
+    }
+
+    do {
+      let harness = makeAdapter(evidence: [first])
+      let output = harness.adapter.nativeZenzaiSegmentCandidatesForProbe(
+        for: input,
+        options: .default
+      )
+      XCTAssertEqual(harness.requestCount(), 1)
+      XCTAssertEqual(harness.evidenceCount(), 1)
+      XCTAssertEqual(output.zenzaiExecutionEvidence, first)
+    }
+
+    do {
+      let harness = makeAdapter(evidence: [first, second])
+      let output = try harness.adapter.segmentCandidates(
+        for: input,
+        options: .default
+      )
+      XCTAssertEqual(harness.requestCount(), 2)
+      XCTAssertEqual(harness.evidenceCount(), 2)
+      XCTAssertEqual(
+        output.zenzaiExecutionEvidence,
+        first.merged(with: second)
+      )
+    }
+  }
+
+  func testNativeBoundaryProbeMirrorsPrimaryFirstClauseResults() throws {
+    let reading = "きょうはいしゃにいく"
+    var requestOptions = HazkeyServerConfig().genBaseConvertRequestOptions()
+    requestOptions.N_best = 10
+    requestOptions.learningType = .nothing
+    requestOptions.zenzaiMode = .off
+
+    let converters = makeDefaultConverterPair()
+    let boundaryOnlyText = "境界専用"
+    converters.boundary.importDynamicUserDictionary([
+      DicdataElement(
+        word: boundaryOnlyText,
+        ruby: "キョウハ",
+        cid: CIDData.一般名詞.cid,
+        mid: MIDData.一般.mid,
+        value: -1
+      ),
+    ])
+    var composingText = ComposingText()
+    composingText.insertAtCursorPosition(reading, inputStyle: .direct)
+    let primaryReference = converters.primary.requestCandidates(
+      composingText,
+      options: requestOptions
+    )
+    let expectedTexts = Array(
+      primaryReference.firstClauseResults.prefix(requestOptions.N_best)
+    ).map(\.text)
+    converters.primary.stopComposition()
+
+    let boundaryReference = converters.boundary.requestCandidates(
+      composingText,
+      options: requestOptions
+    )
+    let boundaryTexts = Array(
+      boundaryReference.firstClauseResults.prefix(requestOptions.N_best)
+    ).map(\.text)
+    converters.boundary.stopComposition()
+
+    XCTAssertTrue(boundaryTexts.contains(boundaryOnlyText))
+    XCTAssertNotEqual(boundaryTexts, expectedTexts)
+
+    let adapter = HazkeyKanaKanjiConverterAdapter(
+      converter: converters.primary,
+      boundaryConverter: converters.boundary,
+      optionsProvider: { _ in requestOptions }
+    )
+    let elements = reading.map {
+      CompositionElement(text: String($0), inputStyle: .direct)
+    }
+    let output = adapter.nativeZenzaiSegmentCandidatesForProbe(
+      for: CompositionInput(
+        elements: elements,
+        cursor: elements.count,
+        leftContext: ""
+      ),
+      options: ConversionOptions(
+        allowLearning: false,
+        zenzaiEnabled: false,
+        leftContext: "",
+        rightContext: "",
+        suggestionListMode: .normal,
+        suggestionListLimit: 10
+      )
+    )
+
+    XCTAssertEqual(output.candidates.map(\.text), expectedTexts)
+    XCTAssertNotEqual(output.candidates.map(\.text), boundaryTexts)
+    XCTAssertFalse(output.candidates.map(\.text).contains(boundaryOnlyText))
+    XCTAssertFalse(output.candidates.isEmpty)
+    XCTAssertTrue(output.candidates.allSatisfy {
+      $0.rankingInfluence == .standard
+        && $0.consumingCount <= elements.count
+    })
+  }
+
+  func testMissingZenzaiScoreClearsDependentMetadata() {
+    let candidate = ConverterCandidate(
+      text: "候補",
+      consumingCount: 2,
+      zenzaiScore: nil,
+      zenzaiScoredTokenCount: 5,
+      zenzaiScoreScope: .fullCandidate
+    )
+
+    XCTAssertNil(candidate.zenzaiScore)
+    XCTAssertNil(candidate.zenzaiScoredTokenCount)
+    XCTAssertNil(candidate.zenzaiScoreScope)
+  }
+
+  func testTargetedMetadataSupplementDoesNotDowngradeInfluenceOrIdentity() {
+    let existing = ConverterCandidate(
+      text: "既存候補",
+      annotation: "既存注釈",
+      consumingCount: 3,
+      sourceID: "existing-source",
+      provenance: .projectDictionary,
+      rankingInfluence: .zenzai,
+      zenzaiScore: -4,
+      zenzaiScoredTokenCount: 5,
+      zenzaiScoreScope: .fullCandidate,
+      isLearnable: false
+    )
+    let targeted = ConverterCandidate(
+      text: "既存候補",
+      annotation: "targeted annotation",
+      consumingCount: 3,
+      sourceID: "targeted-source",
+      provenance: .standard,
+      rankingInfluence: .standard
+    )
+
+    let supplemented = HazkeyKanaKanjiConverterAdapter
+      .supplementRankingMetadata(of: existing, from: targeted)
+
+    XCTAssertEqual(supplemented.text, existing.text)
+    XCTAssertEqual(supplemented.annotation, existing.annotation)
+    XCTAssertEqual(supplemented.consumingCount, existing.consumingCount)
+    XCTAssertEqual(supplemented.sourceID, existing.sourceID)
+    XCTAssertEqual(supplemented.provenance, existing.provenance)
+    XCTAssertEqual(supplemented.isLearnable, existing.isLearnable)
+    XCTAssertEqual(supplemented.rankingInfluence, .zenzai)
+    XCTAssertEqual(supplemented.zenzaiScore, -4)
+    XCTAssertEqual(supplemented.zenzaiScoredTokenCount, 5)
+    XCTAssertEqual(supplemented.zenzaiScoreScope, .fullCandidate)
+  }
+
   func testDefaultDictionaryBuildsACompleteEditableSegmentPlan() {
     var requestOptions = HazkeyServerConfig().genBaseConvertRequestOptions()
     requestOptions.learningType = .nothing

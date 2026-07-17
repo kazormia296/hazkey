@@ -542,7 +542,8 @@ class HazkeyServerConfig {
         leftContext: String,
         rightContext: String = "",
         projectConditions: GrimodexProjectConditions = .empty,
-        zenzaiAllowed: Bool = true
+        zenzaiAllowed: Bool = true,
+        contextualModeOverride: Bool? = nil
     )
         -> ConvertRequestOptions.ZenzaiMode
     {
@@ -574,7 +575,10 @@ class HazkeyServerConfig {
                     topic: resolved.topic,
                     style: resolved.style,
                     preference: resolved.preference,
-                    leftSideContext: currentProfile.zenzaiContextualMode
+                    leftSideContext: (
+                        contextualModeOverride
+                            ?? currentProfile.zenzaiContextualMode
+                    )
                         ? Self.contextForZenzai(
                             left: leftContext,
                             right: rightContext

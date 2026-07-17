@@ -61,6 +61,10 @@ struct ConverterCandidate: Equatable, Hashable, Codable, Sendable {
     let consumingCount: Int
     let sourceID: String?
     let provenance: CandidateProvenance
+    let rankingInfluence: CandidateRankingInfluence
+    let zenzaiScore: Float?
+    let zenzaiScoredTokenCount: Int?
+    let zenzaiScoreScope: ZenzaiScoreScope?
     let isLearnable: Bool
 
     init(
@@ -69,6 +73,10 @@ struct ConverterCandidate: Equatable, Hashable, Codable, Sendable {
         consumingCount: Int,
         sourceID: String? = nil,
         provenance: CandidateProvenance = .unknown,
+        rankingInfluence: CandidateRankingInfluence = .standard,
+        zenzaiScore: Float? = nil,
+        zenzaiScoredTokenCount: Int? = nil,
+        zenzaiScoreScope: ZenzaiScoreScope? = nil,
         isLearnable: Bool = true
     ) {
         self.text = text
@@ -76,6 +84,12 @@ struct ConverterCandidate: Equatable, Hashable, Codable, Sendable {
         self.consumingCount = max(1, consumingCount)
         self.sourceID = sourceID
         self.provenance = provenance
+        self.rankingInfluence = rankingInfluence
+        self.zenzaiScore = zenzaiScore
+        self.zenzaiScoredTokenCount = zenzaiScore == nil
+            ? nil
+            : zenzaiScoredTokenCount
+        self.zenzaiScoreScope = zenzaiScore == nil ? nil : zenzaiScoreScope
         self.isLearnable = isLearnable
     }
 }
@@ -88,6 +102,115 @@ enum CandidateProvenance: String, Codable, Hashable, Sendable {
     case zenzai
     case builtInGuard
     case unknown
+}
+
+/// Describes which ranking/lattice path produced a candidate independently
+/// from where the candidate's dictionary data originated.
+enum CandidateRankingInfluence: String, Codable, Hashable, Sendable {
+    case standard
+    case zenzai
+}
+
+/// Describes the token range represented by a raw Zenzai pass score.
+enum ZenzaiScoreScope: String, Codable, Hashable, Sendable {
+    case fullCandidate = "full_candidate"
+    case constraintSuffix = "constraint_suffix"
+}
+
+struct ZenzaiEvaluationOutcomeCounts: Equatable, Codable, Sendable {
+    let pass: Int
+    let fixRequired: Int
+    let wholeResult: Int
+    let error: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case pass
+        case fixRequired = "fix_required"
+        case wholeResult = "whole_result"
+        case error
+    }
+
+    static let zero = Self(pass: 0, fixRequired: 0, wholeResult: 0, error: 0)
+
+    var total: Int { pass + fixRequired + wholeResult + error }
+
+    func merged(with other: Self) -> Self {
+        Self(
+            pass: pass + other.pass,
+            fixRequired: fixRequired + other.fixRequired,
+            wholeResult: wholeResult + other.wholeResult,
+            error: error + other.error
+        )
+    }
+}
+
+struct ZenzaiTerminalOutcomeCounts: Equatable, Codable, Sendable {
+    let pass: Int
+    let fixRequired: Int
+    let wholeResult: Int
+    let error: Int
+    let inferenceLimit: Int
+    let noCandidate: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case pass
+        case fixRequired = "fix_required"
+        case wholeResult = "whole_result"
+        case error
+        case inferenceLimit = "inference_limit"
+        case noCandidate = "no_candidate"
+    }
+
+    static let zero = Self(
+        pass: 0,
+        fixRequired: 0,
+        wholeResult: 0,
+        error: 0,
+        inferenceLimit: 0,
+        noCandidate: 0
+    )
+
+    var total: Int {
+        pass + fixRequired + wholeResult + error + inferenceLimit + noCandidate
+    }
+
+    func merged(with other: Self) -> Self {
+        Self(
+            pass: pass + other.pass,
+            fixRequired: fixRequired + other.fixRequired,
+            wholeResult: wholeResult + other.wholeResult,
+            error: error + other.error,
+            inferenceLimit: inferenceLimit + other.inferenceLimit,
+            noCandidate: noCandidate + other.noCandidate
+        )
+    }
+}
+
+/// Per-measured-iteration evidence that Zenzai evaluated the request. Candidate
+/// scores remain optional because a visible clause prefix need not share the
+/// identity or score suffix of the evaluated whole-sentence candidate.
+struct ZenzaiExecutionEvidence: Equatable, Codable, Sendable {
+    let requestCount: Int
+    let evaluationAttemptCount: Int
+    let attemptOutcomes: ZenzaiEvaluationOutcomeCounts
+    let terminalOutcomes: ZenzaiTerminalOutcomeCounts
+
+    private enum CodingKeys: String, CodingKey {
+        case requestCount = "request_count"
+        case evaluationAttemptCount = "evaluation_attempt_count"
+        case attemptOutcomes = "attempt_outcomes"
+        case terminalOutcomes = "terminal_outcomes"
+    }
+
+    func merged(with other: Self) -> Self {
+        Self(
+            requestCount: requestCount + other.requestCount,
+            evaluationAttemptCount: evaluationAttemptCount
+                + other.evaluationAttemptCount,
+            attemptOutcomes: attemptOutcomes.merged(with: other.attemptOutcomes),
+            terminalOutcomes: terminalOutcomes.merged(with: other.terminalOutcomes)
+        )
+    }
 }
 
 struct ConverterLearningToken: Hashable, Codable, Sendable {
@@ -112,6 +235,17 @@ enum LearningOrigin: String, Codable, Sendable, Equatable {
 struct ConversionOutput: Equatable, Sendable {
     let candidates: [ConverterCandidate]
     let pageSize: Int
+    let zenzaiExecutionEvidence: ZenzaiExecutionEvidence?
+
+    init(
+        candidates: [ConverterCandidate],
+        pageSize: Int,
+        zenzaiExecutionEvidence: ZenzaiExecutionEvidence? = nil
+    ) {
+        self.candidates = candidates
+        self.pageSize = pageSize
+        self.zenzaiExecutionEvidence = zenzaiExecutionEvidence
+    }
 }
 
 struct RealtimeConversionOutput: Equatable, Sendable {

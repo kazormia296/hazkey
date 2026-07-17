@@ -1,0 +1,158 @@
+diff --git a/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/zenzai.swift b/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/zenzai.swift
+--- a/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/zenzai.swift
++++ b/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/zenzai.swift
+@@ -110,6 +110,12 @@ extension Kana2Kanji {
+             _ scoredTokenCount: Int,
+             _ coversFullCandidate: Bool
+         ) -> Void,
++        candidateEvaluationOutcomeHandler: (
++            _ outcome: ZenzaiEvaluationOutcome
++        ) -> Void,
++        terminalOutcomeHandler: (
++            _ outcome: ZenzaiEvaluationTerminalOutcome
++        ) -> Void,
+         dicdataStoreState: DicdataStoreState
+     ) -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
+         var constraint = zenzaiCache?.getNewConstraint(for: inputData) ?? PrefixConstraint([])
+@@ -140,6 +146,7 @@ extension Kana2Kanji {
+                 debug("best was not found!")
+                 // Emptyの場合
+                 // 制約が満たせない場合は無視する
++                terminalOutcomeHandler(.noCandidate)
+                 return (eosNode, lattice, ZenzaiCache(inputData, constraint: PrefixConstraint([]), satisfyingCandidate: nil, lattice: lattice))
+             }
+ 
+@@ -152,5 +159,6 @@ extension Kana2Kanji {
+                 if inferenceLimit == 0 {
+                     debug("inference limit! \(candidate.text) is used for excuse")
+                     // When inference occurs more than maximum times, then just return result at this point
++                    terminalOutcomeHandler(.inferenceLimit)
+                     return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate, lattice: lattice))
+                 }
+@@ -163,6 +171,17 @@ extension Kana2Kanji {
+                     versionDependentConfig: versionDependentConfig
+                 )
+                 inferenceLimit -= 1
++                let evaluationOutcome: ZenzaiEvaluationOutcome = switch reviewResult {
++                case .error:
++                    .error
++                case .pass:
++                    .pass
++                case .fixRequired:
++                    .fixRequired
++                case .wholeResult:
++                    .wholeResult
++                }
++                candidateEvaluationOutcomeHandler(evaluationOutcome)
+                 if case .pass(
+                     let score,
+                     let scoredTokenCount,
+@@ -185,6 +204,13 @@ extension Kana2Kanji {
+                 )
+                 switch nextAction {
+                 case .return(let constraint, let alternativeConstraints, let satisfied):
++                    let terminalOutcome: ZenzaiEvaluationTerminalOutcome = switch evaluationOutcome {
++                    case .pass: .pass
++                    case .fixRequired: .fixRequired
++                    case .wholeResult: .wholeResult
++                    case .error: .error
++                    }
++                    terminalOutcomeHandler(terminalOutcome)
+                     if requestRichCandidates {
+                         // alternativeConstraintsに従い、insertedCandidatesにデータを追加する
+                         for alternativeConstraint in alternativeConstraints.reversed() where alternativeConstraint.probabilityRatio > 0.25 {
+diff --git a/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift b/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift
+--- a/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift
++++ b/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift
+@@ -40,6 +40,51 @@ public struct ZenzaiCandidateEvaluationMetadata: Hashable, Sendable {
+     }
+ }
+ 
++public enum ZenzaiEvaluationOutcome: String, Hashable, Sendable {
++    case pass
++    case fixRequired = "fix_required"
++    case wholeResult = "whole_result"
++    case error
++}
++
++public enum ZenzaiEvaluationTerminalOutcome: String, Hashable, Sendable {
++    case pass
++    case fixRequired = "fix_required"
++    case wholeResult = "whole_result"
++    case error
++    case inferenceLimit = "inference_limit"
++    case noCandidate = "no_candidate"
++}
++
++public struct ZenzaiRequestEvaluationMetadata: Hashable, Sendable {
++    public private(set) var attemptCount = 0
++    public private(set) var passCount = 0
++    public private(set) var fixRequiredCount = 0
++    public private(set) var wholeResultCount = 0
++    public private(set) var errorCount = 0
++    public private(set) var terminalOutcome: ZenzaiEvaluationTerminalOutcome?
++
++    public init() {}
++
++    mutating func recordAttempt(_ outcome: ZenzaiEvaluationOutcome) {
++        attemptCount += 1
++        switch outcome {
++        case .pass:
++            passCount += 1
++        case .fixRequired:
++            fixRequiredCount += 1
++        case .wholeResult:
++            wholeResultCount += 1
++        case .error:
++            errorCount += 1
++        }
++    }
++
++    mutating func finish(_ outcome: ZenzaiEvaluationTerminalOutcome) {
++        terminalOutcome = outcome
++    }
++}
++
+ /// かな漢字変換の管理を受け持つクラス
+ public final class KanaKanjiConverter {
+     private let converter: Kana2Kanji
+@@ -84,12 +129,18 @@ public final class KanaKanjiConverter {
+     public private(set) var zenzaiCandidateEvaluationMetadata: [
+         ZenzaiCandidateIdentity: ZenzaiCandidateEvaluationMetadata
+     ] = [:]
++    /// Request-level evidence from the most recent Zenzai conversion. Unlike
++    /// candidate scores, this records every model evaluation attempt and the
++    /// terminal path even when the visible candidate is only a clause prefix.
++    public private(set) var zenzaiRequestEvaluationMetadata =
++        ZenzaiRequestEvaluationMetadata()
+     private var dicdataStoreState: DicdataStoreState
+ 
+     /// リセットする関数
+     public func stopComposition() {
+         self.zenz?.endSession()
+         self.zenzaiCandidateEvaluationMetadata = [:]
++        self.zenzaiRequestEvaluationMetadata = ZenzaiRequestEvaluationMetadata()
+         self.zenzaiPersonalization = nil
+         self.zenzaiCache = nil
+         self.previousInputData = nil
+@@ -806,6 +859,12 @@ public final class KanaKanjiConverter {
+                         coversFullCandidate: coversFullCandidate
+                     )
+                 },
++                candidateEvaluationOutcomeHandler: { outcome in
++                    self.zenzaiRequestEvaluationMetadata.recordAttempt(outcome)
++                },
++                terminalOutcomeHandler: { outcome in
++                    self.zenzaiRequestEvaluationMetadata.finish(outcome)
++                },
+                 dicdataStoreState: self.dicdataStoreState
+             )
+             self.zenzaiCache = cache
+@@ -885,6 +944,7 @@ public final class KanaKanjiConverter {
+     public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
+         debug("requestCandidates 入力は", inputData)
+         self.zenzaiCandidateEvaluationMetadata = [:]
++        self.zenzaiRequestEvaluationMetadata = ZenzaiRequestEvaluationMetadata()
+         // 変換対象が無の場合
+         if inputData.convertTarget.isEmpty {
+             return ConversionResult(mainResults: [], predictionResults: [], englishPredictionResults: [], firstClauseResults: [])

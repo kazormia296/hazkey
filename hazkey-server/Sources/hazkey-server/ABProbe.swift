@@ -39,16 +39,24 @@ enum ABProbeConverterBackend: String, Equatable, Sendable {
     case mozc
 }
 
+enum ABProbeBoundaryMode: String, Equatable, Sendable {
+    case isolatedDictionary = "isolated_dictionary"
+    case nativeZenzaiFirstClause = "native_zenzai_first_clause"
+    case mozcFixed = "mozc_fixed"
+}
+
 enum ABProbeResultSchema: String, Equatable, Sendable {
     case v3
     case v4
     case v5
+    case v6
+    case v7
 
     var conversionPath: ABProbeConversionPath {
         switch self {
         case .v3:
             .candidates
-        case .v4, .v5:
+        case .v4, .v5, .v6, .v7:
             .segmentCandidates
         }
     }
@@ -57,6 +65,8 @@ enum ABProbeResultSchema: String, Equatable, Sendable {
 enum ABProbeConversionPath: String, Equatable, Sendable {
     case candidates
     case segmentCandidates = "segment_candidates"
+    case nativeSegmentCandidates = "native_segment_candidates"
+    case mozcFixedSegmentCandidates = "mozc_fixed_segment_candidates"
 }
 
 struct ABProbeOptions: Equatable {
@@ -70,6 +80,12 @@ struct ABProbeOptions: Equatable {
     let converterBackend: ABProbeConverterBackend
     let mozcBundlePath: String?
     let resultSchema: ABProbeResultSchema
+    let zenzaiModelPath: String?
+    let zenzaiInferenceLimit: Int?
+    let zenzaiDevice: String?
+    let leftContextsPath: String?
+    let mozcFixedBoundariesPath: String?
+    let boundaryMode: ABProbeBoundaryMode
 
     init(
         corpusPath: String,
@@ -81,7 +97,13 @@ struct ABProbeOptions: Equatable {
         backendName: String,
         converterBackend: ABProbeConverterBackend,
         mozcBundlePath: String?,
-        resultSchema: ABProbeResultSchema = .v3
+        resultSchema: ABProbeResultSchema = .v3,
+        zenzaiModelPath: String? = nil,
+        zenzaiInferenceLimit: Int? = nil,
+        zenzaiDevice: String? = nil,
+        leftContextsPath: String? = nil,
+        mozcFixedBoundariesPath: String? = nil,
+        boundaryMode: ABProbeBoundaryMode = .isolatedDictionary
     ) {
         self.corpusPath = corpusPath
         self.dictionaryPath = dictionaryPath
@@ -93,6 +115,12 @@ struct ABProbeOptions: Equatable {
         self.converterBackend = converterBackend
         self.mozcBundlePath = mozcBundlePath
         self.resultSchema = resultSchema
+        self.zenzaiModelPath = zenzaiModelPath
+        self.zenzaiInferenceLimit = zenzaiInferenceLimit
+        self.zenzaiDevice = zenzaiDevice
+        self.leftContextsPath = leftContextsPath
+        self.mozcFixedBoundariesPath = mozcFixedBoundariesPath
+        self.boundaryMode = boundaryMode
     }
 
     static func parse(arguments: [String]) throws -> ABProbeOptions {
@@ -110,6 +138,12 @@ struct ABProbeOptions: Equatable {
         var converterBackend = ABProbeConverterBackend.hazkey
         var mozcBundlePath: String?
         var resultSchema = ABProbeResultSchema.v3
+        var zenzaiModelPath: String?
+        var zenzaiInferenceLimit: Int?
+        var zenzaiDevice: String?
+        var leftContextsPath: String?
+        var mozcFixedBoundariesPath: String?
+        var boundaryMode = ABProbeBoundaryMode.isolatedDictionary
         var index = arguments.index(after: probeIndex)
 
         func value(after option: String) throws -> String {
@@ -182,10 +216,61 @@ struct ABProbeOptions: Equatable {
                 let value = try value(after: option)
                 guard let parsed = ABProbeResultSchema(rawValue: value) else {
                     throw ABProbeError.invalidArguments(
-                        "--result-schema must be v3, v4, or v5"
+                        "--result-schema must be v3, v4, v5, v6, or v7"
                     )
                 }
                 resultSchema = parsed
+            case "--zenzai-model":
+                let value = try value(after: option)
+                guard !value.isEmpty else {
+                    throw ABProbeError.invalidArguments(
+                        "--zenzai-model must not be empty"
+                    )
+                }
+                zenzaiModelPath = value
+            case "--zenzai-inference-limit":
+                let raw = try value(after: option)
+                guard let parsed = Int(raw),
+                      parsed > 0,
+                      parsed <= Int(Int32.max)
+                else {
+                    throw ABProbeError.invalidArguments(
+                        "--zenzai-inference-limit must be between 1 and \(Int32.max)"
+                    )
+                }
+                zenzaiInferenceLimit = parsed
+            case "--zenzai-device":
+                let value = try value(after: option)
+                guard !value.isEmpty else {
+                    throw ABProbeError.invalidArguments(
+                        "--zenzai-device must not be empty"
+                    )
+                }
+                zenzaiDevice = value
+            case "--left-contexts":
+                let value = try value(after: option)
+                guard !value.isEmpty else {
+                    throw ABProbeError.invalidArguments(
+                        "--left-contexts must not be empty"
+                    )
+                }
+                leftContextsPath = value
+            case "--mozc-fixed-boundaries":
+                let value = try value(after: option)
+                guard !value.isEmpty else {
+                    throw ABProbeError.invalidArguments(
+                        "--mozc-fixed-boundaries must not be empty"
+                    )
+                }
+                mozcFixedBoundariesPath = value
+            case "--boundary-mode":
+                let value = try value(after: option)
+                guard let parsed = ABProbeBoundaryMode(rawValue: value) else {
+                    throw ABProbeError.invalidArguments(
+                        "--boundary-mode must be isolated_dictionary, native_zenzai_first_clause, or mozc_fixed"
+                    )
+                }
+                boundaryMode = parsed
             default:
                 throw ABProbeError.invalidArguments("unknown AB probe option: \(option)")
             }
@@ -197,6 +282,84 @@ struct ABProbeOptions: Equatable {
         }
         guard let sourceRef, !sourceRef.isEmpty else {
             throw ABProbeError.invalidArguments("--source-ref is required")
+        }
+        if zenzaiModelPath == nil {
+            guard zenzaiInferenceLimit == nil else {
+                throw ABProbeError.invalidArguments(
+                    "--zenzai-inference-limit requires --zenzai-model"
+                )
+            }
+            guard zenzaiDevice == nil else {
+                throw ABProbeError.invalidArguments(
+                    "--zenzai-device requires --zenzai-model"
+                )
+            }
+        } else {
+            guard resultSchema == .v6 || resultSchema == .v7 else {
+                throw ABProbeError.invalidArguments(
+                    "--zenzai-model requires --result-schema v6 or v7"
+                )
+            }
+            guard converterBackend == .hazkey else {
+                throw ABProbeError.invalidArguments(
+                    "--zenzai-model requires --converter-backend hazkey"
+                )
+            }
+            guard iterations == 1 else {
+                throw ABProbeError.invalidArguments(
+                    "--zenzai-model requires --iterations 1"
+                )
+            }
+            zenzaiInferenceLimit = zenzaiInferenceLimit ?? 10
+        }
+        if let leftContextsPath {
+            guard resultSchema == .v7 else {
+                throw ABProbeError.invalidArguments(
+                    "--left-contexts requires --result-schema v7"
+                )
+            }
+            guard zenzaiModelPath != nil else {
+                throw ABProbeError.invalidArguments(
+                    "--left-contexts requires --zenzai-model"
+                )
+            }
+            guard converterBackend == .hazkey else {
+                throw ABProbeError.invalidArguments(
+                    "--left-contexts requires --converter-backend hazkey"
+                )
+            }
+            guard !leftContextsPath.isEmpty else {
+                throw ABProbeError.invalidArguments(
+                    "--left-contexts must not be empty"
+                )
+            }
+        } else if resultSchema == .v7 {
+            throw ABProbeError.invalidArguments(
+                "--result-schema v7 requires --left-contexts"
+            )
+        }
+        if boundaryMode == .nativeZenzaiFirstClause || boundaryMode == .mozcFixed {
+            guard resultSchema == .v7 else {
+                throw ABProbeError.invalidArguments(
+                    "\(boundaryMode.rawValue) requires --result-schema v7"
+                )
+            }
+            guard converterBackend == .hazkey, zenzaiModelPath != nil else {
+                throw ABProbeError.invalidArguments(
+                    "\(boundaryMode.rawValue) requires Hazkey with --zenzai-model"
+                )
+            }
+        }
+        if boundaryMode == .mozcFixed {
+            guard mozcFixedBoundariesPath != nil else {
+                throw ABProbeError.invalidArguments(
+                    "mozc_fixed requires --mozc-fixed-boundaries"
+                )
+            }
+        } else if mozcFixedBoundariesPath != nil {
+            throw ABProbeError.invalidArguments(
+                "--mozc-fixed-boundaries requires --boundary-mode mozc_fixed"
+            )
         }
         switch converterBackend {
         case .hazkey:
@@ -232,8 +395,25 @@ struct ABProbeOptions: Equatable {
             backendName: backendName ?? converterBackend.rawValue,
             converterBackend: converterBackend,
             mozcBundlePath: mozcBundlePath,
-            resultSchema: resultSchema
+            resultSchema: resultSchema,
+            zenzaiModelPath: zenzaiModelPath,
+            zenzaiInferenceLimit: zenzaiInferenceLimit,
+            zenzaiDevice: zenzaiDevice,
+            leftContextsPath: leftContextsPath,
+            mozcFixedBoundariesPath: mozcFixedBoundariesPath,
+            boundaryMode: boundaryMode
         )
+    }
+
+    var conversionPath: ABProbeConversionPath {
+        switch boundaryMode {
+        case .isolatedDictionary:
+            resultSchema.conversionPath
+        case .nativeZenzaiFirstClause:
+            .nativeSegmentCandidates
+        case .mozcFixed:
+            .mozcFixedSegmentCandidates
+        }
     }
 }
 
@@ -260,10 +440,18 @@ struct ABProbeCorpusCase: Equatable {
     }
 
     var composition: CompositionInput {
+        composition(leftContext: "")
+    }
+
+    func composition(
+        leftContext: String,
+        targetCount: Int? = nil
+    ) -> CompositionInput {
         CompositionInput(
             elements: elements,
             cursor: elements.count,
-            leftContext: ""
+            leftContext: leftContext,
+            targetCount: targetCount
         )
     }
 }
@@ -276,6 +464,557 @@ struct ABProbeCorpusProvenance: Encodable, Equatable {
 struct ABProbeCorpusSnapshot: Equatable {
     let cases: [ABProbeCorpusCase]
     let provenance: ABProbeCorpusProvenance
+}
+
+struct ABProbeLeftContextSource: Encodable, Equatable {
+    let schema: String
+    let sha256: String
+    let cases: Int
+}
+
+struct ABProbeLeftContextEvidence: Encodable, Equatable {
+    let mode: String
+    let leftContextSHA256: String
+    let leftContextCodePointCount: Int
+    let leftContextUTF8ByteCount: Int
+    let sourceContentSHA256: String
+    let source: ABProbeLeftContextSource
+
+    private enum CodingKeys: String, CodingKey {
+        case mode
+        case leftContextSHA256 = "left_context_sha256"
+        case leftContextCodePointCount = "left_context_code_point_count"
+        case leftContextUTF8ByteCount = "left_context_utf8_byte_count"
+        case sourceContentSHA256 = "source_content_sha256"
+        case source
+    }
+}
+
+struct ABProbeLeftContextEntry: Equatable {
+    let id: String
+    let sourceContentSHA256: String
+    let leftContext: String
+    let leftContextSHA256: String
+
+    func evidence(source: ABProbeLeftContextSource) -> ABProbeLeftContextEvidence {
+        ABProbeLeftContextEvidence(
+            mode: leftContext.isEmpty ? "empty" : "natural_left",
+            leftContextSHA256: leftContextSHA256,
+            leftContextCodePointCount: leftContext.unicodeScalars.count,
+            leftContextUTF8ByteCount: leftContext.utf8.count,
+            sourceContentSHA256: sourceContentSHA256,
+            source: source
+        )
+    }
+}
+
+struct ABProbeLeftContextSnapshot: Equatable {
+    let entriesByID: [String: ABProbeLeftContextEntry]
+    let source: ABProbeLeftContextSource
+    let fileIdentity: ABProbeFileIdentity
+}
+
+enum ABProbeLeftContexts {
+    static let schema = "hazkey.blind-silver-left-context.v1"
+    private static let fields: Set<String> = [
+        "schema", "id", "source_content_sha256", "left_context",
+        "left_context_sha256",
+    ]
+
+    static func load(
+        path: String,
+        cases: [ABProbeCorpusCase]
+    ) throws -> ABProbeLeftContextSnapshot {
+        let fileIdentity = try ABProbeFileIdentity.capture(
+            path: path,
+            label: "left-context sidecar"
+        )
+        let data: Data
+        do {
+            data = try Data(contentsOf: URL(fileURLWithPath: path))
+        } catch {
+            throw ABProbeError.invalidCorpus(
+                "unable to read left-context sidecar \(path): \(error)"
+            )
+        }
+        guard data.count == fileIdentity.sizeBytes,
+              sha256(data) == fileIdentity.sha256
+        else {
+            throw ABProbeError.invalidCorpus(
+                "left-context sidecar changed while it was read: \(path)"
+            )
+        }
+        try fileIdentity.revalidate(label: "left-context sidecar")
+        guard !data.isEmpty,
+              !data.starts(with: [0xEF, 0xBB, 0xBF]),
+              !data.contains(0x0D),
+              data.last == 0x0A,
+              let contents = String(data: data, encoding: .utf8)
+        else {
+            throw ABProbeError.invalidCorpus(
+                "\(path): left-context sidecar must be BOM-free UTF-8 JSONL with LF endings"
+            )
+        }
+        var lines = contents.split(separator: "\n", omittingEmptySubsequences: false)
+        lines.removeLast()
+        guard !lines.isEmpty else {
+            throw ABProbeError.invalidCorpus(
+                "\(path): left-context sidecar has no cases"
+            )
+        }
+
+        var entriesByID: [String: ABProbeLeftContextEntry] = [:]
+        for (offset, rawLine) in lines.enumerated() {
+            let lineNumber = offset + 1
+            guard !rawLine.isEmpty else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): left-context sidecar contains an empty line"
+                )
+            }
+            let record: [String: Any]
+            do {
+                let lineData = Data(rawLine.utf8)
+                try ABProbeJSONDuplicateKeyValidator.validate(lineData)
+                guard let object = try JSONSerialization.jsonObject(with: lineData)
+                    as? [String: Any]
+                else {
+                    throw ABProbeJSONKeyValidationError.invalidJSON
+                }
+                record = object
+            } catch ABProbeJSONKeyValidationError.duplicateKey {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): duplicate JSON object key"
+                )
+            } catch {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): invalid JSON object"
+                )
+            }
+            guard Set(record.keys) == fields,
+                  record["schema"] as? String == schema,
+                  let id = record["id"] as? String,
+                  let sourceContentSHA256 = record["source_content_sha256"] as? String,
+                  let leftContext = record["left_context"] as? String,
+                  let leftContextSHA256 = record["left_context_sha256"] as? String
+            else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): left-context record does not match the exact schema"
+                )
+            }
+            try validateText(
+                id,
+                field: "id",
+                path: path,
+                line: lineNumber,
+                allowEmpty: false
+            )
+            try validateText(
+                leftContext,
+                field: "left_context",
+                path: path,
+                line: lineNumber,
+                allowEmpty: true
+            )
+            guard leftContext.unicodeScalars.count <= 4_096 else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): left_context exceeds 4096 Unicode code points"
+                )
+            }
+            guard isSHA256(sourceContentSHA256) else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): source_content_sha256 must be a canonical SHA-256 URI"
+                )
+            }
+            let observedContextSHA256 = sha256(Data(leftContext.utf8))
+            guard leftContextSHA256 == observedContextSHA256 else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): left_context_sha256 does not match left_context"
+                )
+            }
+            let entry = ABProbeLeftContextEntry(
+                id: id,
+                sourceContentSHA256: sourceContentSHA256,
+                leftContext: leftContext,
+                leftContextSHA256: leftContextSHA256
+            )
+            guard entriesByID.updateValue(entry, forKey: id) == nil else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): duplicate id \(id)"
+                )
+            }
+        }
+
+        let expectedIDs = Set(cases.map(\.id))
+        let observedIDs = Set(entriesByID.keys)
+        guard observedIDs == expectedIDs else {
+            let missing = expectedIDs.subtracting(observedIDs).sorted()
+            let unexpected = observedIDs.subtracting(expectedIDs).sorted()
+            throw ABProbeError.invalidCorpus(
+                "\(path): left-context IDs do not match the corpus; missing=\(missing), unexpected=\(unexpected)"
+            )
+        }
+        return ABProbeLeftContextSnapshot(
+            entriesByID: entriesByID,
+            source: ABProbeLeftContextSource(
+                schema: schema,
+                sha256: sha256(data),
+                cases: entriesByID.count
+            ),
+            fileIdentity: fileIdentity
+        )
+    }
+
+    private static func validateText(
+        _ value: String,
+        field: String,
+        path: String,
+        line: Int,
+        allowEmpty: Bool
+    ) throws {
+        guard allowEmpty || !value.isEmpty else {
+            throw ABProbeError.invalidCorpus(
+                "\(path):\(line): \(field) must not be empty"
+            )
+        }
+        guard value.utf8.elementsEqual(
+            value.precomposedStringWithCanonicalMapping.utf8
+        ) else {
+            throw ABProbeError.invalidCorpus(
+                "\(path):\(line): \(field) must be NFC"
+            )
+        }
+        guard value.unicodeScalars.allSatisfy({ scalar in
+            !CharacterSet.controlCharacters.contains(scalar)
+                && scalar.value != 0xFEFF
+                && !isNoncharacter(scalar.value)
+        }) else {
+            throw ABProbeError.invalidCorpus(
+                "\(path):\(line): \(field) contains an invalid Unicode scalar"
+            )
+        }
+    }
+
+    private static func isNoncharacter(_ value: UInt32) -> Bool {
+        (0xFDD0...0xFDEF).contains(value)
+            || value & 0xFFFF == 0xFFFE
+            || value & 0xFFFF == 0xFFFF
+    }
+
+    private static func isSHA256(_ value: String) -> Bool {
+        guard value.count == 71, value.hasPrefix("sha256:") else { return false }
+        return value.dropFirst(7).allSatisfy { character in
+            ("0"..."9").contains(character) || ("a"..."f").contains(character)
+        }
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        var hasher = ABProbeSHA256()
+        hasher.update(data)
+        return "sha256:" + hasher.finalize().map {
+            String(format: "%02x", $0)
+        }.joined()
+    }
+}
+
+struct ABProbeFixedBoundarySource: Encodable, Equatable {
+    let schema: String
+    let sha256: String
+    let cases: Int
+}
+
+struct ABProbeMozcFixedBoundaryOrigin: Equatable {
+    let schema: String
+    let sha256: String
+    let cases: Int
+    let converterBackend: String
+    let conversionPath: String
+}
+
+struct ABProbeFixedBoundaryEvidence: Encodable, Equatable {
+    let readingSHA256: String
+    let consumingCount: Int
+    let source: ABProbeFixedBoundarySource
+
+    private enum CodingKeys: String, CodingKey {
+        case readingSHA256 = "reading_sha256"
+        case consumingCount = "consuming_count"
+        case source
+    }
+}
+
+struct ABProbeFixedBoundaryEntry: Equatable {
+    let id: String
+    let reading: String
+    let readingSHA256: String
+    let consumingCount: Int
+    let origin: ABProbeMozcFixedBoundaryOrigin
+
+    func evidence(source: ABProbeFixedBoundarySource) -> ABProbeFixedBoundaryEvidence {
+        ABProbeFixedBoundaryEvidence(
+            readingSHA256: readingSHA256,
+            consumingCount: consumingCount,
+            source: source
+        )
+    }
+}
+
+struct ABProbeFixedBoundarySnapshot: Equatable {
+    let entriesByID: [String: ABProbeFixedBoundaryEntry]
+    let source: ABProbeFixedBoundarySource
+    let origin: ABProbeMozcFixedBoundaryOrigin
+    let fileIdentity: ABProbeFileIdentity
+}
+
+enum ABProbeMozcFixedBoundaries {
+    static let schema = "hazkey.mozc-fixed-boundary.v1"
+    static let mozcResultSchema = "hazkey.ab-probe-result.v6"
+    private static let fields: Set<String> = [
+        "schema", "id", "reading", "reading_sha256", "consuming_count",
+        "origin",
+    ]
+    private static let originFields: Set<String> = [
+        "schema", "sha256", "cases", "converter_backend", "conversion_path",
+    ]
+
+    static func load(
+        path: String,
+        cases: [ABProbeCorpusCase]
+    ) throws -> ABProbeFixedBoundarySnapshot {
+        let fileIdentity = try ABProbeFileIdentity.capture(
+            path: path,
+            label: "Mozc fixed-boundary sidecar"
+        )
+        let data: Data
+        do {
+            data = try Data(contentsOf: URL(fileURLWithPath: path))
+        } catch {
+            throw ABProbeError.invalidCorpus(
+                "unable to read Mozc fixed-boundary sidecar \(path): \(error)"
+            )
+        }
+        guard data.count == fileIdentity.sizeBytes,
+              sha256(data) == fileIdentity.sha256
+        else {
+            throw ABProbeError.invalidCorpus(
+                "Mozc fixed-boundary sidecar changed while it was read: \(path)"
+            )
+        }
+        try fileIdentity.revalidate(label: "Mozc fixed-boundary sidecar")
+        guard !data.isEmpty,
+              !data.starts(with: [0xEF, 0xBB, 0xBF]),
+              !data.contains(0x0D),
+              data.last == 0x0A,
+              let contents = String(data: data, encoding: .utf8)
+        else {
+            throw ABProbeError.invalidCorpus(
+                "\(path): Mozc fixed-boundary sidecar must be BOM-free UTF-8 JSONL with LF endings"
+            )
+        }
+        var lines = contents.split(separator: "\n", omittingEmptySubsequences: false)
+        lines.removeLast()
+        guard !lines.isEmpty else {
+            throw ABProbeError.invalidCorpus(
+                "\(path): Mozc fixed-boundary sidecar has no cases"
+            )
+        }
+
+        var entriesByID: [String: ABProbeFixedBoundaryEntry] = [:]
+        var observedIDs: [String] = []
+        var commonOrigin: ABProbeMozcFixedBoundaryOrigin?
+        for (offset, rawLine) in lines.enumerated() {
+            let lineNumber = offset + 1
+            guard !rawLine.isEmpty else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): Mozc fixed-boundary sidecar contains an empty line"
+                )
+            }
+            let record: [String: Any]
+            do {
+                let lineData = Data(rawLine.utf8)
+                try ABProbeJSONDuplicateKeyValidator.validate(lineData)
+                guard let object = try JSONSerialization.jsonObject(with: lineData)
+                    as? [String: Any]
+                else {
+                    throw ABProbeJSONKeyValidationError.invalidJSON
+                }
+                record = object
+            } catch ABProbeJSONKeyValidationError.duplicateKey {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): duplicate JSON object key"
+                )
+            } catch {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): invalid JSON object"
+                )
+            }
+            guard Set(record.keys) == fields,
+                  record["schema"] as? String == schema,
+                  let id = record["id"] as? String,
+                  let reading = record["reading"] as? String,
+                  let readingSHA256 = record["reading_sha256"] as? String,
+                  let consumingCount = exactInteger(record["consuming_count"]),
+                  let rawOrigin = record["origin"] as? [String: Any],
+                  Set(rawOrigin.keys) == originFields,
+                  let originSchema = rawOrigin["schema"] as? String,
+                  let originSHA256 = rawOrigin["sha256"] as? String,
+                  let originCases = exactInteger(rawOrigin["cases"]),
+                  let converterBackend = rawOrigin["converter_backend"] as? String,
+                  let conversionPath = rawOrigin["conversion_path"] as? String
+            else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): Mozc fixed-boundary record does not match the exact schema"
+                )
+            }
+            try validateText(id, field: "id", path: path, line: lineNumber)
+            try validateText(
+                reading,
+                field: "reading",
+                path: path,
+                line: lineNumber
+            )
+            guard isSHA256(readingSHA256),
+                  readingSHA256 == sha256(Data(reading.utf8))
+            else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): reading_sha256 does not match reading"
+                )
+            }
+            guard originSchema == mozcResultSchema,
+                  isSHA256(originSHA256),
+                  originCases > 0,
+                  converterBackend == ABProbeConverterBackend.mozc.rawValue,
+                  conversionPath == ABProbeConversionPath.segmentCandidates.rawValue
+            else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): Mozc origin is invalid"
+                )
+            }
+            let origin = ABProbeMozcFixedBoundaryOrigin(
+                schema: originSchema,
+                sha256: originSHA256,
+                cases: originCases,
+                converterBackend: converterBackend,
+                conversionPath: conversionPath
+            )
+            if let commonOrigin, commonOrigin != origin {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): Mozc origin differs within the sidecar"
+                )
+            }
+            commonOrigin = origin
+            let entry = ABProbeFixedBoundaryEntry(
+                id: id,
+                reading: reading,
+                readingSHA256: readingSHA256,
+                consumingCount: consumingCount,
+                origin: origin
+            )
+            guard entriesByID.updateValue(entry, forKey: id) == nil else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path):\(lineNumber): duplicate id \(id)"
+                )
+            }
+            observedIDs.append(id)
+        }
+
+        guard let commonOrigin,
+              commonOrigin.cases == lines.count
+        else {
+            throw ABProbeError.invalidCorpus(
+                "\(path): Mozc origin.cases does not match sidecar record count"
+            )
+        }
+        let expectedIDs = cases.map(\.id)
+        guard observedIDs == expectedIDs else {
+            throw ABProbeError.invalidCorpus(
+                "\(path): Mozc fixed-boundary IDs/order do not match the corpus"
+            )
+        }
+        for testCase in cases {
+            guard let entry = entriesByID[testCase.id],
+                  entry.reading == testCase.reading
+            else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path): case \(testCase.id) reading does not match the corpus"
+                )
+            }
+            guard (1...testCase.elements.count).contains(entry.consumingCount) else {
+                throw ABProbeError.invalidCorpus(
+                    "\(path): case \(testCase.id) consuming_count is outside the composition"
+                )
+            }
+        }
+        return ABProbeFixedBoundarySnapshot(
+            entriesByID: entriesByID,
+            source: ABProbeFixedBoundarySource(
+                schema: schema,
+                sha256: sha256(data),
+                cases: entriesByID.count
+            ),
+            origin: commonOrigin,
+            fileIdentity: fileIdentity
+        )
+    }
+
+    private static func validateText(
+        _ value: String,
+        field: String,
+        path: String,
+        line: Int
+    ) throws {
+        guard !value.isEmpty else {
+            throw ABProbeError.invalidCorpus(
+                "\(path):\(line): \(field) must not be empty"
+            )
+        }
+        guard value.utf8.elementsEqual(
+            value.precomposedStringWithCanonicalMapping.utf8
+        ) else {
+            throw ABProbeError.invalidCorpus(
+                "\(path):\(line): \(field) must be NFC"
+            )
+        }
+        guard value.unicodeScalars.allSatisfy({ scalar in
+            !CharacterSet.controlCharacters.contains(scalar)
+                && scalar.value != 0xFEFF
+                && !isNoncharacter(scalar.value)
+        }) else {
+            throw ABProbeError.invalidCorpus(
+                "\(path):\(line): \(field) contains an invalid Unicode scalar"
+            )
+        }
+    }
+
+    private static func isNoncharacter(_ value: UInt32) -> Bool {
+        (0xFDD0...0xFDEF).contains(value)
+            || value & 0xFFFF == 0xFFFE
+            || value & 0xFFFF == 0xFFFF
+    }
+
+    private static func isSHA256(_ value: String) -> Bool {
+        guard value.count == 71, value.hasPrefix("sha256:") else { return false }
+        return value.dropFirst(7).allSatisfy { character in
+            ("0"..."9").contains(character) || ("a"..."f").contains(character)
+        }
+    }
+
+    private static func exactInteger(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber,
+              !["c", "B"].contains(String(cString: number.objCType)),
+              let integer = value as? Int
+        else {
+            return nil
+        }
+        return integer
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        var hasher = ABProbeSHA256()
+        hasher.update(data)
+        return "sha256:" + hasher.finalize().map {
+            String(format: "%02x", $0)
+        }.joined()
+    }
 }
 
 enum ABProbeJSONKeyValidationError: Error, Equatable {
@@ -790,6 +1529,186 @@ struct ABProbeResourceProvenance: Encodable, Equatable {
     let kind: String
     let path: String
     let fingerprint: String
+}
+
+struct ABProbeFileIdentity: Encodable, Equatable {
+    let path: String
+    let sizeBytes: Int
+    let sha256: String
+
+    private enum CodingKeys: String, CodingKey {
+        case path
+        case sizeBytes = "size_bytes"
+        case sha256
+    }
+
+    static func capture(path: String, label: String) throws -> Self {
+        let url = URL(fileURLWithPath: path, isDirectory: false)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let fileManager = FileManager.default
+        let before: [FileAttributeKey: Any]
+        do {
+            before = try fileManager.attributesOfItem(atPath: url.path)
+        } catch {
+            throw ABProbeError.backendInstability(
+                "unable to inspect \(label) at \(url.path): \(error)"
+            )
+        }
+        guard before[.type] as? FileAttributeType == .typeRegular,
+              let sizeNumber = before[.size] as? NSNumber,
+              sizeNumber.uint64Value <= UInt64(Int.max)
+        else {
+            throw ABProbeError.backendInstability(
+                "\(label) must be a regular file: \(url.path)"
+            )
+        }
+
+        var hasher = ABProbeSHA256()
+        let handle: FileHandle
+        do {
+            handle = try FileHandle(forReadingFrom: url)
+        } catch {
+            throw ABProbeError.backendInstability(
+                "unable to read \(label) at \(url.path): \(error)"
+            )
+        }
+        defer { try? handle.close() }
+        do {
+            while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
+                hasher.update(data)
+            }
+        } catch {
+            throw ABProbeError.backendInstability(
+                "unable to hash \(label) at \(url.path): \(error)"
+            )
+        }
+
+        let after: [FileAttributeKey: Any]
+        do {
+            after = try fileManager.attributesOfItem(atPath: url.path)
+        } catch {
+            throw ABProbeError.backendInstability(
+                "unable to re-inspect \(label) at \(url.path): \(error)"
+            )
+        }
+        guard stableFileAttributes(before) == stableFileAttributes(after) else {
+            throw ABProbeError.backendInstability(
+                "\(label) changed while its identity was acquired: \(url.path)"
+            )
+        }
+        let digest = hasher.finalize().map {
+            String(format: "%02x", $0)
+        }.joined()
+        return Self(
+            path: url.path,
+            sizeBytes: sizeNumber.intValue,
+            sha256: "sha256:" + digest
+        )
+    }
+
+    static func currentProducer() throws -> Self {
+        let executableURL = Bundle.main.executableURL
+            ?? URL(fileURLWithPath: CommandLine.arguments[0], isDirectory: false)
+        return try capture(path: executableURL.path, label: "ABProbe producer")
+    }
+
+    func revalidate(label: String) throws {
+        let observed = try Self.capture(path: path, label: label)
+        guard observed == self else {
+            throw ABProbeError.backendInstability(
+                "\(label) identity changed during the ABProbe run: \(path)"
+            )
+        }
+    }
+
+    private static func stableFileAttributes(
+        _ attributes: [FileAttributeKey: Any]
+    ) -> [String] {
+        [
+            String(describing: attributes[.type]),
+            String(describing: attributes[.size]),
+            String(describing: attributes[.systemNumber]),
+            String(describing: attributes[.systemFileNumber]),
+            String(describing: attributes[.modificationDate]),
+        ]
+    }
+}
+
+struct ABProbeZenzaiQualityPolicy: Encodable, Equatable {
+    let enabled: Bool
+    let modelPath: String?
+    let modelSizeBytes: Int?
+    let modelSHA256: String?
+    let inferenceLimit: Int?
+    let resolvedDevice: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled
+        case modelPath = "model_path"
+        case modelSizeBytes = "model_size_bytes"
+        case modelSHA256 = "model_sha256"
+        case inferenceLimit = "inference_limit"
+        case resolvedDevice = "resolved_device"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(enabled, forKey: .enabled)
+        try container.encode(modelPath, forKey: .modelPath)
+        try container.encode(modelSizeBytes, forKey: .modelSizeBytes)
+        try container.encode(modelSHA256, forKey: .modelSHA256)
+        try container.encode(inferenceLimit, forKey: .inferenceLimit)
+        try container.encode(resolvedDevice, forKey: .resolvedDevice)
+    }
+}
+
+struct ABProbeQualityPolicy: Encodable, Equatable {
+    let learning = false
+    let context: String
+    let zenzai: ABProbeZenzaiQualityPolicy
+
+    init(
+        context: String = "empty",
+        zenzai: ABProbeZenzaiQualityPolicy
+    ) {
+        self.context = context
+        self.zenzai = zenzai
+    }
+}
+
+struct ABProbeBoundaryPolicy: Encodable, Equatable {
+    let mode: String
+    let boundaryZenzaiEnabled: Bool
+    let surfaceZenzaiEnabled: Bool
+    let source: String
+
+    init(mode: ABProbeBoundaryMode) {
+        switch mode {
+        case .isolatedDictionary:
+            self.mode = mode.rawValue
+            boundaryZenzaiEnabled = false
+            surfaceZenzaiEnabled = true
+            source = "separate_converter"
+        case .nativeZenzaiFirstClause:
+            self.mode = mode.rawValue
+            boundaryZenzaiEnabled = true
+            surfaceZenzaiEnabled = true
+            source = "primary_converter_first_clause_results"
+        case .mozcFixed:
+            self.mode = mode.rawValue
+            boundaryZenzaiEnabled = false
+            surfaceZenzaiEnabled = true
+            source = "mozc_top1_fixed_boundary_sidecar"
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case mode
+        case boundaryZenzaiEnabled = "boundary_zenzai_enabled"
+        case surfaceZenzaiEnabled = "surface_zenzai_enabled"
+        case source
+    }
 }
 
 struct ABProbeMozcArtifactIdentity: Equatable {
@@ -1597,7 +2516,112 @@ struct ABProbeV4Candidate: Encodable, Equatable {
     }
 }
 
+struct ABProbeV6Candidate: Encodable, Equatable {
+    let text: String
+    let rank: Int
+    let consumingCount: Int
+    let provenance: String
+    let rankingInfluence: String
+    let zenzaiScore: Float?
+    let zenzaiScoreTokenCount: Int?
+    let zenzaiScoreScope: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case text
+        case rank
+        case consumingCount = "consuming_count"
+        case provenance
+        case rankingInfluence = "ranking_influence"
+        case zenzaiScore = "zenzai_score"
+        case zenzaiScoreTokenCount = "zenzai_score_token_count"
+        case zenzaiScoreScope = "zenzai_score_scope"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try validateZenzaiEvidence()
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(text, forKey: .text)
+        try container.encode(rank, forKey: .rank)
+        try container.encode(consumingCount, forKey: .consumingCount)
+        try container.encode(provenance, forKey: .provenance)
+        try container.encode(rankingInfluence, forKey: .rankingInfluence)
+        try container.encode(zenzaiScore, forKey: .zenzaiScore)
+        try container.encode(zenzaiScoreTokenCount, forKey: .zenzaiScoreTokenCount)
+        try container.encode(zenzaiScoreScope, forKey: .zenzaiScoreScope)
+    }
+
+    fileprivate func validateZenzaiEvidence() throws {
+        switch (zenzaiScore, zenzaiScoreTokenCount, zenzaiScoreScope) {
+        case (nil, nil, nil):
+            return
+        case let (.some(score), .some(tokenCount), .some(scope)):
+            guard score.isFinite else {
+                throw ABProbeError.backendInstability(
+                    "candidate rank \(rank) has a non-finite Zenzai score"
+                )
+            }
+            guard tokenCount > 0 else {
+                throw ABProbeError.backendInstability(
+                    "candidate rank \(rank) has a non-positive Zenzai score token count"
+                )
+            }
+            guard Self.validZenzaiScoreScopes.contains(scope) else {
+                throw ABProbeError.backendInstability(
+                    "candidate rank \(rank) has an invalid Zenzai score scope: \(scope)"
+                )
+            }
+        default:
+            throw ABProbeError.backendInstability(
+                "candidate rank \(rank) must emit Zenzai score, token count, and scope together"
+            )
+        }
+    }
+
+    private static let validZenzaiScoreScopes: Set<String> = [
+        "full_candidate",
+        "constraint_suffix",
+    ]
+
+    fileprivate var stabilityEvidence: StabilityEvidence {
+        StabilityEvidence(
+            text: text,
+            rank: rank,
+            consumingCount: consumingCount,
+            provenance: provenance,
+            rankingInfluence: rankingInfluence,
+            hasZenzaiScore: zenzaiScore != nil,
+            zenzaiScoreTokenCount: zenzaiScoreTokenCount,
+            zenzaiScoreScope: zenzaiScoreScope
+        )
+    }
+
+    fileprivate struct StabilityEvidence: Equatable {
+        let text: String
+        let rank: Int
+        let consumingCount: Int
+        let provenance: String
+        let rankingInfluence: String
+        let hasZenzaiScore: Bool
+        let zenzaiScoreTokenCount: Int?
+        let zenzaiScoreScope: String?
+    }
+}
+
 enum ABProbeCandidateObservation {
+    static func constrain(
+        _ output: ConversionOutput,
+        toFixedBoundary targetCount: Int
+    ) -> ConversionOutput {
+        let candidates = output.candidates.filter {
+            $0.consumingCount == targetCount
+        }
+        return ConversionOutput(
+            candidates: candidates,
+            pageSize: min(output.pageSize, candidates.count),
+            zenzaiExecutionEvidence: output.zenzaiExecutionEvidence
+        )
+    }
+
     static func capture(
         _ candidates: [ConverterCandidate],
         topK: Int
@@ -1622,10 +2646,46 @@ enum ABProbeCandidateObservation {
         let isStable = switch resultSchema {
         case .v3:
             reference.map(\.text) == observed.map(\.text)
-        case .v4, .v5:
+        case .v4, .v5, .v6, .v7:
             reference == observed
         }
         guard isStable else {
+            throw ABProbeError.candidateDrift(
+                "candidate output drifted during case \(caseID)"
+            )
+        }
+    }
+
+    static func captureV6(
+        _ candidates: [ConverterCandidate],
+        topK: Int
+    ) throws -> [ABProbeV6Candidate] {
+        try candidates.prefix(topK).enumerated().map { offset, candidate in
+            let observed = ABProbeV6Candidate(
+                text: candidate.text,
+                rank: offset + 1,
+                consumingCount: candidate.consumingCount,
+                provenance: candidate.provenance.rawValue,
+                rankingInfluence: candidate.rankingInfluence.rawValue,
+                zenzaiScore: candidate.zenzaiScore,
+                zenzaiScoreTokenCount: candidate.zenzaiScoredTokenCount,
+                zenzaiScoreScope: candidate.zenzaiScoreScope?.rawValue
+            )
+            try observed.validateZenzaiEvidence()
+            return observed
+        }
+    }
+
+    static func validateStable(
+        reference: [ABProbeV6Candidate],
+        observed: [ABProbeV6Candidate],
+        caseID: String
+    ) throws {
+        try reference.forEach { try $0.validateZenzaiEvidence() }
+        try observed.forEach { try $0.validateZenzaiEvidence() }
+        guard reference.map(\.stabilityEvidence)
+            == observed.map(\.stabilityEvidence)
+        else {
             throw ABProbeError.candidateDrift(
                 "candidate output drifted during case \(caseID)"
             )
@@ -1752,6 +2812,265 @@ struct ABProbeResultV5: Encodable {
     }
 }
 
+struct ABProbeResultV6: Encodable {
+    let schema = "hazkey.ab-probe-result.v6"
+    let conversionPath = ABProbeConversionPath.segmentCandidates.rawValue
+    let id: String
+    let reading: String
+    let category: String
+    let backend: String
+    let backendVersion: String
+    let converterBackend: String
+    let sourceRef: String
+    let resource: ABProbeResourceProvenance
+    let topK: Int
+    let corpus: ABProbeCorpusProvenance
+    let candidates: [ABProbeV6Candidate]
+    let compositionSpan: ABProbeCompositionSpan
+    let producer: ABProbeFileIdentity
+    let qualityPolicy: ABProbeQualityPolicy
+    let measurement: ABProbeMeasurement
+
+    init(
+        v3: ABProbeResult,
+        candidates: [ABProbeV6Candidate],
+        compositionSpan: ABProbeCompositionSpan,
+        producer: ABProbeFileIdentity,
+        qualityPolicy: ABProbeQualityPolicy
+    ) {
+        id = v3.id
+        reading = v3.reading
+        category = v3.category
+        backend = v3.backend
+        backendVersion = v3.backendVersion
+        converterBackend = v3.converterBackend
+        sourceRef = v3.sourceRef
+        resource = v3.resource
+        topK = v3.topK
+        corpus = v3.corpus
+        self.candidates = candidates
+        self.compositionSpan = compositionSpan
+        self.producer = producer
+        self.qualityPolicy = qualityPolicy
+        measurement = v3.measurement
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schema
+        case conversionPath = "conversion_path"
+        case id
+        case reading
+        case category
+        case backend
+        case backendVersion = "backend_version"
+        case converterBackend = "converter_backend"
+        case sourceRef = "source_ref"
+        case resource
+        case topK = "top_k"
+        case corpus
+        case candidates
+        case compositionSpan = "composition_span"
+        case producer
+        case qualityPolicy = "quality_policy"
+        case measurement
+    }
+}
+
+struct ABProbeNullableFixedBoundaryEvidence: Encodable, Equatable {
+    let value: ABProbeFixedBoundaryEvidence?
+
+    init(_ value: ABProbeFixedBoundaryEvidence?) {
+        self.value = value
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        if let value {
+            try container.encode(value)
+        } else {
+            try container.encodeNil()
+        }
+    }
+}
+
+struct ABProbeResultV7: Encodable {
+    let schema = "hazkey.ab-probe-result.v7"
+    let conversionPath: String
+    let id: String
+    let reading: String
+    let category: String
+    let backend: String
+    let backendVersion: String
+    let converterBackend: String
+    let sourceRef: String
+    let resource: ABProbeResourceProvenance
+    let topK: Int
+    let corpus: ABProbeCorpusProvenance
+    let candidates: [ABProbeV6Candidate]
+    let compositionSpan: ABProbeCompositionSpan
+    let producer: ABProbeFileIdentity
+    let qualityPolicy: ABProbeQualityPolicy
+    let boundaryPolicy: ABProbeBoundaryPolicy
+    let context: ABProbeLeftContextEvidence
+    let fixedBoundary: ABProbeNullableFixedBoundaryEvidence
+    let zenzaiExecution: ZenzaiExecutionEvidence
+    let measurement: ABProbeMeasurement
+
+    init(
+        v3: ABProbeResult,
+        candidates: [ABProbeV6Candidate],
+        compositionSpan: ABProbeCompositionSpan,
+        producer: ABProbeFileIdentity,
+        qualityPolicy: ABProbeQualityPolicy,
+        boundaryPolicy: ABProbeBoundaryPolicy,
+        conversionPath: ABProbeConversionPath,
+        context: ABProbeLeftContextEvidence,
+        zenzaiExecution: ZenzaiExecutionEvidence,
+        fixedBoundary: ABProbeFixedBoundaryEvidence? = nil
+    ) {
+        id = v3.id
+        reading = v3.reading
+        category = v3.category
+        backend = v3.backend
+        backendVersion = v3.backendVersion
+        converterBackend = v3.converterBackend
+        sourceRef = v3.sourceRef
+        resource = v3.resource
+        topK = v3.topK
+        corpus = v3.corpus
+        self.candidates = candidates
+        self.compositionSpan = compositionSpan
+        self.producer = producer
+        self.qualityPolicy = qualityPolicy
+        self.boundaryPolicy = boundaryPolicy
+        self.conversionPath = conversionPath.rawValue
+        self.context = context
+        self.fixedBoundary = ABProbeNullableFixedBoundaryEvidence(fixedBoundary)
+        self.zenzaiExecution = zenzaiExecution
+        measurement = v3.measurement
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schema
+        case conversionPath = "conversion_path"
+        case id
+        case reading
+        case category
+        case backend
+        case backendVersion = "backend_version"
+        case converterBackend = "converter_backend"
+        case sourceRef = "source_ref"
+        case resource
+        case topK = "top_k"
+        case corpus
+        case candidates
+        case compositionSpan = "composition_span"
+        case producer
+        case qualityPolicy = "quality_policy"
+        case boundaryPolicy = "boundary_policy"
+        case context
+        case fixedBoundary = "fixed_boundary"
+        case zenzaiExecution = "zenzai_execution"
+        case measurement
+    }
+}
+
+enum ABProbeZenzaiEvidenceValidation {
+    static func validateExecutionEvidence(
+        _ evidence: ZenzaiExecutionEvidence,
+        caseID: String,
+        boundaryMode: ABProbeBoundaryMode? = nil,
+        inferenceLimit: Int? = nil
+    ) throws {
+        let expectedRequestCount = boundaryMode.map { mode in
+            switch mode {
+            case .isolatedDictionary:
+                2
+            case .nativeZenzaiFirstClause, .mozcFixed:
+                1
+            }
+        }
+        let attemptsAreWithinLimit = inferenceLimit.map { limit in
+            limit > 0
+                && evidence.evaluationAttemptCount
+                    <= limit * evidence.requestCount
+        } ?? true
+        let requestCountMatchesMode = expectedRequestCount.map {
+            evidence.requestCount == $0
+        } ?? true
+        let counts = [
+            evidence.requestCount,
+            evidence.evaluationAttemptCount,
+            evidence.attemptOutcomes.pass,
+            evidence.attemptOutcomes.fixRequired,
+            evidence.attemptOutcomes.wholeResult,
+            evidence.attemptOutcomes.error,
+            evidence.terminalOutcomes.pass,
+            evidence.terminalOutcomes.fixRequired,
+            evidence.terminalOutcomes.wholeResult,
+            evidence.terminalOutcomes.error,
+            evidence.terminalOutcomes.inferenceLimit,
+            evidence.terminalOutcomes.noCandidate,
+        ]
+        guard counts.allSatisfy({ $0 >= 0 }),
+              evidence.requestCount > 0,
+              requestCountMatchesMode,
+              attemptsAreWithinLimit,
+              evidence.attemptOutcomes.total
+                == evidence.evaluationAttemptCount,
+              evidence.terminalOutcomes.total == evidence.requestCount,
+              evidence.terminalOutcomes.pass
+                <= evidence.attemptOutcomes.pass,
+              evidence.terminalOutcomes.fixRequired
+                <= evidence.attemptOutcomes.fixRequired,
+              evidence.terminalOutcomes.wholeResult
+                <= evidence.attemptOutcomes.wholeResult,
+              evidence.terminalOutcomes.error
+                <= evidence.attemptOutcomes.error
+        else {
+            throw ABProbeError.backendInstability(
+                "invalid Zenzai execution evidence for case \(caseID)"
+            )
+        }
+    }
+
+    static func validate(
+        requested: Bool,
+        requiresObservedCandidateScore: Bool = true,
+        requiresExecutionEvidence: Bool = false,
+        observedScoreCount: Int,
+        executionEvidence: [ZenzaiExecutionEvidence] = [],
+        diagnostics: ZenzaiRuntimeDiagnosticsSnapshot?
+    ) throws {
+        guard requested else { return }
+        guard let diagnostics,
+              diagnostics.status == .modelLoadVerified,
+              diagnostics.modelLoadVerified,
+              diagnostics.zenzaiEnabledRequestCount > 0,
+              diagnostics.modelLoadFailureCount == 0
+        else {
+            throw ABProbeError.backendInstability(
+                "Zenzai model loading was not verified for the ABProbe run"
+            )
+        }
+        guard !requiresObservedCandidateScore || observedScoreCount > 0 else {
+            throw ABProbeError.backendInstability(
+                "Zenzai was requested but no candidate evaluation score was observed"
+            )
+        }
+        guard !requiresExecutionEvidence
+                || (!executionEvidence.isEmpty
+                    && executionEvidence.reduce(0) {
+                        $0 + $1.evaluationAttemptCount
+                    } > 0)
+        else {
+            throw ABProbeError.backendInstability(
+                "Zenzai was requested but no model evaluation attempt was observed"
+            )
+        }
+    }
+}
+
 enum ABProbeCommand {
     static var isRequested: Bool {
         CommandLine.arguments.contains("--ab-probe")
@@ -1768,6 +3087,13 @@ enum ABProbeCommand {
         options: ABProbeOptions,
         jsonOutput: FileHandle
     ) throws {
+        let producerIdentity = options.resultSchema == .v6
+            || options.resultSchema == .v7
+            ? try ABProbeFileIdentity.currentProducer()
+            : nil
+        let zenzaiModelIdentity = try options.zenzaiModelPath.map {
+            try ABProbeFileIdentity.capture(path: $0, label: "Zenzai model")
+        }
         let provenance = try ABProbeProvenance.resolve(options: options)
         var didRemoveMozcRuntime = false
         defer {
@@ -1777,15 +3103,66 @@ enum ABProbeCommand {
             }
         }
         let corpus = try ABProbeCorpus.loadSnapshot(path: options.corpusPath)
+        let leftContextSnapshot = try options.leftContextsPath.map {
+            try ABProbeLeftContexts.load(path: $0, cases: corpus.cases)
+        }
+        let fixedBoundarySnapshot = try options.mozcFixedBoundariesPath.map {
+            try ABProbeMozcFixedBoundaries.load(path: $0, cases: corpus.cases)
+        }
         let adapter: any KanaKanjiConverting
         let diagnosticsProvider: () -> MozcSidecarDiagnostics?
+        let zenzaiDiagnosticsStore: ZenzaiRuntimeDiagnosticsStore?
+        let qualityPolicy: ABProbeQualityPolicy
         switch options.converterBackend {
         case .hazkey:
+            let backendDevices = zenzaiModelIdentity == nil ? [] : getZenzaiDevices()
+            if zenzaiModelIdentity != nil, backendDevices.isEmpty {
+                throw ABProbeError.backendInstability(
+                    "Zenzai was requested but no GGML backend device is available"
+                )
+            }
+            if let requestedDevice = options.zenzaiDevice,
+               !backendDevices.contains(where: { $0.name == requestedDevice }) {
+                throw ABProbeError.backendInstability(
+                    "requested Zenzai device is unavailable: \(requestedDevice)"
+                )
+            }
+            let resolvedDevice = zenzaiModelIdentity.map { _ in
+                resolveZenzaiBackendDeviceName(
+                    configuredName: options.zenzaiDevice ?? "",
+                    availableDevices: backendDevices.map(
+                        ZenzaiBackendDeviceCandidate.init
+                    )
+                )
+            }
+            let modelURL = zenzaiModelIdentity.map {
+                URL(fileURLWithPath: $0.path, isDirectory: false)
+            }
             let config = HazkeyServerConfig(
-                zenzaiBackendDevicesProvider: { [] },
-                zenzaiModelPathProvider: { nil },
-                zenzaiBackendAvailableOverride: false
+                zenzaiBackendDevicesProvider: { backendDevices },
+                zenzaiModelPathProvider: { modelURL },
+                zenzaiBackendAvailableOverride: zenzaiModelIdentity == nil
+                    ? false : nil
             )
+            if let inferenceLimit = options.zenzaiInferenceLimit,
+               let resolvedDevice {
+                config.currentProfile.zenzaiEnable = true
+                config.currentProfile.zenzaiInferLimit = Int32(inferenceLimit)
+                config.currentProfile.zenzaiBackendDeviceName = resolvedDevice
+                config.currentProfile.zenzaiContextualMode = leftContextSnapshot != nil
+                config.currentProfile.zenzaiProfile = ""
+                config.currentProfile.zenzaiTopic = ""
+                config.currentProfile.zenzaiStyle = ""
+                config.currentProfile.zenzaiPreference = ""
+                config.currentProfile.useRichCandidates = false
+                guard case .enabled = config.zenzaiRuntimeDecision(
+                    zenzaiAllowed: true
+                ) else {
+                    throw ABProbeError.backendInstability(
+                        "Zenzai backend or model is unavailable"
+                    )
+                }
+            }
             let dictionaryURL = URL(
                 fileURLWithPath: provenance.resource.path,
                 isDirectory: true
@@ -1804,14 +3181,68 @@ enum ABProbeCommand {
             requestOptions.learningType = .nothing
             requestOptions.shouldResetMemory = false
             requestOptions.specialCandidateProviders = []
-            requestOptions.zenzaiMode = .off
+            let baseRequestOptions = requestOptions
+            let validationZenzaiMode = zenzaiModelIdentity == nil
+                ? ConvertRequestOptions.ZenzaiMode.off
+                : config.genZenzaiMode(
+                    leftContext: leftContextSnapshot?.entriesByID.values
+                        .first(where: { !$0.leftContext.isEmpty })?.leftContext ?? "",
+                    rightContext: "",
+                    zenzaiAllowed: true,
+                    contextualModeOverride: leftContextSnapshot == nil
+                        ? nil
+                        : true
+                )
+            guard zenzaiModelIdentity == nil || validationZenzaiMode.enabled else {
+                throw ABProbeError.backendInstability(
+                    "Zenzai mode could not be enabled for the ABProbe run"
+                )
+            }
+            let runtimeDiagnosticsStore = zenzaiModelIdentity.map { _ in
+                ZenzaiRuntimeDiagnosticsStore()
+            }
             adapter = HazkeyKanaKanjiConverterAdapter(
                 converter: converter,
                 boundaryConverter: boundaryConverter,
-                optionsProvider: { _ in requestOptions },
-                projectDictionaryIndexProvider: { .empty }
+                optionsProvider: { conversionOptions in
+                    var perRequestOptions = baseRequestOptions
+                    perRequestOptions.zenzaiMode = zenzaiModelIdentity == nil
+                        ? .off
+                        : config.genZenzaiMode(
+                            leftContext: conversionOptions.leftContext,
+                            rightContext: conversionOptions.rightContext,
+                            zenzaiAllowed: conversionOptions.zenzaiEnabled,
+                            contextualModeOverride: leftContextSnapshot == nil
+                                ? nil
+                                : !conversionOptions.leftContext.isEmpty
+                        )
+                    return perRequestOptions
+                },
+                projectDictionaryIndexProvider: { .empty },
+                zenzaiDiagnosticsReporter: { conversionOptions, status in
+                    runtimeDiagnosticsStore?.record(
+                        decision: config.zenzaiRuntimeDecision(
+                            zenzaiAllowed: conversionOptions.zenzaiEnabled
+                        ),
+                        converterStatus: status
+                    )
+                }
             )
             diagnosticsProvider = { nil }
+            zenzaiDiagnosticsStore = runtimeDiagnosticsStore
+            qualityPolicy = ABProbeQualityPolicy(
+                context: leftContextSnapshot == nil
+                    ? "empty"
+                    : "left_context_sidecar",
+                zenzai: ABProbeZenzaiQualityPolicy(
+                    enabled: zenzaiModelIdentity != nil,
+                    modelPath: zenzaiModelIdentity?.path,
+                    modelSizeBytes: zenzaiModelIdentity?.sizeBytes,
+                    modelSHA256: zenzaiModelIdentity?.sha256,
+                    inferenceLimit: options.zenzaiInferenceLimit,
+                    resolvedDevice: resolvedDevice
+                )
+            )
         case .mozc:
             guard let runtimePath = provenance.mozcRuntimePath else {
                 throw ABProbeError.backendInstability(
@@ -1835,6 +3266,17 @@ enum ABProbeCommand {
             )
             adapter = MozcKanaKanjiConverterAdapter(core: core)
             diagnosticsProvider = { core.diagnostics() }
+            zenzaiDiagnosticsStore = nil
+            qualityPolicy = ABProbeQualityPolicy(
+                zenzai: ABProbeZenzaiQualityPolicy(
+                    enabled: false,
+                    modelPath: nil,
+                    modelSizeBytes: nil,
+                    modelSHA256: nil,
+                    inferenceLimit: nil,
+                    resolvedDevice: nil
+                )
+            )
         }
         var didPurge = false
         defer {
@@ -1842,21 +3284,36 @@ enum ABProbeCommand {
                 adapter.purgeSensitiveState()
             }
         }
-        let conversionOptions = ConversionOptions(
-            allowLearning: false,
-            zenzaiEnabled: false,
-            leftContext: "",
-            rightContext: "",
-            suggestionListMode: .normal,
-            suggestionListLimit: options.topK
-        )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         var bufferedJSONLines: [Data] = []
         bufferedJSONLines.reserveCapacity(corpus.cases.count)
+        var observedZenzaiScoreCount = 0
+        var observedZenzaiExecutionEvidence: [ZenzaiExecutionEvidence] = []
+        observedZenzaiExecutionEvidence.reserveCapacity(corpus.cases.count)
 
         for testCase in corpus.cases {
-            let composition = testCase.composition
+            let contextEntry = leftContextSnapshot?.entriesByID[testCase.id]
+            let leftContext = contextEntry?.leftContext ?? ""
+            let fixedBoundaryEntry = fixedBoundarySnapshot?.entriesByID[testCase.id]
+            if options.boundaryMode == .mozcFixed,
+               fixedBoundaryEntry == nil {
+                throw ABProbeError.backendInstability(
+                    "Mozc fixed-boundary evidence is missing for case \(testCase.id)"
+                )
+            }
+            let composition = testCase.composition(
+                leftContext: leftContext,
+                targetCount: fixedBoundaryEntry?.consumingCount
+            )
+            let conversionOptions = ConversionOptions(
+                allowLearning: false,
+                zenzaiEnabled: zenzaiModelIdentity != nil,
+                leftContext: leftContext,
+                rightContext: "",
+                suggestionListMode: .normal,
+                suggestionListLimit: options.topK
+            )
 
             for _ in 0..<options.warmups {
                 adapter.stopComposition()
@@ -1864,7 +3321,7 @@ enum ABProbeCommand {
                     from: adapter,
                     for: composition,
                     options: conversionOptions,
-                    path: options.resultSchema.conversionPath
+                    path: options.conversionPath
                 )
             }
             let diagnosticsBefore = diagnosticsProvider()
@@ -1875,6 +3332,8 @@ enum ABProbeCommand {
 
             var samples: [Double] = []
             var finalCandidates: [ABProbeV4Candidate]?
+            var finalV6Candidates: [ABProbeV6Candidate]?
+            var finalZenzaiExecutionEvidence: ZenzaiExecutionEvidence?
             samples.reserveCapacity(options.iterations)
             for _ in 0..<options.iterations {
                 adapter.stopComposition()
@@ -1883,10 +3342,30 @@ enum ABProbeCommand {
                     from: adapter,
                     for: composition,
                     options: conversionOptions,
-                    path: options.resultSchema.conversionPath
+                    path: options.conversionPath
                 )
                 let finished = DispatchTime.now().uptimeNanoseconds
                 samples.append(Double(finished - started) / 1_000_000)
+                if options.resultSchema == .v7 {
+                    guard let executionEvidence = output.zenzaiExecutionEvidence else {
+                        throw ABProbeError.backendInstability(
+                            "Zenzai execution evidence is missing for case \(testCase.id)"
+                        )
+                    }
+                    try ABProbeZenzaiEvidenceValidation.validateExecutionEvidence(
+                        executionEvidence,
+                        caseID: testCase.id,
+                        boundaryMode: options.boundaryMode,
+                        inferenceLimit: options.zenzaiInferenceLimit
+                    )
+                    if let finalZenzaiExecutionEvidence,
+                       finalZenzaiExecutionEvidence != executionEvidence {
+                        throw ABProbeError.candidateDrift(
+                            "Zenzai execution evidence drifted during case \(testCase.id)"
+                        )
+                    }
+                    finalZenzaiExecutionEvidence = executionEvidence
+                }
                 let observed = ABProbeCandidateObservation.capture(
                     output.candidates,
                     topK: options.topK
@@ -1900,6 +3379,40 @@ enum ABProbeCommand {
                     )
                 }
                 finalCandidates = observed
+                if options.resultSchema == .v6 || options.resultSchema == .v7 {
+                    let observedV6 = try ABProbeCandidateObservation.captureV6(
+                        output.candidates,
+                        topK: options.topK
+                    )
+                    if let fixedBoundaryEntry,
+                       !observedV6.allSatisfy({
+                           $0.consumingCount == fixedBoundaryEntry.consumingCount
+                       }) {
+                        throw ABProbeError.backendInstability(
+                            "fixed-boundary candidates escaped the Mozc span for case \(testCase.id)"
+                        )
+                    }
+                    guard observedV6.allSatisfy({ candidate in
+                        candidate.zenzaiScore == nil
+                            || candidate.rankingInfluence
+                                == CandidateRankingInfluence.zenzai.rawValue
+                    }) else {
+                        throw ABProbeError.backendInstability(
+                            "a Zenzai score was emitted without Zenzai ranking influence"
+                        )
+                    }
+                    if let finalV6Candidates {
+                        try ABProbeCandidateObservation.validateStable(
+                            reference: finalV6Candidates,
+                            observed: observedV6,
+                            caseID: testCase.id
+                        )
+                    }
+                    observedZenzaiScoreCount += observedV6.reduce(into: 0) {
+                        if $1.zenzaiScore != nil { $0 += 1 }
+                    }
+                    finalV6Candidates = observedV6
+                }
             }
             let diagnosticsAfter = diagnosticsProvider()
             if options.converterBackend == .mozc {
@@ -1918,6 +3431,8 @@ enum ABProbeCommand {
             }
             adapter.stopComposition()
             let capturedCandidates = finalCandidates ?? []
+            let capturedV6Candidates = finalV6Candidates ?? []
+            let capturedZenzaiExecutionEvidence = finalZenzaiExecutionEvidence
             let v3Result = ABProbeResult(
                 id: testCase.id,
                 reading: testCase.reading,
@@ -1967,6 +3482,56 @@ enum ABProbeCommand {
                         compositionSpan: .entireComposition(composition)
                     )
                 )
+            case .v6:
+                guard let producerIdentity else {
+                    throw ABProbeError.backendInstability(
+                        "ABProbe producer identity was not acquired"
+                    )
+                }
+                encoded = try encoder.encode(
+                    ABProbeResultV6(
+                        v3: v3Result,
+                        candidates: capturedV6Candidates,
+                        compositionSpan: .entireComposition(composition),
+                        producer: producerIdentity,
+                        qualityPolicy: qualityPolicy
+                    )
+                )
+            case .v7:
+                guard let producerIdentity,
+                      let leftContextSnapshot,
+                      let contextEntry,
+                      let capturedZenzaiExecutionEvidence
+                else {
+                    throw ABProbeError.backendInstability(
+                        "ABProbe contextual evidence was not acquired"
+                    )
+                }
+                encoded = try encoder.encode(
+                    ABProbeResultV7(
+                        v3: v3Result,
+                        candidates: capturedV6Candidates,
+                        compositionSpan: .entireComposition(composition),
+                        producer: producerIdentity,
+                        qualityPolicy: qualityPolicy,
+                        boundaryPolicy: ABProbeBoundaryPolicy(
+                            mode: options.boundaryMode
+                        ),
+                        conversionPath: options.conversionPath,
+                        context: contextEntry.evidence(
+                            source: leftContextSnapshot.source
+                        ),
+                        zenzaiExecution: capturedZenzaiExecutionEvidence,
+                        fixedBoundary: fixedBoundaryEntry.flatMap { entry in
+                            fixedBoundarySnapshot.map {
+                                entry.evidence(source: $0.source)
+                            }
+                        }
+                    )
+                )
+                observedZenzaiExecutionEvidence.append(
+                    capturedZenzaiExecutionEvidence
+                )
             }
             encoded.append(0x0A)
             bufferedJSONLines.append(encoded)
@@ -1977,6 +3542,22 @@ enum ABProbeCommand {
         ) {
             adapter.purgeSensitiveState()
             didPurge = true
+            try producerIdentity?.revalidate(label: "ABProbe producer")
+            try zenzaiModelIdentity?.revalidate(label: "Zenzai model")
+            try leftContextSnapshot?.fileIdentity.revalidate(
+                label: "left-context sidecar"
+            )
+            try fixedBoundarySnapshot?.fileIdentity.revalidate(
+                label: "Mozc fixed-boundary sidecar"
+            )
+            try ABProbeZenzaiEvidenceValidation.validate(
+                requested: zenzaiModelIdentity != nil,
+                requiresObservedCandidateScore: options.resultSchema == .v6,
+                requiresExecutionEvidence: options.resultSchema == .v7,
+                observedScoreCount: observedZenzaiScoreCount,
+                executionEvidence: observedZenzaiExecutionEvidence,
+                diagnostics: zenzaiDiagnosticsStore?.snapshot()
+            )
             if let diagnostics = diagnosticsProvider(),
                diagnostics.processIdentifier != nil
                 || diagnostics.temporaryDirectoryCleanupFailureCount != 0 {
@@ -1999,9 +3580,38 @@ enum ABProbeCommand {
     ) throws -> ConversionOutput {
         switch path {
         case .candidates:
-            try adapter.candidates(for: composition, options: options)
+            return try adapter.candidates(for: composition, options: options)
         case .segmentCandidates:
-            try adapter.segmentCandidates(for: composition, options: options)
+            return try adapter.segmentCandidates(
+                for: composition,
+                options: options
+            )
+        case .nativeSegmentCandidates:
+            guard let hazkeyAdapter = adapter as? HazkeyKanaKanjiConverterAdapter else {
+                throw ABProbeError.backendInstability(
+                    "native Zenzai boundary probing requires the Hazkey adapter"
+                )
+            }
+            return hazkeyAdapter.nativeZenzaiSegmentCandidatesForProbe(
+                for: composition,
+                options: options
+            )
+        case .mozcFixedSegmentCandidates:
+            guard let targetCount = composition.targetCount,
+                  let hazkeyAdapter = adapter as? HazkeyKanaKanjiConverterAdapter
+            else {
+                throw ABProbeError.backendInstability(
+                    "Mozc fixed-boundary probing requires a target span and the Hazkey adapter"
+                )
+            }
+            let output = try hazkeyAdapter.candidates(
+                for: composition,
+                options: options
+            )
+            return ABProbeCandidateObservation.constrain(
+                output,
+                toFixedBoundary: targetCount
+            )
         }
     }
 

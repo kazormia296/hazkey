@@ -1,0 +1,196 @@
+diff --git a/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/ZenzContext.swift b/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/ZenzContext.swift
+--- a/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/ZenzContext.swift
++++ b/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/ZenzContext.swift
+@@ -425,7 +425,12 @@ final class ZenzContext {
+ 
+     enum CandidateEvaluationResult: Sendable, Equatable, Hashable {
+         case error
+-        case pass(score: Float, alternativeConstraints: [AlternativeConstraint])
++        case pass(
++            score: Float,
++            scoredTokenCount: Int,
++            coversFullCandidate: Bool,
++            alternativeConstraints: [AlternativeConstraint]
++        )
+         case fixRequired(prefixConstraint: [UInt8])
+         case wholeResult(String)
+ 
+@@ -676,6 +681,7 @@ final class ZenzContext {
+         }
+ 
+         var score: Float = 0
++        var scoredTokenCount = 0
+ 
+         struct AlternativeHighProbToken: Comparable {
+             static func < (lhs: AlternativeHighProbToken, rhs: AlternativeHighProbToken) -> Bool {
+@@ -780,8 +786,19 @@ final class ZenzContext {
+                 }
+             }
+             score += maxItem.logprob
+-        }
+-        return .pass(score: score, alternativeConstraints: altTokens.unordered.sorted(by: >).map {.init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)})
++            scoredTokenCount += 1
++        }
++        return .pass(
++            score: score,
++            scoredTokenCount: scoredTokenCount,
++            coversFullCandidate: scoredTokenCount == candidate_tokens.count,
++            alternativeConstraints: altTokens.unordered.sorted(by: >).map {
++                .init(
++                    probabilityRatio: $0.probabilityRatioToMaxProb,
++                    prefixConstraint: $0.constraint
++                )
++            }
++        )
+     }
+ 
+     private func llama_batch_add(_ batch: inout llama_batch, _ id: llama_token, _ pos: llama_pos, _ seq_ids: [llama_seq_id], logits: Bool) {
+diff --git a/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/zenzai.swift b/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/zenzai.swift
+--- a/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/zenzai.swift
++++ b/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/zenzai.swift
+@@ -104,6 +104,12 @@ extension Kana2Kanji {
+         requestRichCandidates: Bool,
+         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
+         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode,
++        candidateEvaluationPassHandler: (
++            _ candidate: Candidate,
++            _ score: Float,
++            _ scoredTokenCount: Int,
++            _ coversFullCandidate: Bool
++        ) -> Void,
+         dicdataStoreState: DicdataStoreState
+     ) -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
+         var constraint = zenzaiCache?.getNewConstraint(for: inputData) ?? PrefixConstraint([])
+@@ -157,6 +163,19 @@ extension Kana2Kanji {
+                     versionDependentConfig: versionDependentConfig
+                 )
+                 inferenceLimit -= 1
++                if case .pass(
++                    let score,
++                    let scoredTokenCount,
++                    let coversFullCandidate,
++                    _
++                ) = reviewResult {
++                    candidateEvaluationPassHandler(
++                        candidate,
++                        score,
++                        scoredTokenCount,
++                        coversFullCandidate
++                    )
++                }
+                 let nextAction = self.review(
+                     candidateIndex: index,
+                     candidates: candidates,
+@@ -227,7 +246,7 @@ extension Kana2Kanji {
+             // 何らかのエラーが発生
+             debug("error")
+             return .return(constraint: constraint, alternativeConstraints: [], satisfied: false)
+-        case .pass(let score, let alternativeConstraints):
++        case .pass(let score, _, _, let alternativeConstraints):
+             // 合格
+             debug("passed:", score)
+             return .return(constraint: constraint, alternativeConstraints: alternativeConstraints, satisfied: true)
+diff --git a/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift b/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift
+--- a/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift
++++ b/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift
+@@ -11,6 +11,36 @@ import EfficientNGram
+ public import Foundation
+ import SwiftUtils
+ 
++public struct ZenzaiCandidateIdentity: Hashable, Sendable {
++    public let text: String
++    public let data: [DicdataElement]
++
++    public init(text: String, data: [DicdataElement]) {
++        self.text = text
++        self.data = data
++    }
++
++    public init(_ candidate: Candidate) {
++        self.init(text: candidate.text, data: candidate.data)
++    }
++}
++
++public struct ZenzaiCandidateEvaluationMetadata: Hashable, Sendable {
++    public let score: Float
++    public let scoredTokenCount: Int
++    public let coversFullCandidate: Bool
++
++    public init(
++        score: Float,
++        scoredTokenCount: Int,
++        coversFullCandidate: Bool
++    ) {
++        self.score = score
++        self.scoredTokenCount = scoredTokenCount
++        self.coversFullCandidate = coversFullCandidate
++    }
++}
++
+ /// かな漢字変換の管理を受け持つクラス
+ public final class KanaKanjiConverter {
+     private let converter: Kana2Kanji
+@@ -48,11 +78,19 @@ public final class KanaKanjiConverter {
+     private var zenzaiCache: Kana2Kanji.ZenzaiCache?
+     private var zenzaiPersonalization: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?
+     public private(set) var zenzStatus: String = ""
++    /// Raw metadata returned by `.pass` while evaluating candidates in the
++    /// most recent `requestCandidates` call. Candidate identity includes the
++    /// dictionary-element path so equal surfaces cannot borrow each other's
++    /// evaluation metadata.
++    public private(set) var zenzaiCandidateEvaluationMetadata: [
++        ZenzaiCandidateIdentity: ZenzaiCandidateEvaluationMetadata
++    ] = [:]
+     private var dicdataStoreState: DicdataStoreState
+ 
+     /// リセットする関数
+     public func stopComposition() {
+         self.zenz?.endSession()
++        self.zenzaiCandidateEvaluationMetadata = [:]
+         self.zenzaiPersonalization = nil
+         self.zenzaiCache = nil
+         self.previousInputData = nil
+@@ -751,6 +789,23 @@ public final class KanaKanjiConverter {
+                 requestRichCandidates: zenzaiMode.requestRichCandidates,
+                 personalizationMode: self.getZenzaiPersonalization(mode: zenzaiMode.personalizationMode),
+                 versionDependentConfig: zenzaiMode.versionDependentMode,
++                candidateEvaluationPassHandler: {
++                    candidate,
++                    score,
++                    scoredTokenCount,
++                    coversFullCandidate in
++                    // A fully addressed prefix can pass without evaluating
++                    // any suffix token. Its empty score sum is not raw score
++                    // evidence and must not be attributed to the candidate.
++                    guard scoredTokenCount > 0 else { return }
++                    self.zenzaiCandidateEvaluationMetadata[
++                        ZenzaiCandidateIdentity(candidate)
++                    ] = ZenzaiCandidateEvaluationMetadata(
++                        score: score,
++                        scoredTokenCount: scoredTokenCount,
++                        coversFullCandidate: coversFullCandidate
++                    )
++                },
+                 dicdataStoreState: self.dicdataStoreState
+             )
+             self.zenzaiCache = cache
+@@ -828,6 +883,7 @@ public final class KanaKanjiConverter {
+     /// - Returns: `ConversionResult`
+     public func requestCandidates(_ inputData: ComposingText, options: ConvertRequestOptions) -> ConversionResult {
+         debug("requestCandidates 入力は", inputData)
++        self.zenzaiCandidateEvaluationMetadata = [:]
+         // 変換対象が無の場合
+         if inputData.convertTarget.isEmpty {
+             return ConversionResult(mainResults: [], predictionResults: [], englishPredictionResults: [], firstClauseResults: [])
+diff --git a/Sources/KanaKanjiConverterModule/ConverterAPI/ConvertRequestOptions.swift b/Sources/KanaKanjiConverterModule/ConverterAPI/ConvertRequestOptions.swift
+--- a/Sources/KanaKanjiConverterModule/ConverterAPI/ConvertRequestOptions.swift
++++ b/Sources/KanaKanjiConverterModule/ConverterAPI/ConvertRequestOptions.swift
+@@ -261,7 +261,7 @@ public struct ConvertRequestOptions: Sendable {
+                 deviceConfig: deviceConfig
+             )
+         }
+-        var enabled: Bool
++        public private(set) var enabled: Bool
+         var weightURL: URL
+         var inferenceLimit: Int
+         var requestRichCandidates: Bool

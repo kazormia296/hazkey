@@ -151,6 +151,65 @@ def make_v5_result(
     return result
 
 
+def make_v6_result(
+    case_id: str,
+    samples: list[float | int],
+    *,
+    zenzai_enabled: bool = True,
+    zenzai_score: float | None = -1.25,
+    zenzai_score_token_count: int = 2,
+    zenzai_score_scope: str = "full_candidate",
+    ranking_influence: str | None = None,
+    **kwargs: object,
+) -> dict[str, object]:
+    kwargs.setdefault("converter_backend", "hazkey")
+    kwargs.setdefault("resource_kind", "hazkey_dictionary")
+    kwargs.setdefault("resource_path", "/fixtures/dictionary")
+    result = make_v5_result(case_id, samples, **kwargs)
+    result["schema"] = "hazkey.ab-probe-result.v6"
+    influence = ranking_influence or (
+        "zenzai" if zenzai_enabled else "standard"
+    )
+    for candidate in result["candidates"]:
+        candidate.update(
+            {
+                "provenance": "standard",
+                "ranking_influence": influence,
+                "zenzai_score": zenzai_score if zenzai_enabled else None,
+                "zenzai_score_token_count": (
+                    zenzai_score_token_count
+                    if zenzai_enabled and zenzai_score is not None
+                    else None
+                ),
+                "zenzai_score_scope": (
+                    zenzai_score_scope
+                    if zenzai_enabled and zenzai_score is not None
+                    else None
+                ),
+            }
+        )
+    result["producer"] = {
+        "path": "/fixtures/hazkey-server",
+        "size_bytes": 123456,
+        "sha256": "sha256:" + "b" * 64,
+    }
+    result["quality_policy"] = {
+        "learning": False,
+        "context": "empty",
+        "zenzai": {
+            "enabled": zenzai_enabled,
+            "model_path": "/fixtures/zenzai.gguf" if zenzai_enabled else None,
+            "model_size_bytes": 654321 if zenzai_enabled else None,
+            "model_sha256": (
+                "sha256:" + "c" * 64 if zenzai_enabled else None
+            ),
+            "inference_limit": 10 if zenzai_enabled else None,
+            "resolved_device": "CPU" if zenzai_enabled else None,
+        },
+    }
+    return result
+
+
 def write_run(path: Path, results: list[dict[str, object]]) -> None:
     path.write_text(
         "".join(json.dumps(result) + "\n" for result in results),
@@ -617,6 +676,105 @@ class ABProbeSummaryTests(unittest.TestCase):
                 ValueError, "composition_span.*does not match"
             ):
                 summarize_ab_probe.summarize([first, second])
+
+    def test_summarize_supports_v6_zenzai_evidence(self) -> None:
+        cases = [
+            make_v6_result(
+                "one",
+                [1],
+                reading="よみいち",
+                corpus_cases=2,
+                composition_count=4,
+                candidates=[("候補一", 2), ("候補二", 2)],
+                zenzai_score=-3.5,
+            ),
+            make_v6_result(
+                "two",
+                [3],
+                reading="よみに",
+                corpus_cases=2,
+                composition_count=3,
+                candidates=[("候補三", 3)],
+                zenzai_score=None,
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "v6.jsonl"
+            write_run(path, cases)
+
+            loaded = summarize_ab_probe.load_run(path)
+            summary = summarize_ab_probe.summarize([path])
+
+        self.assertEqual(loaded["schema"], "hazkey.ab-probe-result.v6")
+        self.assertTrue(loaded["composition_span_available"])
+        self.assertTrue(loaded["quality_policy"]["zenzai"]["enabled"])
+        self.assertEqual(summary["schema"], "hazkey.ab-probe-summary.v6")
+        self.assertEqual(summary["zenzai_evidence"]["candidates"], 3)
+        self.assertEqual(
+            summary["zenzai_evidence"]["ranking_influenced_candidates"], 3
+        )
+        self.assertEqual(summary["zenzai_evidence"]["scored_candidates"], 2)
+        self.assertEqual(
+            summary["zenzai_evidence"][
+                "score_coverage_of_influenced_candidates"
+            ],
+            2 / 3,
+        )
+        self.assertEqual(summary["zenzai_evidence"]["minimum_score"], -3.5)
+        self.assertEqual(
+            summary["zenzai_evidence"]["minimum_score_per_token"], -1.75
+        )
+        self.assertEqual(
+            summary["zenzai_evidence"]["score_scope_counts"],
+            {"full_candidate": 2, "constraint_suffix": 0},
+        )
+
+    def test_v6_rejects_forged_zenzai_policy_and_candidate_evidence(self) -> None:
+        scenarios: dict[str, dict[str, object]] = {}
+
+        bad_score = make_v6_result("case", [1])
+        bad_score["candidates"][0]["zenzai_score"] = "not-a-score"
+        scenarios["bad-score"] = bad_score
+
+        partial_score = make_v6_result("case", [1])
+        partial_score["candidates"][0]["zenzai_score_scope"] = None
+        scenarios["partial-score"] = partial_score
+
+        bad_scope = make_v6_result(
+            "case", [1], zenzai_score_scope="unknown"
+        )
+        scenarios["bad-score-scope"] = bad_scope
+
+        standard_score = make_v6_result(
+            "case", [1], ranking_influence="standard"
+        )
+        scenarios["standard-score"] = standard_score
+
+        disabled_evidence = make_v6_result("case", [1, 2], zenzai_enabled=False)
+        disabled_evidence["candidates"][0]["ranking_influence"] = "zenzai"
+        scenarios["disabled-evidence"] = disabled_evidence
+
+        bad_model_hash = make_v6_result("case", [1])
+        bad_model_hash["quality_policy"]["zenzai"]["model_sha256"] = "bad"
+        scenarios["bad-model-hash"] = bad_model_hash
+
+        mozc_zenzai = make_v6_result(
+            "case",
+            [1],
+            converter_backend="mozc",
+            resource_kind="mozc_runtime_inputs",
+        )
+        scenarios["mozc-zenzai"] = mozc_zenzai
+
+        multi_iteration = make_v6_result("case", [1, 2])
+        scenarios["zenzai-multi-iteration"] = multi_iteration
+
+        no_observed_score = make_v6_result(
+            "case", [1], zenzai_score=None
+        )
+        scenarios["zenzai-no-observed-score"] = no_observed_score
+
+        self.assert_v6_scenarios_rejected(scenarios)
 
     def test_load_run_bytes_parses_an_immutable_snapshot(self) -> None:
         payload = make_v3_result("case", [1, 2])
@@ -1142,6 +1300,18 @@ class ABProbeSummaryTests(unittest.TestCase):
                         summarize_ab_probe.summarize([path])
 
     def assert_v5_scenarios_rejected(
+        self, scenarios: dict[str, dict[str, object]]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            for name, payload in scenarios.items():
+                with self.subTest(name=name):
+                    path = directory / f"{name}.jsonl"
+                    write_run(path, [payload])
+                    with self.assertRaises(ValueError):
+                        summarize_ab_probe.summarize([path])
+
+    def assert_v6_scenarios_rejected(
         self, scenarios: dict[str, dict[str, object]]
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

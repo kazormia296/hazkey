@@ -23,6 +23,7 @@ import sys
 import tempfile
 from typing import Any, Iterable
 import unicodedata
+import uuid
 
 
 ANNOTATION_EXPORT_SCHEMA = "hazkey.mozc-hybrid-acceptable-paths.v3"
@@ -50,6 +51,14 @@ SHA256_URI = re.compile(r"sha256:[0-9a-f]{64}")
 PATH_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 SURFACE_EVALUATION_STATUSES = frozenset(
     {"fully_aligned", "partially_aligned", "not_aligned"}
+)
+ANNOTATION_AUDIT_KEYS = frozenset(
+    {
+        "routing_batch_id",
+        "annotation_tier",
+        "llm_unmodified",
+        "human_reviewed",
+    }
 )
 
 
@@ -251,7 +260,50 @@ def _validate_boundaries(value: Any, length: int, context: str) -> list[int]:
     return boundaries
 
 
-def _validate_provenance(value: Any, context: str) -> None:
+def _validate_annotation_audit(
+    value: dict[str, Any], context: str
+) -> dict[str, Any] | None:
+    present = ANNOTATION_AUDIT_KEYS & set(value)
+    if not present:
+        return None
+    if present != ANNOTATION_AUDIT_KEYS:
+        raise ValueError(
+            f"{context} annotation audit must define all four fields"
+        )
+    routing_batch_id = value["routing_batch_id"]
+    if routing_batch_id is not None:
+        routing_batch_id = _text(
+            routing_batch_id, f"{context}.routing_batch_id"
+        )
+        try:
+            parsed = uuid.UUID(routing_batch_id)
+        except ValueError as error:
+            raise ValueError(
+                f"{context}.routing_batch_id must be a canonical UUID"
+            ) from error
+        if str(parsed) != routing_batch_id:
+            raise ValueError(
+                f"{context}.routing_batch_id must be a canonical UUID"
+            )
+    if value["annotation_tier"] != "gold":
+        raise ValueError(
+            f"{context}.annotation_tier must be gold for reviewed evaluation data"
+        )
+    if value["llm_unmodified"] is not False:
+        raise ValueError(f"{context}.llm_unmodified must be false")
+    if value["human_reviewed"] is not True:
+        raise ValueError(f"{context}.human_reviewed must be true")
+    return {
+        "routing_batch_id": routing_batch_id,
+        "annotation_tier": "gold",
+        "llm_unmodified": False,
+        "human_reviewed": True,
+    }
+
+
+def _validate_provenance(
+    value: Any, context: str
+) -> dict[str, Any] | None:
     provenance = _object(value, context)
     optional = {
         "proposal_id",
@@ -260,7 +312,12 @@ def _validate_provenance(value: Any, context: str) -> None:
         "source_path_id",
         "row_number",
     }
-    _require_allowed_keys(provenance, {"kind"}, {"kind", *optional}, context)
+    _require_allowed_keys(
+        provenance,
+        {"kind"},
+        {"kind", *optional, *ANNOTATION_AUDIT_KEYS},
+        context,
+    )
     kind = provenance["kind"]
     if kind not in {"human", "xlsx", "lindera", "llm"}:
         raise ValueError(f"{context}.kind is invalid")
@@ -271,6 +328,7 @@ def _validate_provenance(value: Any, context: str) -> None:
         provenance["row_number"], f"{context}.row_number"
     ) < 2:
         raise ValueError(f"{context}.row_number must be at least 2")
+    return _validate_annotation_audit(provenance, context)
 
 
 def _validate_imported(value: Any, context: str) -> None:
@@ -353,13 +411,16 @@ def _validate_path(
             raise ValueError(
                 f"{context} aligned reading and surface chunk counts differ"
             )
-    _validate_provenance(path["provenance"], f"{context}.provenance")
+    annotation_audit = _validate_provenance(
+        path["provenance"], f"{context}.provenance"
+    )
     return {
         "path_id": path_id,
         "surface_reference_id": reference_id,
         "reading_boundaries": reading_boundaries,
         "surface_boundaries": surface_boundaries,
         "alignment_status": alignment_status,
+        "annotation_audit": annotation_audit,
     }
 
 
@@ -497,17 +558,19 @@ def _validate_export_record(record: dict[str, Any], context: str) -> dict[str, A
         raise ValueError(f"{context}.acceptable_paths duplicate semantic path")
 
     review = _object(record["review"], f"{context}.review")
-    _require_exact_keys(
+    required_review_keys = {
+        "revision",
+        "corrected_reading",
+        "annotator_id",
+        "reviewed_once",
+        "updated_at",
+        "notes",
+        "imported",
+    }
+    _require_allowed_keys(
         review,
-        {
-            "revision",
-            "corrected_reading",
-            "annotator_id",
-            "reviewed_once",
-            "updated_at",
-            "notes",
-            "imported",
-        },
+        required_review_keys,
+        {*required_review_keys, *ANNOTATION_AUDIT_KEYS},
         f"{context}.review",
     )
     _nonnegative_int(review["revision"], f"{context}.review.revision")
@@ -529,6 +592,17 @@ def _validate_export_record(record: dict[str, Any], context: str) -> dict[str, A
     if review["notes"] is not None:
         _note(review["notes"], f"{context}.review.notes")
     _validate_imported(review["imported"], f"{context}.review.imported")
+    review_audit = _validate_annotation_audit(
+        review, f"{context}.review"
+    )
+    for path_kind, paths in (("acceptable", acceptable), ("draft", drafts)):
+        for index, path in enumerate(paths):
+            path_audit = path["annotation_audit"]
+            if path_audit != review_audit:
+                raise ValueError(
+                    f"{context}.{path_kind}_paths[{index}] annotation audit "
+                    "does not match review"
+                )
 
     return {
         "id": case_id,
@@ -540,6 +614,7 @@ def _validate_export_record(record: dict[str, Any], context: str) -> dict[str, A
         "reading_corrected": corrected_reading is not None,
         "surfaces": surfaces,
         "acceptable_paths": acceptable,
+        "annotation_audit": review_audit,
     }
 
 

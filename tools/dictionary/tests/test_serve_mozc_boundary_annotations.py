@@ -1268,10 +1268,31 @@ class WorkspaceTests(unittest.TestCase):
                     .read_text(encoding="utf-8")
                     .splitlines()
                 ]
-                self.assertEqual(
-                    exported_records[0]["acceptable_paths"], [acceptable]
+                exported_acceptable = deepcopy(acceptable)
+                exported_acceptable["provenance"].update(
+                    {
+                        "routing_batch_id": None,
+                        "annotation_tier": "gold",
+                        "llm_unmodified": False,
+                        "human_reviewed": True,
+                    }
                 )
-                self.assertEqual(exported_records[0]["draft_paths"], [draft])
+                exported_draft = deepcopy(draft)
+                exported_draft["provenance"].update(
+                    {
+                        "routing_batch_id": None,
+                        "annotation_tier": "gold",
+                        "llm_unmodified": False,
+                        "human_reviewed": True,
+                    }
+                )
+                self.assertEqual(
+                    exported_records[0]["acceptable_paths"],
+                    [exported_acceptable],
+                )
+                self.assertEqual(
+                    exported_records[0]["draft_paths"], [exported_draft]
+                )
 
                 journal_before_retry = workspace.events_path.read_bytes()
                 snapshot_before_retry = workspace.snapshot_path.read_bytes()
@@ -1707,7 +1728,11 @@ class WorkspaceTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            snapshot["reviews"]["case-1"].pop("corrected_reading", None)
+            # Simulate a v1 revision-0 snapshot plus its revision-1 event so
+            # the legacy event must actually be replayed.
+            snapshot["reviews"]["case-1"] = serve._pending_review()
+            for key in serve.ANNOTATION_AUDIT_KEYS:
+                snapshot["reviews"]["case-1"].pop(key, None)
             (workspace_root / "review.snapshot.json").write_bytes(
                 serve.canonical_json_bytes(snapshot)
             )
@@ -1719,6 +1744,9 @@ class WorkspaceTests(unittest.TestCase):
             ]
             for event in events:
                 event["review"].pop("corrected_reading", None)
+                event["review"].pop("reviewed_once", None)
+                for key in serve.ANNOTATION_AUDIT_KEYS:
+                    event["review"].pop(key, None)
             (workspace_root / "review.events.jsonl").write_bytes(
                 canonical_jsonl(events)
             )
@@ -1735,6 +1763,10 @@ class WorkspaceTests(unittest.TestCase):
                 )
                 self.assertNotIn("source_reading", detail["case"])
                 self.assertEqual(detail["review"]["revision"], 1)
+                self.assertEqual(
+                    detail["review"]["annotation_tier"], "gold"
+                )
+                self.assertTrue(detail["review"]["human_reviewed"])
                 exported = json.loads(reloaded.export_bytes())
                 self.assertEqual(
                     exported["source"]["reading"], "きょうはあめ"
@@ -1743,6 +1775,32 @@ class WorkspaceTests(unittest.TestCase):
                     exported["source"]["annotation_reading"], "きょうはあめ"
                 )
                 self.assertNotIn("effective_reading", exported["source"])
+            finally:
+                reloaded.close()
+
+    def test_v1_snapshot_without_reviewed_once_stays_unreviewed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            workspace_root = root / "workspace"
+            write_queue(queue_path, [queue_record("case-1")])
+            workspace = self.make_workspace(queue_path, workspace_root)
+            workspace.close()
+
+            snapshot_path = workspace_root / "review.snapshot.json"
+            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            legacy_review = snapshot["reviews"]["case-1"]
+            legacy_review.pop("reviewed_once", None)
+            for key in serve.ANNOTATION_AUDIT_KEYS:
+                legacy_review.pop(key, None)
+            snapshot_path.write_bytes(serve.canonical_json_bytes(snapshot))
+
+            reloaded = self.make_workspace(queue_path, workspace_root)
+            try:
+                review = reloaded.reviews["case-1"]
+                self.assertFalse(review["reviewed_once"])
+                self.assertEqual(review["annotation_tier"], "gold")
+                self.assertFalse(review["human_reviewed"])
             finally:
                 reloaded.close()
 
@@ -1932,6 +1990,47 @@ class WorkspaceTests(unittest.TestCase):
             finally:
                 workspace.close()
 
+    def test_few_shot_retrieval_does_not_use_gold_category(self) -> None:
+        records = [
+            queue_record(
+                "case-target",
+                category="target-category",
+            ),
+            queue_record(
+                "case-a-other-category",
+                category="other-category",
+            ),
+            queue_record(
+                "case-z-same-category",
+                category="target-category",
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            queue_path = root / "queue.jsonl"
+            write_queue(queue_path, records)
+            workspace = self.make_workspace(queue_path, root / "workspace")
+            try:
+                for case_id in (
+                    "case-a-other-category",
+                    "case-z-same-category",
+                ):
+                    workspace.patch_review(
+                        case_id,
+                        review_payload(
+                            path_set_status="open",
+                            paths=[reading_only_path([4])],
+                        ),
+                    )
+
+                examples = workspace._few_shot_examples("case-target")
+                self.assertEqual(
+                    [example["id"] for example in examples],
+                    ["case-a-other-category", "case-z-same-category"],
+                )
+            finally:
+                workspace.close()
+
     def test_corrected_reading_flows_into_few_shots_and_llm_binding(self) -> None:
         target_original = "きよはあめ"
         target_corrected = "きょうはあめ"
@@ -2004,8 +2103,22 @@ class WorkspaceTests(unittest.TestCase):
                 )
 
                 proposal = workspace.generate_proposals("case-target")
-                target = json.loads(str(backend.calls[0]["input_text"]))
+                input_payload = json.loads(
+                    str(backend.calls[0]["input_text"])
+                )
+                target = input_payload["target"]
                 self.assertEqual(target["reading"], target_corrected)
+                self.assertEqual(
+                    set(target), {"reading", "surface_references"}
+                )
+                self.assertEqual(len(input_payload["few_shot_examples"]), 1)
+                self.assertNotIn(
+                    "id", input_payload["few_shot_examples"][0]
+                )
+                self.assertEqual(
+                    input_payload["few_shot_examples"][0]["reading"],
+                    example_corrected,
+                )
                 expected_reading_sha = sha256_uri(
                     target_corrected.encode("utf-8")
                 )
@@ -2022,6 +2135,9 @@ class WorkspaceTests(unittest.TestCase):
                     stored["effective_reading_sha256"], expected_reading_sha
                 )
                 self.assertEqual(stored["review_revision"], 1)
+                self.assertEqual(
+                    stored["generator"]["few_shot_ids"], ["case-example"]
+                )
                 self.assertEqual(
                     records[0]["source"]["reading"], target_original
                 )
@@ -2046,7 +2162,8 @@ class WorkspaceTests(unittest.TestCase):
                 output_schema: dict[str, object],
                 expected_settings_revision: int | None = None,
             ) -> serve.CodexProposalResult:
-                target = json.loads(input_text)
+                input_payload = json.loads(input_text)
+                target = input_payload["target"]
                 reading = target["reading"]
                 surface = target["surface_references"][0]["text"]
                 self.readings.append(reading)
@@ -2169,7 +2286,8 @@ class WorkspaceTests(unittest.TestCase):
                 output_schema: dict[str, object],
                 expected_settings_revision: int | None = None,
             ) -> serve.CodexProposalResult:
-                target = json.loads(input_text)
+                input_payload = json.loads(input_text)
+                target = input_payload["target"]
                 reading = target["reading"]
                 surface = target["surface_references"][0]["text"]
                 self.readings.append(reading)
@@ -2285,7 +2403,8 @@ class WorkspaceTests(unittest.TestCase):
                 output_schema: dict[str, object],
                 expected_settings_revision: int | None = None,
             ) -> serve.CodexProposalResult:
-                target = json.loads(input_text)
+                input_payload = json.loads(input_text)
+                target = input_payload["target"]
                 reading = target["reading"]
                 self.readings.append(reading)
                 if len(self.readings) == 1:
@@ -2384,7 +2503,8 @@ class WorkspaceTests(unittest.TestCase):
                 output_schema: dict[str, object],
                 expected_settings_revision: int | None = None,
             ) -> serve.CodexProposalResult:
-                target = json.loads(input_text)
+                input_payload = json.loads(input_text)
+                target = input_payload["target"]
                 self.started.set()
                 if not self.release.wait(timeout=5):
                     raise AssertionError("test did not release proposal backend")
@@ -2819,13 +2939,30 @@ class WorkspaceTests(unittest.TestCase):
                 self.assertEqual(len(backend.calls), 1)
                 call = backend.calls[0]
                 self.assertIn("日本語IMEのチャンク", call["instructions"])
-                target = json.loads(str(call["input_text"]))
+                input_payload = json.loads(str(call["input_text"]))
+                self.assertEqual(
+                    set(input_payload), {"target", "few_shot_examples"}
+                )
+                target = input_payload["target"]
+                self.assertEqual(
+                    set(target), {"reading", "surface_references"}
+                )
                 self.assertEqual(target["reading"], "きょうはあめ")
                 self.assertEqual(
                     target["surface_references"],
                     [{"index": 0, "text": "今日は雨"}],
                 )
-                self.assertEqual(target["few_shot_examples"], [])
+                self.assertEqual(input_payload["few_shot_examples"], [])
+                serialized_input = str(call["input_text"])
+                for forbidden in (
+                    "lindera_reference_only",
+                    "preannotation",
+                    "category",
+                    "engine",
+                    "score",
+                    "selection",
+                ):
+                    self.assertNotIn(forbidden, serialized_input)
                 expected_schema = workspace._proposal_json_schema(1)
                 self.assertEqual(call["output_schema"], expected_schema)
                 self.assertEqual(
@@ -2881,6 +3018,35 @@ class WorkspaceTests(unittest.TestCase):
                 self.assertEqual(
                     stored["generator"]["reasoning_effort"], "medium"
                 )
+                self.assertEqual(
+                    stored["generator"]["prompt_version"],
+                    "mozc-ime-chunk-blind-lunar-primary-codex-app-server-v5",
+                )
+                expected_prompt_material = canonical_jsonl(
+                    [
+                        {
+                            "instructions": call["instructions"],
+                            "prompt_version": stored["generator"][
+                                "prompt_version"
+                            ],
+                            "target": input_payload,
+                            "output_schema": expected_schema,
+                        }
+                    ]
+                )
+                self.assertEqual(
+                    stored["generator"]["prompt_sha256"],
+                    sha256_uri(expected_prompt_material),
+                )
+                self.assertEqual(
+                    stored["generator"]["input_sha256"],
+                    sha256_uri(canonical_jsonl([input_payload])),
+                )
+                self.assertEqual(
+                    stored["generator"]["output_schema_sha256"],
+                    sha256_uri(canonical_jsonl([expected_schema])),
+                )
+                self.assertEqual(stored["generator"]["few_shot_ids"], [])
                 self.assertTrue(stored["generator"]["ephemeral"])
                 self.assertEqual(stored["generator"]["sandbox"], "read-only")
                 self.assertEqual(stored["generator"]["approval_policy"], "never")

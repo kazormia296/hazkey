@@ -1046,6 +1046,10 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
                 consumingCount: candidate.consumingCount,
                 sourceID: sourceID,
                 provenance: candidate.provenance,
+                rankingInfluence: candidate.rankingInfluence,
+                zenzaiScore: candidate.zenzaiScore,
+                zenzaiScoredTokenCount: candidate.zenzaiScoredTokenCount,
+                zenzaiScoreScope: candidate.zenzaiScoreScope,
                 isLearnable: backend == .hazkey
                     && candidate.isLearnable
                     && candidate.sourceID != nil

@@ -1191,6 +1191,38 @@ final class GrimodexSpeculativeHybridTests: XCTestCase {
     XCTAssertEqual(fixture.gate.activeSpeculationFenceCount, 0)
   }
 
+  func testHybridRoutePreservesZenzaiRankingMetadataAndProvenance() throws {
+    let hazkeyCandidate = ConverterCandidate(
+      text: "Zenzai候補",
+      consumingCount: 2,
+      sourceID: "hazkey-zenzai-source",
+      provenance: .projectDictionary,
+      rankingInfluence: .zenzai,
+      zenzaiScore: -2.75,
+      zenzaiScoredTokenCount: 6,
+      zenzaiScoreScope: .constraintSuffix
+    )
+    let fixture = makeFixture(hazkeyCandidates: [hazkeyCandidate])
+    let context = makeContext(revision: 43, text: "かな")
+    fixture.hybrid.prepareSpeculativeConversion(context)
+    fixture.executor.run()
+    fixture.hybrid.lockCandidateOrder(for: context.revision)
+
+    let output = try fixture.hybrid.segmentCandidates(
+      for: context.input,
+      options: context.options
+    )
+    let routed = try XCTUnwrap(output.candidates.first {
+      $0.text == hazkeyCandidate.text
+    })
+
+    XCTAssertEqual(routed.provenance, .projectDictionary)
+    XCTAssertEqual(routed.rankingInfluence, .zenzai)
+    XCTAssertEqual(routed.zenzaiScore, -2.75)
+    XCTAssertEqual(routed.zenzaiScoredTokenCount, 6)
+    XCTAssertEqual(routed.zenzaiScoreScope, .constraintSuffix)
+  }
+
   private func makeFixture(
     mozcCandidates: [ConverterCandidate] = [
       hybridCandidate("仮名-Mozc", count: 2, sourceID: "mozc-source")

@@ -237,14 +237,36 @@ enum GrimodexProjectCandidateRanker {
 /// layer.  Completed candidates are retained briefly so the converter can
 /// receive the original value when learning is committed.
 final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
+    private struct PrimaryCandidateRequestResult {
+        let result: ConversionResult
+        let rankingInfluence: CandidateRankingInfluence
+        let zenzaiEvaluationMetadata: [
+            ZenzaiCandidateIdentity: ZenzaiCandidateEvaluationMetadata
+        ]
+        let zenzaiExecutionEvidence: ZenzaiExecutionEvidence?
+    }
+
+    private struct CandidateRankingMetadata {
+        let influence: CandidateRankingInfluence
+        let zenzaiEvaluationMetadata: ZenzaiCandidateEvaluationMetadata?
+    }
+
     let supportsSegmentEditing = true
 
     private let converter: KanaKanjiConverter
     private let boundaryConverter: KanaKanjiConverter
     private let optionsProvider: (ConversionOptions) -> ConvertRequestOptions
+    private let primaryCandidateRequestProvider: (
+        ComposingText,
+        ConvertRequestOptions
+    ) -> ConversionResult
     private let surfaceMapper: HazkeyCompositionSurfaceMapper
     private let projectDictionaryIndexProvider: () -> GrimodexProjectDictionaryIndex
     private let zenzaiDiagnosticsReporter: (ConversionOptions, String) -> Void
+    private let zenzaiCandidateEvaluationMetadataProvider: () -> [
+        ZenzaiCandidateIdentity: ZenzaiCandidateEvaluationMetadata
+    ]
+    private let zenzaiExecutionEvidenceProvider: () -> ZenzaiExecutionEvidence
     private var completedCandidates: [String: Candidate] = [:]
     private var completedCandidateOrder: [String] = []
     private var stagedLearningCandidates: [ConverterLearningToken: Candidate] = [:]
@@ -255,6 +277,10 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         converter: KanaKanjiConverter,
         boundaryConverter: KanaKanjiConverter,
         optionsProvider: @escaping (ConversionOptions) -> ConvertRequestOptions,
+        primaryCandidateRequestProvider: ((
+            ComposingText,
+            ConvertRequestOptions
+        ) -> ConversionResult)? = nil,
         mappedInputStyleProvider: @escaping () -> InputStyle = { .roman2kana },
         predictionConfigurationProvider _: @escaping () -> (enabled: Bool, limit: Int) = {
             (false, 0)
@@ -265,7 +291,11 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         },
         zenzaiDiagnosticsReporter: @escaping (ConversionOptions, String) -> Void = {
             _, _ in
-        }
+        },
+        zenzaiCandidateEvaluationMetadataProvider: (() -> [
+            ZenzaiCandidateIdentity: ZenzaiCandidateEvaluationMetadata
+        ])? = nil,
+        zenzaiExecutionEvidenceProvider: (() -> ZenzaiExecutionEvidence)? = nil
     ) {
         precondition(
             converter !== boundaryConverter,
@@ -274,11 +304,54 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         self.converter = converter
         self.boundaryConverter = boundaryConverter
         self.optionsProvider = optionsProvider
+        self.primaryCandidateRequestProvider =
+            primaryCandidateRequestProvider
+            ?? { [converter] composingText, requestOptions in
+                converter.requestCandidates(
+                    composingText,
+                    options: requestOptions
+                )
+            }
         self.surfaceMapper = HazkeyCompositionSurfaceMapper(
             mappedInputStyleProvider: mappedInputStyleProvider
         )
         self.projectDictionaryIndexProvider = projectDictionaryIndexProvider
         self.zenzaiDiagnosticsReporter = zenzaiDiagnosticsReporter
+        self.zenzaiCandidateEvaluationMetadataProvider =
+            zenzaiCandidateEvaluationMetadataProvider
+            ?? { [converter] in converter.zenzaiCandidateEvaluationMetadata }
+        self.zenzaiExecutionEvidenceProvider =
+            zenzaiExecutionEvidenceProvider
+            ?? { [converter] in
+                Self.executionEvidence(
+                    from: converter.zenzaiRequestEvaluationMetadata
+                )
+            }
+    }
+
+    static func supplementRankingMetadata(
+        of existing: ConverterCandidate,
+        from targeted: ConverterCandidate
+    ) -> ConverterCandidate {
+        ConverterCandidate(
+            text: existing.text,
+            annotation: existing.annotation,
+            consumingCount: existing.consumingCount,
+            sourceID: existing.sourceID,
+            provenance: existing.provenance,
+            rankingInfluence: existing.rankingInfluence == .zenzai
+                || targeted.rankingInfluence == .zenzai
+                ? .zenzai
+                : .standard,
+            zenzaiScore: targeted.zenzaiScore ?? existing.zenzaiScore,
+            zenzaiScoredTokenCount: targeted.zenzaiScore == nil
+                ? existing.zenzaiScoredTokenCount
+                : targeted.zenzaiScoredTokenCount,
+            zenzaiScoreScope: targeted.zenzaiScore == nil
+                ? existing.zenzaiScoreScope
+                : targeted.zenzaiScoreScope,
+            isLearnable: existing.isLearnable
+        )
     }
 
     func candidates(
@@ -306,22 +379,36 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             requestOptions.zenzaiMode = .off
         }
 
-        let result = requestPrimaryCandidates(
+        let primary = requestPrimaryCandidates(
             composingText,
             requestOptions: requestOptions,
             conversionOptions: options
         )
+        let primaryIdentities = Set(primary.result.mainResults.map {
+            ZenzaiCandidateIdentity($0)
+        })
         let rankedCandidates = GrimodexProjectCandidateRanker.rank(
-            result.mainResults,
+            primary.result.mainResults,
             for: composingText,
             elementCount: targetElements.count,
             projectIndex: projectDictionaryIndexProvider()
         )
-        let candidates = rankedCandidates.map {
-            makeConverterCandidate(
-                $0,
+        let candidates = rankedCandidates.map { candidate in
+            let isPrimaryCandidate = primaryIdentities.contains(
+                ZenzaiCandidateIdentity(candidate)
+            )
+            return makeConverterCandidate(
+                candidate,
                 in: composingText,
-                elementCount: targetElements.count
+                elementCount: targetElements.count,
+                rankingInfluence: isPrimaryCandidate
+                    ? primary.rankingInfluence
+                    : .standard,
+                zenzaiEvaluationMetadata: isPrimaryCandidate
+                    ? primary.zenzaiEvaluationMetadata[
+                        ZenzaiCandidateIdentity(candidate)
+                    ]
+                    : nil
             )
         }
         let protectedCandidates = candidates.filter {
@@ -337,7 +424,8 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         )
         return ConversionOutput(
             candidates: finalCandidates,
-            pageSize: min(max(requestOptions.N_best, 1), finalCandidates.count)
+            pageSize: min(max(requestOptions.N_best, 1), finalCandidates.count),
+            zenzaiExecutionEvidence: primary.zenzaiExecutionEvidence
         )
     }
 
@@ -468,19 +556,40 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         if !options.zenzaiEnabled {
             requestOptions.zenzaiMode = .off
         }
-        let primaryResult = requestPrimaryCandidates(
+        let primary = requestPrimaryCandidates(
             composingText,
             requestOptions: requestOptions,
             conversionOptions: options
         )
         let projectIndex = projectDictionaryIndexProvider()
+        let primaryIdentities = Set(primary.result.mainResults.map {
+            ZenzaiCandidateIdentity($0)
+        })
         let rankedPrimaryResults = GrimodexProjectCandidateRanker.rank(
-            primaryResult.mainResults,
+            primary.result.mainResults,
             for: composingText,
             elementCount: inputCount,
             projectIndex: projectIndex
         )
-        let unrankedPrimaryClauses = rankedPrimaryResults.compactMap { candidate in
+        var clauseMetadata: [
+            ZenzaiCandidateIdentity: CandidateRankingMetadata
+        ] = [:]
+        func recordClauseMetadata(
+            candidate: Candidate,
+            influence: CandidateRankingInfluence,
+            zenzaiEvaluationMetadata: ZenzaiCandidateEvaluationMetadata?
+        ) {
+            let identity = ZenzaiCandidateIdentity(candidate)
+            let existing = clauseMetadata[identity]
+            clauseMetadata[identity] = CandidateRankingMetadata(
+                influence: influence == .zenzai
+                    ? .zenzai
+                    : existing?.influence ?? .standard,
+                zenzaiEvaluationMetadata: zenzaiEvaluationMetadata
+                    ?? existing?.zenzaiEvaluationMetadata
+            )
+        }
+        let clausesFromWholeCandidates: [Candidate] = rankedPrimaryResults.compactMap { candidate -> Candidate? in
             guard !candidate.data.isEmpty,
                   consumedInputCount(candidate) == inputCount else {
                 return nil
@@ -488,10 +597,37 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             let clause = segmentCount == inputCount
                 ? candidate
                 : Candidate.makePrefixClauseCandidate(data: candidate.data)
-            return consumedInputCount(clause) == segmentCount ? clause : nil
-        } + primaryResult.firstClauseResults.filter { candidate in
+            guard consumedInputCount(clause) == segmentCount else { return nil }
+            let isPrimaryCandidate = primaryIdentities.contains(
+                ZenzaiCandidateIdentity(candidate)
+            )
+            recordClauseMetadata(
+                candidate: clause,
+                influence: isPrimaryCandidate
+                    ? primary.rankingInfluence
+                    : .standard,
+                zenzaiEvaluationMetadata: isPrimaryCandidate
+                    && clause.text == candidate.text
+                    ? primary.zenzaiEvaluationMetadata[
+                        ZenzaiCandidateIdentity(candidate)
+                    ]
+                    : nil
+            )
+            return clause
+        }
+        let firstClauseCandidates = primary.result.firstClauseResults.filter { candidate in
             consumedInputCount(candidate) == segmentCount
         }
+        for candidate in firstClauseCandidates {
+            recordClauseMetadata(
+                candidate: candidate,
+                influence: primary.rankingInfluence,
+                zenzaiEvaluationMetadata: primary.zenzaiEvaluationMetadata[
+                    ZenzaiCandidateIdentity(candidate)
+                ]
+            )
+        }
+        let unrankedPrimaryClauses = clausesFromWholeCandidates + firstClauseCandidates
 
         let prefixComposingText = makeComposingText(
             from: composition.elements.prefix(segmentCount)[...],
@@ -510,10 +646,13 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
                   seenTexts.insert(candidate.text).inserted else {
                 return nil
             }
+            let metadata = clauseMetadata[ZenzaiCandidateIdentity(candidate)]
             let converted = makeConverterCandidate(
                 candidate,
                 in: prefixComposingText,
-                elementCount: segmentCount
+                elementCount: segmentCount,
+                rankingInfluence: metadata?.influence ?? .standard,
+                zenzaiEvaluationMetadata: metadata?.zenzaiEvaluationMetadata
             )
             return ProtectedSurfacePolicy.allows(
                 converted,
@@ -534,8 +673,19 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         )
         for candidate in targeted.candidates {
             guard candidate.consumingCount == segmentCount,
-                  !candidate.text.isEmpty,
-                  seenTexts.insert(candidate.text).inserted else {
+                  !candidate.text.isEmpty else {
+                continue
+            }
+            guard seenTexts.insert(candidate.text).inserted else {
+                guard let index = candidates.firstIndex(where: {
+                    $0.text == candidate.text
+                }) else {
+                    continue
+                }
+                candidates[index] = Self.supplementRankingMetadata(
+                    of: candidates[index],
+                    from: candidate
+                )
                 continue
             }
             candidates.append(candidate)
@@ -565,7 +715,96 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         }
         return ConversionOutput(
             candidates: candidates,
-            pageSize: min(max(requestOptions.N_best, 1), candidates.count)
+            pageSize: min(max(requestOptions.N_best, 1), candidates.count),
+            zenzaiExecutionEvidence: Self.mergeZenzaiExecutionEvidence(
+                primary.zenzaiExecutionEvidence,
+                targeted.zenzaiExecutionEvidence
+            )
+        )
+    }
+
+    static func mergeZenzaiExecutionEvidence(
+        _ primary: ZenzaiExecutionEvidence?,
+        _ targeted: ZenzaiExecutionEvidence?
+    ) -> ZenzaiExecutionEvidence? {
+        switch (primary, targeted) {
+        case (.some(let primary), .some(let targeted)):
+            primary.merged(with: targeted)
+        case (.some(let primary), .none):
+            primary
+        case (.none, .some(let targeted)):
+            targeted
+        case (.none, .none):
+            nil
+        }
+    }
+
+    /// Diagnostic mirror of azooKey's native Zenzai-linked clause path.
+    ///
+    /// Unlike `segmentCandidates`, this does not run the independent
+    /// dictionary-only boundary converter.  It returns `firstClauseResults`
+    /// from the same primary request whose whole-sentence lattice was selected
+    /// by Zenzai.  Keeping this probe-only entry point separate prevents an
+    /// evaluation experiment from silently changing the product boundary
+    /// policy.
+    func nativeZenzaiSegmentCandidatesForProbe(
+        for composition: CompositionInput,
+        options: ConversionOptions
+    ) -> ConversionOutput {
+        guard !composition.elements.isEmpty else {
+            return ConversionOutput(candidates: [], pageSize: 0)
+        }
+        let composingText = makeComposingText(
+            from: composition.elements[...],
+            mappedTableName: composition.mappedTableName
+        )
+        var requestOptions = optionsProvider(options)
+        requestOptions.N_best = max(1, requestOptions.N_best)
+        requestOptions.needTypoCorrection = false
+        requestOptions.requireJapanesePrediction = .disabled
+        requestOptions.requireEnglishPrediction = .disabled
+        requestOptions.englishCandidateInRoman2KanaInput = false
+        requestOptions.fullWidthRomanCandidate = false
+        requestOptions.halfWidthKanaCandidate = false
+        requestOptions.learningType = .nothing
+        requestOptions.shouldResetMemory = false
+        requestOptions.specialCandidateProviders = []
+        if !options.zenzaiEnabled {
+            requestOptions.zenzaiMode = .off
+        }
+
+        let primary = requestPrimaryCandidates(
+            composingText,
+            requestOptions: requestOptions,
+            conversionOptions: options
+        )
+        var seen = Set<String>()
+        let candidates = primary.result.firstClauseResults.compactMap {
+            candidate -> ConverterCandidate? in
+            let converted = makeConverterCandidate(
+                candidate,
+                in: composingText,
+                elementCount: composition.elements.count,
+                rankingInfluence: primary.rankingInfluence,
+                zenzaiEvaluationMetadata: primary.zenzaiEvaluationMetadata[
+                    ZenzaiCandidateIdentity(candidate)
+                ]
+            )
+            let identity = "\(converted.consumingCount):\(converted.text)"
+            guard seen.insert(identity).inserted else { return nil }
+            let prefixText = makeComposingText(
+                from: composition.elements.prefix(converted.consumingCount)[...],
+                mappedTableName: composition.mappedTableName
+            )
+            return ProtectedSurfacePolicy.allows(
+                converted,
+                for: prefixText.convertTarget
+            ) ? converted : nil
+        }
+        return ConversionOutput(
+            candidates: Array(candidates.prefix(requestOptions.N_best)),
+            pageSize: min(max(requestOptions.N_best, 1), candidates.count),
+            zenzaiExecutionEvidence: primary.zenzaiExecutionEvidence
         )
     }
 
@@ -609,22 +848,36 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             requestOptions.zenzaiMode = .off
         }
 
-        let result = requestPrimaryCandidates(
+        let primary = requestPrimaryCandidates(
             composingText,
             requestOptions: requestOptions,
             conversionOptions: options
         )
+        let primaryIdentities = Set(primary.result.mainResults.map {
+            ZenzaiCandidateIdentity($0)
+        })
         let rankedMainResults = GrimodexProjectCandidateRanker.rank(
-            result.mainResults,
+            primary.result.mainResults,
             for: composingText,
             elementCount: targetElements.count,
             projectIndex: projectDictionaryIndexProvider()
         )
-        let mainCandidates = rankedMainResults.map {
-            makeConverterCandidate(
-                $0,
+        let mainCandidates = rankedMainResults.map { candidate in
+            let isPrimaryCandidate = primaryIdentities.contains(
+                ZenzaiCandidateIdentity(candidate)
+            )
+            return makeConverterCandidate(
+                candidate,
                 in: composingText,
-                elementCount: targetElements.count
+                elementCount: targetElements.count,
+                rankingInfluence: isPrimaryCandidate
+                    ? primary.rankingInfluence
+                    : .standard,
+                zenzaiEvaluationMetadata: isPrimaryCandidate
+                    ? primary.zenzaiEvaluationMetadata[
+                        ZenzaiCandidateIdentity(candidate)
+                    ]
+                    : nil
             )
         }.filter {
             ProtectedSurfacePolicy.allows($0, for: composingText.convertTarget)
@@ -651,11 +904,15 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             candidates = Array(orderedMainCandidates.prefix(limit))
             pageSize = min(limit, candidates.count)
         case .predictive:
-            let predictionCandidates = result.predictionResults.prefix(limit).map {
+            let predictionCandidates = primary.result.predictionResults.prefix(limit).map {
                 makePredictionCandidate(
                     $0,
                     in: composingText,
-                    elementCount: targetElements.count
+                    elementCount: targetElements.count,
+                    rankingInfluence: primary.rankingInfluence,
+                    zenzaiEvaluationMetadata: primary.zenzaiEvaluationMetadata[
+                        ZenzaiCandidateIdentity($0)
+                    ]
                 )
             }.filter {
                 ProtectedSurfacePolicy.allows($0, for: composingText.convertTarget)
@@ -693,16 +950,20 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         if !options.zenzaiEnabled {
             requestOptions.zenzaiMode = .off
         }
-        let result = requestPrimaryCandidates(
+        let primary = requestPrimaryCandidates(
             composingText,
             requestOptions: requestOptions,
             conversionOptions: options
         )
-        let predictionCandidates = result.predictionResults.prefix(limit).map { candidate in
+        let predictionCandidates = primary.result.predictionResults.prefix(limit).map { candidate in
             makePredictionCandidate(
                 candidate,
                 in: composingText,
-                elementCount: composition.elements.count
+                elementCount: composition.elements.count,
+                rankingInfluence: primary.rankingInfluence,
+                zenzaiEvaluationMetadata: primary.zenzaiEvaluationMetadata[
+                    ZenzaiCandidateIdentity(candidate)
+                ]
             )
         }.filter {
             ProtectedSurfacePolicy.allows($0, for: composingText.convertTarget)
@@ -824,19 +1085,79 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
         _ composingText: ComposingText,
         requestOptions: ConvertRequestOptions,
         conversionOptions: ConversionOptions
-    ) -> ConversionResult {
-        let result = converter.requestCandidates(
+    ) -> PrimaryCandidateRequestResult {
+        let result = primaryCandidateRequestProvider(
             composingText,
-            options: requestOptions
+            requestOptions
         )
+        // A `.pass` can have an empty score suffix when its prefix constraint
+        // already covers every candidate token. Zero tokens means there is no
+        // raw score evidence to attach. Keep negative values observable so
+        // diagnostics still fail closed on impossible provider corruption.
+        let zenzaiEvaluationMetadata =
+            zenzaiCandidateEvaluationMetadataProvider().filter {
+                $0.value.scoredTokenCount != 0
+            }
+        let zenzaiExecutionEvidence = requestOptions.zenzaiMode.enabled
+            ? zenzaiExecutionEvidenceProvider()
+            : nil
         zenzaiDiagnosticsReporter(conversionOptions, converter.zenzStatus)
-        return result
+        return PrimaryCandidateRequestResult(
+            result: result,
+            rankingInfluence: requestOptions.zenzaiMode.enabled
+                ? .zenzai
+                : .standard,
+            zenzaiEvaluationMetadata: zenzaiEvaluationMetadata,
+            zenzaiExecutionEvidence: zenzaiExecutionEvidence
+        )
+    }
+
+    private static func executionEvidence(
+        from metadata: ZenzaiRequestEvaluationMetadata
+    ) -> ZenzaiExecutionEvidence {
+        let terminalOutcomes: ZenzaiTerminalOutcomeCounts = switch metadata
+            .terminalOutcome
+        {
+        case .pass:
+            .init(pass: 1, fixRequired: 0, wholeResult: 0, error: 0,
+                  inferenceLimit: 0, noCandidate: 0)
+        case .fixRequired:
+            .init(pass: 0, fixRequired: 1, wholeResult: 0, error: 0,
+                  inferenceLimit: 0, noCandidate: 0)
+        case .wholeResult:
+            .init(pass: 0, fixRequired: 0, wholeResult: 1, error: 0,
+                  inferenceLimit: 0, noCandidate: 0)
+        case .error:
+            .init(pass: 0, fixRequired: 0, wholeResult: 0, error: 1,
+                  inferenceLimit: 0, noCandidate: 0)
+        case .inferenceLimit:
+            .init(pass: 0, fixRequired: 0, wholeResult: 0, error: 0,
+                  inferenceLimit: 1, noCandidate: 0)
+        case .noCandidate:
+            .init(pass: 0, fixRequired: 0, wholeResult: 0, error: 0,
+                  inferenceLimit: 0, noCandidate: 1)
+        case nil:
+            .zero
+        }
+        return ZenzaiExecutionEvidence(
+            requestCount: 1,
+            evaluationAttemptCount: metadata.attemptCount,
+            attemptOutcomes: ZenzaiEvaluationOutcomeCounts(
+                pass: metadata.passCount,
+                fixRequired: metadata.fixRequiredCount,
+                wholeResult: metadata.wholeResultCount,
+                error: metadata.errorCount
+            ),
+            terminalOutcomes: terminalOutcomes
+        )
     }
 
     private func makeConverterCandidate(
         _ candidate: Candidate,
         in composingText: ComposingText,
-        elementCount: Int
+        elementCount: Int,
+        rankingInfluence: CandidateRankingInfluence = .standard,
+        zenzaiEvaluationMetadata: ZenzaiCandidateEvaluationMetadata? = nil
     ) -> ConverterCandidate {
         let consumingCount = consumingInputCount(
             candidate.composingCount,
@@ -847,7 +1168,14 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
             text: candidate.text,
             consumingCount: min(max(consumingCount, 1), elementCount),
             sourceID: sourceID,
-            provenance: candidateProvenance(candidate)
+            provenance: candidateProvenance(candidate),
+            rankingInfluence: rankingInfluence,
+            zenzaiScore: zenzaiEvaluationMetadata?.score,
+            zenzaiScoredTokenCount: zenzaiEvaluationMetadata?
+                .scoredTokenCount,
+            zenzaiScoreScope: zenzaiEvaluationMetadata.map {
+                $0.coversFullCandidate ? .fullCandidate : .constraintSuffix
+            }
         )
         completedCandidates[sourceID] = candidate
         completedCandidateOrder.append(sourceID)
@@ -857,19 +1185,27 @@ final class HazkeyKanaKanjiConverterAdapter: KanaKanjiConverting {
     private func makePredictionCandidate(
         _ candidate: Candidate,
         in composingText: ComposingText,
-        elementCount: Int
+        elementCount: Int,
+        rankingInfluence: CandidateRankingInfluence = .standard,
+        zenzaiEvaluationMetadata: ZenzaiCandidateEvaluationMetadata? = nil
     ) -> ConverterCandidate {
         let value = makeConverterCandidate(
             candidate,
             in: composingText,
-            elementCount: elementCount
+            elementCount: elementCount,
+            rankingInfluence: rankingInfluence,
+            zenzaiEvaluationMetadata: zenzaiEvaluationMetadata
         )
         return ConverterCandidate(
             text: value.text,
             annotation: "予測",
             consumingCount: value.consumingCount,
             sourceID: value.sourceID,
-            provenance: value.provenance
+            provenance: value.provenance,
+            rankingInfluence: value.rankingInfluence,
+            zenzaiScore: value.zenzaiScore,
+            zenzaiScoredTokenCount: value.zenzaiScoredTokenCount,
+            zenzaiScoreScope: value.zenzaiScoreScope
         )
     }
 

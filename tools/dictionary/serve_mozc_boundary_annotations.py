@@ -56,6 +56,52 @@ SURFACE_UNIT = "surface_reference_code_point"
 PATH_SET_STATUSES = frozenset({"pending", "open", "closed", "invalid"})
 PATH_STATUSES = frozenset({"draft", "acceptable"})
 ALIGNMENT_STATUSES = frozenset({"reading_only", "aligned"})
+ANNOTATION_TIERS = frozenset({"silver", "gold"})
+ANNOTATION_AUDIT_KEYS = (
+    "routing_batch_id",
+    "annotation_tier",
+    "llm_unmodified",
+    "human_reviewed",
+)
+PATH_KEYS = frozenset(
+    {
+        "path_id",
+        "status",
+        "surface_reference_id",
+        "reading_boundaries",
+        "surface_boundaries",
+        "alignment_status",
+        "provenance",
+    }
+)
+PATH_PROVENANCE_KEYS = frozenset(
+    {
+        "kind",
+        "proposal_id",
+        "workbook_sha256",
+        "legacy_status",
+        "source_path_id",
+        "row_number",
+        *ANNOTATION_AUDIT_KEYS,
+    }
+)
+REVIEW_KEYS = frozenset(
+    {
+        "base_revision",
+        "action",
+        "revision",
+        "corrected_reading",
+        "path_set_status",
+        "needs_adjudication",
+        "acceptable_paths",
+        "notes",
+        "annotator_id",
+        "reviewed_once",
+        "updated_at",
+        "imported",
+        *ANNOTATION_AUDIT_KEYS,
+    }
+)
 LEGACY_STATUSES = frozenset({"未確認", "承認", "修正", "曖昧", "無効入力"})
 SHA256_URI = re.compile(r"sha256:[0-9a-f]{64}")
 PATH_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
@@ -429,6 +475,105 @@ def _effective_reading_sha256(reading: str) -> str:
     return sha256_bytes(reading.encode("utf-8"))
 
 
+def _reject_unknown_keys(
+    value: dict[str, Any], allowed: frozenset[str], context: str
+) -> None:
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise AnnotationError(f"{context} contains unsupported fields: {unknown}")
+
+
+def _normalize_routing_batch_id(value: Any, context: str) -> str | None:
+    if value is None:
+        return None
+    batch_id = _require_text(value, context)
+    try:
+        parsed = uuid.UUID(batch_id)
+    except ValueError as exc:
+        raise AnnotationError(f"{context} must be a canonical UUID") from exc
+    if str(parsed) != batch_id:
+        raise AnnotationError(f"{context} must be a canonical UUID")
+    return batch_id
+
+
+def _normalize_annotation_audit(
+    value: dict[str, Any],
+    *,
+    previous: dict[str, Any] | None,
+    reviewed_once: bool,
+    context: str,
+) -> dict[str, Any]:
+    sources = (value, previous or {})
+    has_audit = any(
+        key in source for source in sources for key in ANNOTATION_AUDIT_KEYS
+    )
+    if not has_audit:
+        # Workspaces created before routing provenance existed are human data,
+        # never Silver.  Preserve their reviewed state without inventing a
+        # routing batch.
+        return {
+            "routing_batch_id": None,
+            "annotation_tier": "gold",
+            "llm_unmodified": False,
+            "human_reviewed": reviewed_once,
+        }
+
+    def inherited(key: str) -> Any:
+        if key in value:
+            return value[key]
+        if previous is not None and key in previous:
+            return previous[key]
+        raise AnnotationError(
+            f"{context} audit must define {key!r} with the other audit fields"
+        )
+
+    routing_batch_id = _normalize_routing_batch_id(
+        inherited("routing_batch_id"), f"{context}.routing_batch_id"
+    )
+    annotation_tier = inherited("annotation_tier")
+    if (
+        not isinstance(annotation_tier, str)
+        or annotation_tier not in ANNOTATION_TIERS
+    ):
+        raise AnnotationError(
+            f"{context}.annotation_tier must be silver or gold"
+        )
+    llm_unmodified = inherited("llm_unmodified")
+    if type(llm_unmodified) is not bool:
+        raise AnnotationError(f"{context}.llm_unmodified must be boolean")
+    human_reviewed = inherited("human_reviewed")
+    if type(human_reviewed) is not bool:
+        raise AnnotationError(f"{context}.human_reviewed must be boolean")
+    if annotation_tier == "silver":
+        if routing_batch_id is None:
+            raise AnnotationError(
+                f"{context} Silver audit requires routing_batch_id"
+            )
+        if llm_unmodified is not True or human_reviewed is not False:
+            raise AnnotationError(
+                f"{context} Silver audit must be unmodified and unreviewed"
+            )
+    elif llm_unmodified:
+        raise AnnotationError(
+            f"{context} Gold audit cannot be marked llm_unmodified"
+        )
+    return {
+        "routing_batch_id": routing_batch_id,
+        "annotation_tier": annotation_tier,
+        "llm_unmodified": llm_unmodified,
+        "human_reviewed": human_reviewed,
+    }
+
+
+def _stamp_path_annotation_audit(
+    path: dict[str, Any], audit: dict[str, Any]
+) -> None:
+    provenance = path["provenance"]
+    provenance["routing_batch_id"] = audit["routing_batch_id"]
+    for key in ("annotation_tier", "llm_unmodified", "human_reviewed"):
+        provenance[key] = audit[key]
+
+
 def normalize_path(
     path: Any,
     case: dict[str, Any],
@@ -436,16 +581,20 @@ def normalize_path(
     reading: str | None = None,
 ) -> dict[str, Any]:
     value = _require_object(path, "path")
+    _reject_unknown_keys(value, PATH_KEYS, "path")
     path_id = value.get("path_id")
     if not isinstance(path_id, str) or PATH_ID.fullmatch(path_id) is None:
         raise AnnotationError("path.path_id is invalid")
     path_status = value.get("status", "acceptable")
-    if path_status not in PATH_STATUSES:
+    if not isinstance(path_status, str) or path_status not in PATH_STATUSES:
         raise AnnotationError("path.status must be draft or acceptable")
     surface_reference_id = value.get("surface_reference_id")
     surfaces = case["source"]["expected_surfaces"]
     valid_surface_ids = {f"surface-{index}" for index in range(len(surfaces))}
-    if surface_reference_id not in valid_surface_ids:
+    if (
+        not isinstance(surface_reference_id, str)
+        or surface_reference_id not in valid_surface_ids
+    ):
         raise AnnotationError("path.surface_reference_id is unknown")
     surface_index = int(surface_reference_id.removeprefix("surface-"))
     if reading is None:
@@ -454,7 +603,10 @@ def normalize_path(
         value.get("reading_boundaries"), len(reading), "path.reading_boundaries"
     )
     alignment_status = value.get("alignment_status")
-    if alignment_status not in ALIGNMENT_STATUSES:
+    if (
+        not isinstance(alignment_status, str)
+        or alignment_status not in ALIGNMENT_STATUSES
+    ):
         raise AnnotationError("path.alignment_status is invalid")
     surface_boundaries_raw = value.get("surface_boundaries")
     if alignment_status == "reading_only":
@@ -475,8 +627,16 @@ def normalize_path(
             )
     provenance = value.get("provenance", {"kind": "human"})
     provenance = _require_object(provenance, "path.provenance")
+    _reject_unknown_keys(
+        provenance, PATH_PROVENANCE_KEYS, "path.provenance"
+    )
     kind = provenance.get("kind")
-    if kind not in {"human", "xlsx", "lindera", "llm"}:
+    if not isinstance(kind, str) or kind not in {
+        "human",
+        "xlsx",
+        "lindera",
+        "llm",
+    }:
         raise AnnotationError("path.provenance.kind is invalid")
     normalized_provenance: dict[str, Any] = {"kind": kind}
     for key in (
@@ -495,6 +655,23 @@ def normalize_path(
         if type(row_number) is not int or row_number < 2:
             raise AnnotationError("path.provenance.row_number is invalid")
         normalized_provenance["row_number"] = row_number
+    path_has_audit = any(key in provenance for key in ANNOTATION_AUDIT_KEYS)
+    if path_has_audit:
+        audit = _normalize_annotation_audit(
+            provenance,
+            previous=None,
+            reviewed_once=False,
+            context="path.provenance",
+        )
+        if audit["annotation_tier"] == "silver" and kind != "llm":
+            raise AnnotationError(
+                "path.provenance Silver audit requires kind llm"
+            )
+        normalized_provenance["routing_batch_id"] = audit[
+            "routing_batch_id"
+        ]
+        for key in ("annotation_tier", "llm_unmodified", "human_reviewed"):
+            normalized_provenance[key] = audit[key]
     return {
         "path_id": path_id,
         "status": path_status,
@@ -514,6 +691,7 @@ def normalize_review(
     annotator_id: str,
 ) -> dict[str, Any]:
     value = _require_object(payload, "review")
+    _reject_unknown_keys(value, REVIEW_KEYS, "review")
     if "corrected_reading" in value:
         corrected_reading_raw = value.get("corrected_reading")
     elif previous is not None:
@@ -537,7 +715,10 @@ def normalize_review(
     effective_reading = corrected_reading or case["source"]["reading"]
     previous_effective_reading = _effective_reading(case, previous)
     path_set_status = value.get("path_set_status")
-    if path_set_status not in PATH_SET_STATUSES:
+    if (
+        not isinstance(path_set_status, str)
+        or path_set_status not in PATH_SET_STATUSES
+    ):
         raise AnnotationError("review.path_set_status is invalid")
     needs_adjudication = value.get("needs_adjudication", False)
     if type(needs_adjudication) is not bool:
@@ -584,6 +765,41 @@ def normalize_review(
             raise AnnotationError("review.notes is too long")
         if notes == "":
             notes = None
+    if "reviewed_once" in value:
+        reviewed_once = value["reviewed_once"]
+    elif previous is not None and "reviewed_once" in previous:
+        reviewed_once = previous["reviewed_once"]
+    else:
+        reviewed_once = True
+    if type(reviewed_once) is not bool:
+        raise AnnotationError("review.reviewed_once must be boolean")
+    audit = _normalize_annotation_audit(
+        value,
+        previous=previous,
+        reviewed_once=reviewed_once,
+        context="review",
+    )
+    if audit["human_reviewed"] is not reviewed_once:
+        raise AnnotationError(
+            "review.human_reviewed must equal review.reviewed_once"
+        )
+    for path in paths:
+        provenance = path["provenance"]
+        path_has_audit = any(
+            key in provenance for key in ANNOTATION_AUDIT_KEYS
+        )
+        if audit["routing_batch_id"] is not None and not path_has_audit:
+            raise AnnotationError(
+                f"path {path['path_id']!r} is missing routed audit provenance"
+            )
+        if path_has_audit:
+            if any(
+                provenance.get(key) != audit[key]
+                for key in ANNOTATION_AUDIT_KEYS
+            ):
+                raise AnnotationError(
+                    f"path {path['path_id']!r} audit disagrees with its review"
+                )
     revision = 0 if previous is None else previous["revision"]
     imported = {} if previous is None else deepcopy(previous.get("imported", {}))
     return {
@@ -594,9 +810,10 @@ def normalize_review(
         "acceptable_paths": paths,
         "notes": notes,
         "annotator_id": annotator_id,
-        "reviewed_once": bool(value.get("reviewed_once", True)),
+        "reviewed_once": reviewed_once,
         "updated_at": None if previous is None else previous.get("updated_at"),
         "imported": imported,
+        **audit,
     }
 
 
@@ -778,6 +995,10 @@ def _pending_review() -> dict[str, Any]:
         "reviewed_once": False,
         "updated_at": None,
         "imported": {},
+        "routing_batch_id": None,
+        "annotation_tier": "gold",
+        "llm_unmodified": False,
+        "human_reviewed": False,
     }
 
 
@@ -898,6 +1119,13 @@ def import_workbook_reviews(
                     "reviewed_once": True,
                 }
             )
+        review.update(
+            {
+                "annotation_tier": "gold",
+                "llm_unmodified": False,
+                "human_reviewed": review["reviewed_once"],
+            }
+        )
         result[case_id] = review
     return result
 
@@ -2679,17 +2907,22 @@ class Workspace:
             raise AnnotationError("workspace snapshot does not cover the queue exactly")
         result: dict[str, dict[str, Any]] = {}
         for case_id, review in reviews.items():
+            review = _require_object(review, f"snapshot.reviews.{case_id}")
+            normalization_review = review
+            if "reviewed_once" not in review:
+                # v1 snapshots treated a missing flag as an untouched review.
+                normalization_review = deepcopy(review)
+                normalization_review["reviewed_once"] = False
             normalized = normalize_review(
-                review,
+                normalization_review,
                 self.queue.by_id[case_id],
-                previous=review,
+                previous=normalization_review,
                 annotator_id=review.get("annotator_id") or self.annotator_id,
             )
             revision = review.get("revision")
             if type(revision) is not int or revision < 0:
                 raise AnnotationError(f"snapshot review revision is invalid for {case_id}")
             normalized["revision"] = revision
-            normalized["reviewed_once"] = bool(review.get("reviewed_once", False))
             normalized["updated_at"] = review.get("updated_at")
             normalized["imported"] = deepcopy(review.get("imported", {}))
             result[case_id] = normalized
@@ -2735,16 +2968,33 @@ class Workspace:
                         f"events:{line_number} skips revision for {case_id}; "
                         f"expected {current_revision + 1}, got {revision}"
                     )
+                normalization_review = review
+                if "reviewed_once" not in review:
+                    # v1 events were emitted by a human save and historically
+                    # defaulted a missing flag to reviewed.
+                    normalization_review = deepcopy(review)
+                    normalization_review["reviewed_once"] = True
+                normalization_previous = self.reviews[case_id]
+                if not any(
+                    key in review for key in ANNOTATION_AUDIT_KEYS
+                ):
+                    # A v1 journal event predates explicit audit provenance.
+                    # Do not let the synthesized audit on the revision-0
+                    # snapshot mask the event's own reviewed_once state.
+                    normalization_previous = deepcopy(
+                        normalization_previous
+                    )
+                    for key in ANNOTATION_AUDIT_KEYS:
+                        normalization_previous.pop(key, None)
                 normalized = normalize_review(
-                    review,
+                    normalization_review,
                     self.queue.by_id[case_id],
-                    previous=self.reviews[case_id],
+                    previous=normalization_previous,
                     annotator_id=review.get("annotator_id") or self.annotator_id,
                 )
                 normalized.update(
                     {
                         "revision": revision,
-                        "reviewed_once": bool(review.get("reviewed_once", True)),
                         "updated_at": review.get("updated_at"),
                         "imported": deepcopy(review.get("imported", {})),
                     }
@@ -3097,6 +3347,8 @@ class Workspace:
     ) -> dict[str, Any]:
         if case_id not in self.queue.by_id:
             raise AnnotationError(f"unknown case {case_id!r}")
+        if any(key in payload for key in ANNOTATION_AUDIT_KEYS):
+            raise AnnotationError("annotation audit fields are server-managed")
         base_revision = payload.get("base_revision")
         if type(base_revision) is not int or base_revision < 0:
             raise AnnotationError("base_revision must be a non-negative integer")
@@ -3106,8 +3358,34 @@ class Workspace:
                 raise RevisionConflict(
                     f"case revision is {previous['revision']}, not {base_revision}"
                 )
+            # Every interactive PATCH is a human review boundary.  A routed
+            # Silver proposal therefore becomes Gold even if the user merely
+            # confirms it without changing the chunk positions.  Stamp a
+            # private payload copy before normalization so newly created paths
+            # in a routed Gold case receive the same server-owned audit.
+            manual_audit = {
+                "routing_batch_id": previous.get("routing_batch_id"),
+                "annotation_tier": "gold",
+                "llm_unmodified": False,
+                "human_reviewed": True,
+            }
+            normalization_payload = deepcopy(payload)
+            normalization_payload.update(manual_audit)
+            normalization_payload["reviewed_once"] = True
+            if manual_audit["routing_batch_id"] is not None:
+                raw_paths = normalization_payload.get("acceptable_paths")
+                if isinstance(raw_paths, list):
+                    for raw_path in raw_paths:
+                        if not isinstance(raw_path, dict):
+                            continue
+                        provenance = raw_path.get("provenance")
+                        if provenance is None:
+                            provenance = {"kind": "human"}
+                            raw_path["provenance"] = provenance
+                        if isinstance(provenance, dict):
+                            provenance.update(manual_audit)
             normalized = normalize_review(
-                payload,
+                normalization_payload,
                 self.queue.by_id[case_id],
                 previous=previous,
                 annotator_id=self.annotator_id,
@@ -3251,13 +3529,26 @@ class Workspace:
     def _export_record(self, record: dict[str, Any]) -> dict[str, Any]:
         review = self.reviews[record["id"]]
         effective_reading = _effective_reading(record, review)
+
+        def export_path(path: dict[str, Any]) -> dict[str, Any]:
+            exported = deepcopy(path)
+            provenance = exported["provenance"]
+            for key in ANNOTATION_AUDIT_KEYS:
+                path_value = provenance.get(key, review[key])
+                if path_value != review[key]:
+                    raise AnnotationError(
+                        f"path {path['path_id']!r} audit disagrees with its review"
+                    )
+                provenance[key] = path_value
+            return exported
+
         acceptable = [
-            deepcopy(path)
+            export_path(path)
             for path in review["acceptable_paths"]
             if path["status"] == "acceptable"
         ]
         drafts = [
-            deepcopy(path)
+            export_path(path)
             for path in review["acceptable_paths"]
             if path["status"] == "draft"
         ]
@@ -3297,6 +3588,10 @@ class Workspace:
                 "updated_at": review["updated_at"],
                 "notes": review["notes"],
                 "imported": deepcopy(review["imported"]),
+                "routing_batch_id": review["routing_batch_id"],
+                "annotation_tier": review["annotation_tier"],
+                "llm_unmodified": review["llm_unmodified"],
+                "human_reviewed": review["human_reviewed"],
             },
         }
 
@@ -3429,8 +3724,6 @@ class Workspace:
             other_grams = self._ngrams(reading)
             union = target_grams | other_grams
             similarity = len(target_grams & other_grams) / max(1, len(union))
-            if record["category"] == target["category"]:
-                similarity += 0.2
             example = {
                 "id": other_id,
                 "reading": reading,
@@ -3727,22 +4020,29 @@ class Workspace:
                     record["source"]["expected_surfaces"]
                 )
             ],
-            "lindera_reference_only": (
-                {
-                    "marked_reading": record["preannotation"]["marked_reading"],
-                    "confidence": record["preannotation"]["confidence"],
-                }
-                if target_review["corrected_reading"] is None
-                else None
-            ),
-            "few_shot_examples": few_shots,
+        }
+        # Keep retrieval identity for the journal, but never expose case IDs or
+        # other selection metadata to the annotator model. The complete target
+        # contract is deliberately limited to reading and surface references.
+        blind_few_shots = [
+            {
+                "reading": example["reading"],
+                "human_accepted_paths": example["human_accepted_paths"],
+            }
+            for example in few_shots
+        ]
+        input_payload = {
+            "target": target,
+            "few_shot_examples": blind_few_shots,
         }
         instructions = (
-            "あなたは日本語IMEのチャンクアノテーションを補助する。"
+            "あなたは日本語IMEのチャンクアノテーションを行う一次アノテータである。"
             "IMEチャンクは形態素や国語文法上の文節ではなく、利用者が候補選択、"
             "文節伸縮、部分確定の単位として自然に扱える読み区間と表層区間の対である。"
+            "入力JSONのtargetにあるreadingとsurface_referencesだけから、"
+            "特定の変換エンジンや既存の分割結果に依存せず盲検で判断する。"
             "読みと表層を漏れ・重複なく覆い、各候補のchunksを連結すると入力と完全一致"
-            "しなければならない。Linderaは参考情報であり境界を維持する必要はない。"
+            "しなければならない。"
             "few_shot_examplesのhuman_accepted_pathsは、同じ入力で複数あれば全て"
             "人手が許容した経路である。各reading_chunksは人手確定済みの読み境界で、"
             "aligned_chunksがnullなら表層境界は未確定なので、人手確定済みとみなしたり"
@@ -3753,7 +4053,7 @@ class Workspace:
             "確認できる案だけを返す。確実な案が一つだけなら一案だけでよい。"
             "説明文ではなく指定JSON Schemaだけを返す。"
         )
-        prompt_version = "mozc-ime-chunk-top3-codex-app-server-v4"
+        prompt_version = "mozc-ime-chunk-blind-lunar-primary-codex-app-server-v5"
         output_schema = self._proposal_json_schema(
             len(record["source"]["expected_surfaces"])
         )
@@ -3761,13 +4061,15 @@ class Workspace:
             {
                 "instructions": instructions,
                 "prompt_version": prompt_version,
-                "target": target,
+                "target": input_payload,
                 "output_schema": output_schema,
             }
         )
         backend_result = proposal_backend.generate(
             instructions=instructions,
-            input_text=canonical_json_bytes(target).decode("utf-8").rstrip("\n"),
+            input_text=(
+                canonical_json_bytes(input_payload).decode("utf-8").rstrip("\n")
+            ),
             output_schema=output_schema,
             expected_settings_revision=expected_llm_settings_revision,
         )
@@ -3813,7 +4115,7 @@ class Workspace:
                 "prompt_version": prompt_version,
                 "prompt_sha256": sha256_bytes(prompt_material),
                 "input_sha256": sha256_bytes(
-                    canonical_json_bytes(target)
+                    canonical_json_bytes(input_payload)
                 ),
                 "output_schema_sha256": sha256_bytes(
                     canonical_json_bytes(output_schema)

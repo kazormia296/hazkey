@@ -10,6 +10,7 @@ provenance must be identical in every result and run.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import math
 from pathlib import Path
@@ -24,11 +25,13 @@ INPUT_SCHEMA_V2 = "hazkey.ab-probe-result.v2"
 INPUT_SCHEMA_V3 = "hazkey.ab-probe-result.v3"
 INPUT_SCHEMA_V4 = "hazkey.ab-probe-result.v4"
 INPUT_SCHEMA_V5 = "hazkey.ab-probe-result.v5"
+INPUT_SCHEMA_V6 = "hazkey.ab-probe-result.v6"
 OUTPUT_SCHEMA_V1 = "hazkey.ab-probe-summary.v1"
 OUTPUT_SCHEMA_V2 = "hazkey.ab-probe-summary.v2"
 OUTPUT_SCHEMA_V3 = "hazkey.ab-probe-summary.v3"
 OUTPUT_SCHEMA_V4 = "hazkey.ab-probe-summary.v4"
 OUTPUT_SCHEMA_V5 = "hazkey.ab-probe-summary.v5"
+OUTPUT_SCHEMA_V6 = "hazkey.ab-probe-summary.v6"
 SEGMENT_CANDIDATES_PATH = "segment_candidates"
 COMPOSITION_ELEMENT_UNIT = "composition_element"
 V2_RESOURCE_KIND_BY_CONVERTER = {
@@ -104,6 +107,15 @@ def _nonnegative_number(value: Any, context: str) -> float:
     return result
 
 
+def _finite_number(value: Any, context: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{context} must be a finite number")
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"{context} must be a finite number")
+    return result
+
+
 def _optional_rss(value: Any, context: str) -> int | None:
     if value is None:
         return None
@@ -154,10 +166,12 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
         INPUT_SCHEMA_V3,
         INPUT_SCHEMA_V4,
         INPUT_SCHEMA_V5,
+        INPUT_SCHEMA_V6,
     ):
         raise ValueError(
             f"{context}.schema must be {INPUT_SCHEMA_V1}, {INPUT_SCHEMA_V2}, "
-            f"{INPUT_SCHEMA_V3}, {INPUT_SCHEMA_V4}, or {INPUT_SCHEMA_V5}"
+            f"{INPUT_SCHEMA_V3}, {INPUT_SCHEMA_V4}, {INPUT_SCHEMA_V5}, or "
+            f"{INPUT_SCHEMA_V6}"
         )
 
     case_id = _string(_required(result, "id", context), f"{context}.id")
@@ -214,7 +228,12 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
                 f"{context}.resource.kind must be {expected_resource_kind!r} "
                 f"for converter_backend {converter_backend!r}"
             )
-    if schema in (INPUT_SCHEMA_V3, INPUT_SCHEMA_V4, INPUT_SCHEMA_V5):
+    if schema in (
+        INPUT_SCHEMA_V3,
+        INPUT_SCHEMA_V4,
+        INPUT_SCHEMA_V5,
+        INPUT_SCHEMA_V6,
+    ):
         reading = _string(
             _required(result, "reading", context), f"{context}.reading"
         )
@@ -248,7 +267,7 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
         top_k = None
         corpus = None
 
-    if schema in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5):
+    if schema in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5, INPUT_SCHEMA_V6):
         conversion_path = _string(
             _required(result, "conversion_path", context),
             f"{context}.conversion_path",
@@ -265,9 +284,17 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
         _required(result, "candidates", context), f"{context}.candidates"
     )
     candidates: list[str] | list[dict[str, Any]]
-    if schema in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5):
+    if schema in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5, INPUT_SCHEMA_V6):
         candidates = []
         expected_candidate_fields = {"text", "rank", "consuming_count"}
+        if schema == INPUT_SCHEMA_V6:
+            expected_candidate_fields |= {
+                "provenance",
+                "ranking_influence",
+                "zenzai_score",
+                "zenzai_score_token_count",
+                "zenzai_score_scope",
+            }
         for index, raw_candidate in enumerate(raw_candidates):
             candidate_context = f"{context}.candidates[{index}]"
             candidate = _object(raw_candidate, candidate_context)
@@ -290,18 +317,101 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
                 raise ValueError(
                     f"{candidate_context}.rank must be {expected_rank}, got {rank}"
                 )
-            candidates.append(
-                {
-                    "text": _string(
-                        candidate["text"], f"{candidate_context}.text"
-                    ),
-                    "rank": rank,
-                    "consuming_count": _positive_int(
-                        candidate["consuming_count"],
-                        f"{candidate_context}.consuming_count",
-                    ),
-                }
-            )
+            parsed_candidate = {
+                "text": _string(
+                    candidate["text"], f"{candidate_context}.text"
+                ),
+                "rank": rank,
+                "consuming_count": _positive_int(
+                    candidate["consuming_count"],
+                    f"{candidate_context}.consuming_count",
+                ),
+            }
+            if schema == INPUT_SCHEMA_V6:
+                provenance = _string(
+                    candidate["provenance"],
+                    f"{candidate_context}.provenance",
+                )
+                if provenance not in {
+                    "standard",
+                    "personalDictionary",
+                    "projectDictionary",
+                    "temporaryDictionary",
+                    "zenzai",
+                    "builtInGuard",
+                    "unknown",
+                }:
+                    raise ValueError(
+                        f"{candidate_context}.provenance is invalid"
+                    )
+                ranking_influence = _string(
+                    candidate["ranking_influence"],
+                    f"{candidate_context}.ranking_influence",
+                )
+                if ranking_influence not in {"standard", "zenzai"}:
+                    raise ValueError(
+                        f"{candidate_context}.ranking_influence is invalid"
+                    )
+                raw_score = candidate["zenzai_score"]
+                raw_score_token_count = candidate["zenzai_score_token_count"]
+                raw_score_scope = candidate["zenzai_score_scope"]
+                score_metadata_presence = (
+                    raw_score is not None,
+                    raw_score_token_count is not None,
+                    raw_score_scope is not None,
+                )
+                if len(set(score_metadata_presence)) != 1:
+                    raise ValueError(
+                        f"{candidate_context}.zenzai_score, "
+                        "zenzai_score_token_count, and zenzai_score_scope "
+                        "must be all null or all present"
+                    )
+                zenzai_score = (
+                    None
+                    if raw_score is None
+                    else _finite_number(
+                        raw_score, f"{candidate_context}.zenzai_score"
+                    )
+                )
+                if zenzai_score is not None and ranking_influence != "zenzai":
+                    raise ValueError(
+                        f"{candidate_context}.zenzai_score requires "
+                        "ranking_influence='zenzai'"
+                    )
+                zenzai_score_token_count = (
+                    None
+                    if raw_score_token_count is None
+                    else _positive_int(
+                        raw_score_token_count,
+                        f"{candidate_context}.zenzai_score_token_count",
+                    )
+                )
+                zenzai_score_scope = (
+                    None
+                    if raw_score_scope is None
+                    else _string(
+                        raw_score_scope,
+                        f"{candidate_context}.zenzai_score_scope",
+                    )
+                )
+                if zenzai_score_scope not in {
+                    None,
+                    "full_candidate",
+                    "constraint_suffix",
+                }:
+                    raise ValueError(
+                        f"{candidate_context}.zenzai_score_scope is invalid"
+                    )
+                parsed_candidate.update(
+                    {
+                        "provenance": provenance,
+                        "ranking_influence": ranking_influence,
+                        "zenzai_score": zenzai_score,
+                        "zenzai_score_token_count": zenzai_score_token_count,
+                        "zenzai_score_scope": zenzai_score_scope,
+                    }
+                )
+            candidates.append(parsed_candidate)
     else:
         candidates = []
         for index, candidate in enumerate(raw_candidates):
@@ -313,7 +423,7 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
             f"{context}.candidates has {len(candidates)} values; top_k is {top_k}"
         )
 
-    if schema == INPUT_SCHEMA_V5:
+    if schema in (INPUT_SCHEMA_V5, INPUT_SCHEMA_V6):
         span_context = f"{context}.composition_span"
         raw_span = _object(
             _required(result, "composition_span", context), span_context
@@ -357,6 +467,116 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
         composition_span = None
         whole_span_candidate_count = None
 
+    if schema == INPUT_SCHEMA_V6:
+        producer_context = f"{context}.producer"
+        raw_producer = _object(
+            _required(result, "producer", context), producer_context
+        )
+        expected_producer_fields = {"path", "size_bytes", "sha256"}
+        if set(raw_producer) != expected_producer_fields:
+            raise ValueError(
+                f"{producer_context} must contain exactly path, size_bytes, "
+                "and sha256"
+            )
+        producer = {
+            "path": _string(raw_producer["path"], f"{producer_context}.path"),
+            "size_bytes": _positive_int(
+                raw_producer["size_bytes"], f"{producer_context}.size_bytes"
+            ),
+            "sha256": _sha256(
+                raw_producer["sha256"], f"{producer_context}.sha256"
+            ),
+        }
+
+        policy_context = f"{context}.quality_policy"
+        raw_policy = _object(
+            _required(result, "quality_policy", context), policy_context
+        )
+        if set(raw_policy) != {"learning", "context", "zenzai"}:
+            raise ValueError(
+                f"{policy_context} must contain exactly learning, context, "
+                "and zenzai"
+            )
+        if raw_policy["learning"] is not False:
+            raise ValueError(f"{policy_context}.learning must be false")
+        if raw_policy["context"] != "empty":
+            raise ValueError(f"{policy_context}.context must be empty")
+        zenzai_context = f"{policy_context}.zenzai"
+        raw_zenzai = _object(raw_policy["zenzai"], zenzai_context)
+        expected_zenzai_fields = {
+            "enabled",
+            "model_path",
+            "model_size_bytes",
+            "model_sha256",
+            "inference_limit",
+            "resolved_device",
+        }
+        if set(raw_zenzai) != expected_zenzai_fields:
+            raise ValueError(
+                f"{zenzai_context} fields do not match the v6 contract"
+            )
+        enabled = raw_zenzai["enabled"]
+        if not isinstance(enabled, bool):
+            raise ValueError(f"{zenzai_context}.enabled must be a boolean")
+        nullable_fields = (
+            "model_path",
+            "model_size_bytes",
+            "model_sha256",
+            "inference_limit",
+            "resolved_device",
+        )
+        if enabled:
+            zenzai = {
+                "enabled": True,
+                "model_path": _string(
+                    raw_zenzai["model_path"], f"{zenzai_context}.model_path"
+                ),
+                "model_size_bytes": _positive_int(
+                    raw_zenzai["model_size_bytes"],
+                    f"{zenzai_context}.model_size_bytes",
+                ),
+                "model_sha256": _sha256(
+                    raw_zenzai["model_sha256"],
+                    f"{zenzai_context}.model_sha256",
+                ),
+                "inference_limit": _positive_int(
+                    raw_zenzai["inference_limit"],
+                    f"{zenzai_context}.inference_limit",
+                ),
+                "resolved_device": _string(
+                    raw_zenzai["resolved_device"],
+                    f"{zenzai_context}.resolved_device",
+                ),
+            }
+            if converter_backend != "hazkey":
+                raise ValueError(
+                    f"{zenzai_context}.enabled requires converter_backend='hazkey'"
+                )
+        else:
+            if any(raw_zenzai[field] is not None for field in nullable_fields):
+                raise ValueError(
+                    f"{zenzai_context} disabled metadata must be null"
+                )
+            zenzai = {"enabled": False, **{field: None for field in nullable_fields}}
+        quality_policy = {
+            "learning": False,
+            "context": "empty",
+            "zenzai": zenzai,
+        }
+        if not enabled and any(
+            candidate["ranking_influence"] == "zenzai"
+            or candidate["zenzai_score"] is not None
+            or candidate["zenzai_score_token_count"] is not None
+            or candidate["zenzai_score_scope"] is not None
+            for candidate in candidates
+        ):
+            raise ValueError(
+                f"{context}.candidates contain Zenzai evidence while Zenzai is disabled"
+            )
+    else:
+        producer = None
+        quality_policy = None
+
     measurement = _object(
         _required(result, "measurement", context), f"{context}.measurement"
     )
@@ -368,6 +588,14 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
         _required(measurement, "iterations", f"{context}.measurement"),
         f"{context}.measurement.iterations",
     )
+    if (
+        schema == INPUT_SCHEMA_V6
+        and quality_policy["zenzai"]["enabled"]
+        and iterations != 1
+    ):
+        raise ValueError(
+            f"{context}.measurement.iterations must be 1 when Zenzai is enabled"
+        )
 
     latency = _object(
         _required(measurement, "latency_ms", f"{context}.measurement"),
@@ -479,6 +707,8 @@ def validate_result(payload: Any, context: str) -> dict[str, Any]:
             resource["fingerprint"] if schema == INPUT_SCHEMA_V1 else None
         ),
         "converter_backend": converter_backend,
+        "producer": producer,
+        "quality_policy": quality_policy,
         "conversion_path": conversion_path,
         "composition_span": composition_span,
         "whole_span_candidate_count": whole_span_candidate_count,
@@ -542,10 +772,13 @@ def load_run_bytes(data: bytes, path: Path | str) -> dict[str, Any]:
         INPUT_SCHEMA_V3,
         INPUT_SCHEMA_V4,
         INPUT_SCHEMA_V5,
+        INPUT_SCHEMA_V6,
     ):
         consistency_fields += ("top_k", "corpus")
-    if first["schema"] in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5):
+    if first["schema"] in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5, INPUT_SCHEMA_V6):
         consistency_fields += ("conversion_path",)
+    if first["schema"] == INPUT_SCHEMA_V6:
+        consistency_fields += ("producer", "quality_policy")
     consistency_fields += (
         ("dictionary_path", "dictionary_fingerprint")
         if first["schema"] == INPUT_SCHEMA_V1
@@ -560,10 +793,23 @@ def load_run_bytes(data: bytes, path: Path | str) -> dict[str, Any]:
             INPUT_SCHEMA_V3,
             INPUT_SCHEMA_V4,
             INPUT_SCHEMA_V5,
+            INPUT_SCHEMA_V6,
         )
         and first["corpus"]["cases"] != len(cases)
     ):
         raise ValueError(f"{path}: corpus.cases does not match result count")
+    if (
+        first["schema"] == INPUT_SCHEMA_V6
+        and first["quality_policy"]["zenzai"]["enabled"]
+        and not any(
+            candidate["zenzai_score"] is not None
+            for case in cases.values()
+            for candidate in case["candidates"]
+        )
+    ):
+        raise ValueError(
+            f"{path}: enabled Zenzai run has no observed candidate pass score"
+        )
     return {
         "path": path,
         "schema": first["schema"],
@@ -574,9 +820,11 @@ def load_run_bytes(data: bytes, path: Path | str) -> dict[str, Any]:
         "dictionary_path": first["dictionary_path"],
         "dictionary_fingerprint": first["dictionary_fingerprint"],
         "converter_backend": first["converter_backend"],
+        "producer": first["producer"],
+        "quality_policy": first["quality_policy"],
         "conversion_path": first["conversion_path"],
         "composition_span_available": (
-            first["schema"] == INPUT_SCHEMA_V5
+            first["schema"] in (INPUT_SCHEMA_V5, INPUT_SCHEMA_V6)
         ),
         "top_k": first["top_k"],
         "corpus": first["corpus"],
@@ -623,10 +871,17 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
             INPUT_SCHEMA_V3,
             INPUT_SCHEMA_V4,
             INPUT_SCHEMA_V5,
+            INPUT_SCHEMA_V6,
         ):
             consistency_fields += ("top_k", "corpus")
-        if first["schema"] in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5):
+        if first["schema"] in (
+            INPUT_SCHEMA_V4,
+            INPUT_SCHEMA_V5,
+            INPUT_SCHEMA_V6,
+        ):
             consistency_fields += ("conversion_path",)
+        if first["schema"] == INPUT_SCHEMA_V6:
+            consistency_fields += ("producer", "quality_policy")
         consistency_fields += (
             ("dictionary_path", "dictionary_fingerprint")
             if first["schema"] == INPUT_SCHEMA_V1
@@ -655,6 +910,7 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
                 INPUT_SCHEMA_V3,
                 INPUT_SCHEMA_V4,
                 INPUT_SCHEMA_V5,
+                INPUT_SCHEMA_V6,
             ) and (
                 run["cases"][case_id]["reading"]
                 != expected_readings[case_id]
@@ -663,7 +919,7 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
                     f"{run['path']}: reading for case {case_id!r} does not "
                     "match the first run"
                 )
-            if first["schema"] == INPUT_SCHEMA_V5 and (
+            if first["schema"] in (INPUT_SCHEMA_V5, INPUT_SCHEMA_V6) and (
                 run["cases"][case_id]["composition_span"]
                 != expected_composition_spans[case_id]
             ):
@@ -676,6 +932,7 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
                 INPUT_SCHEMA_V3,
                 INPUT_SCHEMA_V4,
                 INPUT_SCHEMA_V5,
+                INPUT_SCHEMA_V6,
             ) and (
                 run["cases"][case_id]["candidates"]
                 != first["cases"][case_id]["candidates"]
@@ -776,8 +1033,11 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
             INPUT_SCHEMA_V3,
             INPUT_SCHEMA_V4,
             INPUT_SCHEMA_V5,
+            INPUT_SCHEMA_V6,
         ):
             provenance["corpus"] = first["corpus"]
+        if first["schema"] == INPUT_SCHEMA_V6:
+            provenance["producer"] = first["producer"]
         converter_summary = {"converter_backend": first["converter_backend"]}
     corpus_summary = (
         {"top_k": first["top_k"]}
@@ -785,15 +1045,20 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
             INPUT_SCHEMA_V3,
             INPUT_SCHEMA_V4,
             INPUT_SCHEMA_V5,
+            INPUT_SCHEMA_V6,
         )
         else {}
     )
     segment_summary = (
         {"conversion_path": first["conversion_path"]}
-        if first["schema"] in (INPUT_SCHEMA_V4, INPUT_SCHEMA_V5)
+        if first["schema"] in (
+            INPUT_SCHEMA_V4,
+            INPUT_SCHEMA_V5,
+            INPUT_SCHEMA_V6,
+        )
         else {}
     )
-    if first["schema"] == INPUT_SCHEMA_V5:
+    if first["schema"] in (INPUT_SCHEMA_V5, INPUT_SCHEMA_V6):
         span_counts = [
             case["composition_span"]["count"]
             for case in first["cases"].values()
@@ -821,6 +1086,55 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
         }
     else:
         composition_span_summary = {}
+    if first["schema"] == INPUT_SCHEMA_V6:
+        candidates = [
+            candidate
+            for case in first["cases"].values()
+            for candidate in case["candidates"]
+        ]
+        influenced = [
+            candidate
+            for candidate in candidates
+            if candidate["ranking_influence"] == "zenzai"
+        ]
+        scored = [
+            candidate
+            for candidate in candidates
+            if candidate["zenzai_score"] is not None
+        ]
+        scores = [candidate["zenzai_score"] for candidate in scored]
+        scores_per_token = [
+            candidate["zenzai_score"] / candidate["zenzai_score_token_count"]
+            for candidate in scored
+        ]
+        score_scopes = Counter(
+            candidate["zenzai_score_scope"] for candidate in scored
+        )
+        quality_policy_summary = {
+            "quality_policy": first["quality_policy"],
+            "zenzai_evidence": {
+                "candidates": len(candidates),
+                "ranking_influenced_candidates": len(influenced),
+                "scored_candidates": len(scored),
+                "score_coverage_of_influenced_candidates": (
+                    len(scored) / len(influenced) if influenced else None
+                ),
+                "minimum_score": min(scores) if scores else None,
+                "maximum_score": max(scores) if scores else None,
+                "minimum_score_per_token": (
+                    min(scores_per_token) if scores_per_token else None
+                ),
+                "maximum_score_per_token": (
+                    max(scores_per_token) if scores_per_token else None
+                ),
+                "score_scope_counts": {
+                    scope: score_scopes.get(scope, 0)
+                    for scope in ("full_candidate", "constraint_suffix")
+                },
+            },
+        }
+    else:
+        quality_policy_summary = {}
     summary = {
         "schema": (
             OUTPUT_SCHEMA_V1
@@ -834,7 +1148,11 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
                     else (
                         OUTPUT_SCHEMA_V4
                         if first["schema"] == INPUT_SCHEMA_V4
-                        else OUTPUT_SCHEMA_V5
+                        else (
+                            OUTPUT_SCHEMA_V5
+                            if first["schema"] == INPUT_SCHEMA_V5
+                            else OUTPUT_SCHEMA_V6
+                        )
                     )
                 )
             )
@@ -845,6 +1163,7 @@ def summarize(paths: list[Path]) -> dict[str, Any]:
         **corpus_summary,
         **segment_summary,
         **composition_span_summary,
+        **quality_policy_summary,
         "provenance": provenance,
         "runs": len(runs),
         "cases_per_run": len(expected_ids),
