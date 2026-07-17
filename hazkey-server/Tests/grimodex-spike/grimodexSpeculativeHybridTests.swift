@@ -173,21 +173,29 @@ final class GrimodexSpeculativeHybridTests: XCTestCase {
     var first = MozcFirstHybridDiagnostics()
     first.shadowPromotionEvaluations = 2
     first.shadowPromotionOpportunities = 1
+    first.shadowPromotionZenzaiExecutionRejected = 1
 
     var second = MozcFirstHybridDiagnostics()
     second.shadowPromotionEvaluations = 3
     second.shadowPromotionOpportunities = 2
     second.shadowPromotionBoundaryRejected = 1
+    second.shadowPromotionZenzaiExecutionRejected = 2
 
     first.merge(second)
 
     XCTAssertEqual(first.shadowPromotionEvaluations, 5)
     XCTAssertEqual(first.shadowPromotionOpportunities, 3)
     XCTAssertEqual(first.shadowPromotionBoundaryRejected, 1)
+    XCTAssertEqual(first.shadowPromotionZenzaiExecutionRejected, 3)
     XCTAssertTrue(first.structuredLogLine.contains("shadow_promotion_evaluations=5"))
     XCTAssertTrue(first.structuredLogLine.contains("shadow_promotion_opportunities=3"))
     XCTAssertTrue(
       first.structuredLogLine.contains("shadow_promotion_boundary_rejected=1")
+    )
+    XCTAssertTrue(
+      first.structuredLogLine.contains(
+        "shadow_promotion_zenzai_execution_rejected=3"
+      )
     )
   }
 
@@ -495,6 +503,148 @@ final class GrimodexSpeculativeHybridTests: XCTestCase {
     XCTAssertEqual(diagnostics.shadowPromotionOpportunities, 0)
     XCTAssertEqual(diagnostics.shadowPromotionBoundaryRejected, 1)
     XCTAssertEqual(diagnostics.top1Promotions, 0)
+  }
+
+  func testNonPassingZenzaiExecutionRejectsPromotionButKeepsLowerMerge() throws {
+    let hazkeyCandidates = [
+      hybridCandidate("Consensus", count: 2, sourceID: "hazkey-consensus"),
+      hybridCandidate("Hazkey-Only", count: 2, sourceID: "hazkey-only"),
+    ]
+    let fixture = makeFixture(
+      mozcCandidates: [
+        hybridCandidate("Mozc-Top", count: 2, sourceID: "mozc-top"),
+        hybridCandidate("Consensus", count: 2, sourceID: "mozc-consensus"),
+        hybridCandidate("Mozc-Third", count: 2, sourceID: "mozc-third"),
+      ],
+      hazkeyCandidates: hazkeyCandidates,
+      promotionPolicy: .oneSidedConsensus,
+      shadowPromotionPolicy: .oneSidedConsensus
+    )
+    fixture.hazkey.outputProvider = { _ in
+      ConversionOutput(
+        candidates: hazkeyCandidates,
+        pageSize: hazkeyCandidates.count,
+        zenzaiExecutionEvidence: hybridZenzaiExecutionEvidence(
+          requestCount: 2,
+          terminalPass: 1,
+          terminalNoCandidate: 1
+        )
+      )
+    }
+    let context = makeContext(revision: 44, text: "かな")
+
+    fixture.hybrid.prepareSpeculativeConversion(context)
+    fixture.executor.run()
+    fixture.hybrid.lockCandidateOrder(for: context.revision)
+    let output = try fixture.hybrid.segmentCandidates(
+      for: context.input,
+      options: context.options
+    )
+
+    XCTAssertEqual(
+      output.candidates.map(\.text),
+      ["Mozc-Top", "Consensus", "Mozc-Third", "Hazkey-Only"]
+    )
+    XCTAssertTrue(output.candidates.last?.isLearnable == true)
+    let diagnostics = fixture.hybrid.diagnosticsSnapshot()
+    XCTAssertEqual(diagnostics.top1Promotions, 0)
+    XCTAssertEqual(diagnostics.shadowPromotionEvaluations, 1)
+    XCTAssertEqual(diagnostics.shadowPromotionOpportunities, 0)
+    XCTAssertEqual(diagnostics.shadowPromotionBoundaryRejected, 0)
+    XCTAssertEqual(diagnostics.shadowPromotionZenzaiExecutionRejected, 1)
+  }
+
+  func testAllPassZenzaiExecutionAllowsPromotion() throws {
+    let hazkeyConsensus = hybridCandidate(
+      "Consensus",
+      count: 2,
+      sourceID: "hazkey-consensus"
+    )
+    let fixture = makeFixture(
+      mozcCandidates: [
+        hybridCandidate("Mozc-Top", count: 2, sourceID: "mozc-top"),
+        hybridCandidate("Consensus", count: 2, sourceID: "mozc-consensus"),
+        hybridCandidate("Mozc-Third", count: 2, sourceID: "mozc-third"),
+      ],
+      hazkeyCandidates: [hazkeyConsensus],
+      promotionPolicy: .oneSidedConsensus
+    )
+    fixture.hazkey.outputProvider = { _ in
+      ConversionOutput(
+        candidates: [hazkeyConsensus],
+        pageSize: 1,
+        zenzaiExecutionEvidence: hybridZenzaiExecutionEvidence(
+          requestCount: 2,
+          terminalPass: 2,
+          terminalNoCandidate: 0
+        )
+      )
+    }
+    let context = makeContext(revision: 45, text: "かな")
+
+    fixture.hybrid.prepareSpeculativeConversion(context)
+    fixture.executor.run()
+    fixture.hybrid.lockCandidateOrder(for: context.revision)
+    let output = try fixture.hybrid.segmentCandidates(
+      for: context.input,
+      options: context.options
+    )
+
+    XCTAssertEqual(
+      output.candidates.map(\.text),
+      ["Consensus", "Mozc-Top", "Mozc-Third"]
+    )
+    XCTAssertEqual(fixture.hybrid.diagnosticsSnapshot().top1Promotions, 1)
+  }
+
+  func testZenzaiPromotionEvidenceRejectsCorruptOrPartialCounters() {
+    let valid = hybridZenzaiExecutionEvidence(
+      requestCount: 2,
+      terminalPass: 2,
+      terminalNoCandidate: 0
+    )
+    XCTAssertTrue(valid.authorizesTop1Promotion)
+
+    let attemptMismatch = ZenzaiExecutionEvidence(
+      requestCount: 1,
+      evaluationAttemptCount: 2,
+      attemptOutcomes: ZenzaiEvaluationOutcomeCounts(
+        pass: 1,
+        fixRequired: 0,
+        wholeResult: 0,
+        error: 0
+      ),
+      terminalOutcomes: validTerminalPassCounts()
+    )
+    XCTAssertFalse(attemptMismatch.authorizesTop1Promotion)
+
+    let negativeTerminal = ZenzaiExecutionEvidence(
+      requestCount: 1,
+      evaluationAttemptCount: 1,
+      attemptOutcomes: ZenzaiEvaluationOutcomeCounts(
+        pass: 1,
+        fixRequired: 0,
+        wholeResult: 0,
+        error: 0
+      ),
+      terminalOutcomes: ZenzaiTerminalOutcomeCounts(
+        pass: 1,
+        fixRequired: 0,
+        wholeResult: 0,
+        error: -1,
+        inferenceLimit: 0,
+        noCandidate: 1
+      )
+    )
+    XCTAssertFalse(negativeTerminal.authorizesTop1Promotion)
+
+    let zeroRequests = ZenzaiExecutionEvidence(
+      requestCount: 0,
+      evaluationAttemptCount: 0,
+      attemptOutcomes: .zero,
+      terminalOutcomes: .zero
+    )
+    XCTAssertFalse(zeroRequests.authorizesTop1Promotion)
   }
 
   func testDiagnosticPromotionRoutesLearningToHazkeyAndRetainsFenceUntilCommit() throws {
@@ -1294,5 +1444,42 @@ private func hybridCandidate(
     consumingCount: count,
     sourceID: sourceID,
     provenance: .standard
+  )
+}
+
+private func hybridZenzaiExecutionEvidence(
+  requestCount: Int,
+  terminalPass: Int,
+  terminalNoCandidate: Int
+) -> ZenzaiExecutionEvidence {
+  precondition(terminalPass + terminalNoCandidate == requestCount)
+  return ZenzaiExecutionEvidence(
+    requestCount: requestCount,
+    evaluationAttemptCount: requestCount,
+    attemptOutcomes: ZenzaiEvaluationOutcomeCounts(
+      pass: terminalPass,
+      fixRequired: terminalNoCandidate,
+      wholeResult: 0,
+      error: 0
+    ),
+    terminalOutcomes: ZenzaiTerminalOutcomeCounts(
+      pass: terminalPass,
+      fixRequired: 0,
+      wholeResult: 0,
+      error: 0,
+      inferenceLimit: 0,
+      noCandidate: terminalNoCandidate
+    )
+  )
+}
+
+private func validTerminalPassCounts() -> ZenzaiTerminalOutcomeCounts {
+  ZenzaiTerminalOutcomeCounts(
+    pass: 1,
+    fixRequired: 0,
+    wholeResult: 0,
+    error: 0,
+    inferenceLimit: 0,
+    noCandidate: 0
   )
 }

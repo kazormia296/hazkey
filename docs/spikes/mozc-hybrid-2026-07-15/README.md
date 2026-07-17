@@ -673,10 +673,31 @@ ABProbe v7へprobe専用`full_composition` modeを追加し、`adapter.candidate
 ABProbe processのレイテンシ中央値は56.57msから80.95ms、対差中央値は+14.79msだった。これは別processを
 逐次実行したCPU診断値であり、製品UIの待ち時間ではない。
 
+7件を追跡すると、空文脈でも`no_candidate`だったものが2件、自然左文脈だけで発生したものが5件、
+空文脈だけで発生したものは0件だった。全7件でmodel evaluation outcomeは`fix_required`だけであり、
+`error`、`pass`、`whole_result`、`inference_limit`は0件だった。Zenzaiが表層prefix制約を更新した後、
+その制約を満たす辞書ラティス候補がなくなった経路である。それ以前に評価した辞書draft候補はfail-openで
+2〜5件残るが、全候補のZenzai scoreは欠測となる。
+
+自然左文脈のterminal `pass` 93件だけではTop-1救済10、悪化1、純増9だった。一方、`no_candidate` 7件は
+救済0、悪化1、純減1であり、全体の純増8はこの合計である。失敗は入力長1〜16で0/39、17〜32で2/33、
+33〜64で2/18、65〜128で3/10と長い入力へ偏るが、24要素でも発生するため、既知100件から単純な長さgateを
+採用しない。
+
+代表3件を空／自然左文脈それぞれ5回再取得すると、候補列とexecution outcomeは全回および元artifactと一致した。
+inference limitを1、2、3、4、5、10、20へ変えても、limit 10での`no_candidate`は20で改善しなかった。
+この再現範囲では、低いlimitは一部を`inference_limit`へ置き換えるだけで正解を救済しなかった。
+したがって推論回数不足として扱わず、
+Zenzai executionが全requestでterminal `pass`にならなかったHazkey結果はTop-1 overrideへ使わない。
+投機的Hazkey結果の`zenzai_execution`はprepared stepまで保持し、activeおよびshadow H1の昇格判定を
+fail-closedにした。shadowでの棄却は`shadow_promotion_zenzai_execution_rejected`へ記録する。H0のMozc
+Top-1を保った下位候補追加は維持する。自然文脈失敗時の空文脈再推論は、二重推論コストと一般化が未評価なので
+製品経路へ入れない。
+
 この100件は既知のSilver explorationで、Gold holdoutでも実入力分布でもない。したがって左文脈経路の
 継続評価を支持する明確な信号ではあるが、production policyやTop-1 overrideを承認しない。完全な評価artifactは
-`build-grimodex/ajimee-contextual-full-quality-20260717-v1/evaluation-v2.json`、そのSHA-256は
-`8bc2b4a66bbd09077c296fda56212d959fc9ace65fae332d38e91a1cd41aa653`である。
+`build-grimodex/ajimee-contextual-full-quality-20260717-v1/evaluation-v3.json`、そのSHA-256は
+`587824a1cee4012c424753c5466c3d3aac12b219ea41c159d5f42998b3ba62cd`である。
 
 ### 未知holdoutで分けて探索する二つのoverride
 

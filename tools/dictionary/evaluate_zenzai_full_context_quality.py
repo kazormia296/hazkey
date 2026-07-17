@@ -37,6 +37,14 @@ BOUNDARY_POLICY = {
 EMPTY_SYSTEM = "full_composition_empty_context_v7"
 NATURAL_SYSTEM = "full_composition_natural_context_v7"
 SYSTEMS = (EMPTY_SYSTEM, NATURAL_SYSTEM)
+TERMINAL_OUTCOMES = (
+    "pass",
+    "fix_required",
+    "whole_result",
+    "error",
+    "inference_limit",
+    "no_candidate",
+)
 LENGTH_BUCKETS = (
     ("0", 0, 0),
     ("1-8", 1, 8),
@@ -354,6 +362,14 @@ def _outcome(candidates: list[dict[str, Any]], references: list[str]) -> dict[st
     }
 
 
+def _terminal_outcome(execution: dict[str, Any]) -> str:
+    terminal = execution["terminal_outcomes"]
+    observed = [name for name in TERMINAL_OUTCOMES if terminal[name] == 1]
+    if len(observed) != 1 or terminal[observed[0]] != execution["request_count"]:
+        raise ValueError("full-composition request must have one terminal outcome")
+    return observed[0]
+
+
 def _build_case(
     target: dict[str, Any], empty: dict[str, Any], natural: dict[str, Any]
 ) -> dict[str, Any]:
@@ -373,6 +389,10 @@ def _build_case(
         "zenzai_execution": {
             EMPTY_SYSTEM: empty["zenzai_execution"],
             NATURAL_SYSTEM: natural["zenzai_execution"],
+        },
+        "zenzai_terminal_outcomes": {
+            EMPTY_SYSTEM: _terminal_outcome(empty["zenzai_execution"]),
+            NATURAL_SYSTEM: _terminal_outcome(natural["zenzai_execution"]),
         },
         "latency_ms": {
             EMPTY_SYSTEM: empty_latency,
@@ -443,6 +463,38 @@ def _execution_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _terminal_transition_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    matrix = {
+        empty: {natural: 0 for natural in TERMINAL_OUTCOMES}
+        for empty in TERMINAL_OUTCOMES
+    }
+    both = natural_only = empty_only = neither = 0
+    for case in cases:
+        empty = case["zenzai_terminal_outcomes"][EMPTY_SYSTEM]
+        natural = case["zenzai_terminal_outcomes"][NATURAL_SYSTEM]
+        matrix[empty][natural] += 1
+        empty_failed = empty == "no_candidate"
+        natural_failed = natural == "no_candidate"
+        if empty_failed and natural_failed:
+            both += 1
+        elif natural_failed:
+            natural_only += 1
+        elif empty_failed:
+            empty_only += 1
+        else:
+            neither += 1
+    return {
+        "matrix": matrix,
+        "no_candidate": {
+            "both": both,
+            "natural_only": natural_only,
+            "empty_only": empty_only,
+            "neither": neither,
+            "cases": len(cases),
+        },
+    }
+
+
 def _latency_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
     ratios = [
         case["latency_ms"]["natural_over_empty_ratio"]
@@ -473,6 +525,7 @@ def _summary(cases: list[dict[str, Any]], top_k: int) -> dict[str, Any]:
         },
         "paired_natural_vs_empty": _pairwise(cases),
         "zenzai_execution": _execution_summary(cases),
+        "zenzai_terminal_transitions": _terminal_transition_summary(cases),
         "latency_ms": _latency_summary(cases),
         "memory_kib": shared._memory_summary(cases, SYSTEMS),
     }
@@ -546,6 +599,7 @@ def evaluate(
             "raw_left_context_emitted": False,
             "gold_category_usage": "none",
             "raw_snapshot_and_generation_exactly_rederived": True,
+            "terminal_outcome_stratification": True,
             "memory_measurement_semantics": (
                 "sequential separate ABProbe processes; RSS/PSS after and within-process "
                 "deltas are diagnostic, not randomized paired effects"
@@ -601,6 +655,17 @@ def evaluate(
         "by_input_code_point_length": {
             name: _summary(values, top_k)
             for name, values in by_input_length.items()
+        },
+        "by_natural_zenzai_terminal_outcome": {
+            outcome: _summary(
+                [
+                    case
+                    for case in cases
+                    if case["zenzai_terminal_outcomes"][NATURAL_SYSTEM] == outcome
+                ],
+                top_k,
+            )
+            for outcome in TERMINAL_OUTCOMES
         },
         "cases": cases,
         "decision": {

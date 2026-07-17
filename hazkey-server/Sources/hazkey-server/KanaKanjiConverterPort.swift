@@ -202,6 +202,35 @@ struct ZenzaiExecutionEvidence: Equatable, Codable, Sendable {
         case terminalOutcomes = "terminal_outcomes"
     }
 
+    /// A Top-1 override must not treat a partial or corrupt Zenzai run as a
+    /// successful model decision.  Normal providers only publish non-negative
+    /// counters, but this check deliberately validates the complete aggregate
+    /// instead of relying on that implementation detail.
+    var authorizesTop1Promotion: Bool {
+        let attemptCounts = [
+            attemptOutcomes.pass,
+            attemptOutcomes.fixRequired,
+            attemptOutcomes.wholeResult,
+            attemptOutcomes.error,
+        ]
+        let terminalCounts = [
+            terminalOutcomes.pass,
+            terminalOutcomes.fixRequired,
+            terminalOutcomes.wholeResult,
+            terminalOutcomes.error,
+            terminalOutcomes.inferenceLimit,
+            terminalOutcomes.noCandidate,
+        ]
+        return requestCount > 0
+            && evaluationAttemptCount >= requestCount
+            && attemptCounts.allSatisfy { $0 >= 0 }
+            && terminalCounts.allSatisfy { $0 >= 0 }
+            && attemptOutcomes.total == evaluationAttemptCount
+            && attemptOutcomes.pass == requestCount
+            && terminalOutcomes.total == requestCount
+            && terminalOutcomes.pass == requestCount
+    }
+
     func merged(with other: Self) -> Self {
         Self(
             requestCount: requestCount + other.requestCount,

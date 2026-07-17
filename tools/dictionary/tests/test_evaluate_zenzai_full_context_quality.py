@@ -219,6 +219,27 @@ class ZenzaiFullContextQualityTests(unittest.TestCase):
             summary["systems"][evaluator.EMPTY_SYSTEM]["mrr_at_k"],
             {"k": 4, "cases": 2, "value": 0.75},
         )
+        transitions = summary["zenzai_terminal_transitions"]
+        self.assertEqual(transitions["matrix"]["pass"]["pass"], 2)
+        self.assertEqual(
+            transitions["no_candidate"],
+            {
+                "both": 0,
+                "natural_only": 0,
+                "empty_only": 0,
+                "neither": 2,
+                "cases": 2,
+            },
+        )
+        self.assertEqual(
+            report["by_natural_zenzai_terminal_outcome"]["pass"]["cases"], 2
+        )
+        self.assertEqual(
+            report["by_natural_zenzai_terminal_outcome"]["no_candidate"][
+                "cases"
+            ],
+            0,
+        )
         at1 = summary["paired_natural_vs_empty"]["accuracy_at1"]
         self.assertEqual((at1["rescued"], at1["regressed"]), (1, 1))
         self.assertEqual(
@@ -430,6 +451,22 @@ class ZenzaiFullContextQualityTests(unittest.TestCase):
 
         execution = report["all_cases"]["zenzai_execution"][evaluator.NATURAL_SYSTEM]
         self.assertEqual(execution["terminal_outcomes"]["no_candidate"], 1)
+        transitions = report["all_cases"]["zenzai_terminal_transitions"]
+        self.assertEqual(transitions["matrix"]["pass"]["no_candidate"], 1)
+        self.assertEqual(transitions["no_candidate"]["natural_only"], 1)
+        self.assertEqual(
+            report["by_natural_zenzai_terminal_outcome"]["no_candidate"][
+                "cases"
+            ],
+            1,
+        )
+        self.assertEqual(
+            report["cases"][0]["zenzai_terminal_outcomes"],
+            {
+                evaluator.EMPTY_SYSTEM: "pass",
+                evaluator.NATURAL_SYSTEM: "no_candidate",
+            },
+        )
         self.assertTrue(
             any("natural_v7" in value and "no_candidate" in value for value in report["decision"]["formal_blockers"])
         )

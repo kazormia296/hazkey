@@ -173,6 +173,7 @@ struct MozcFirstHybridDiagnostics: Equatable, Sendable {
     var shadowPromotionEvaluations = 0
     var shadowPromotionOpportunities = 0
     var shadowPromotionBoundaryRejected = 0
+    var shadowPromotionZenzaiExecutionRejected = 0
     var candidateFencesAcquired = 0
     var candidateFencesReleased = 0
     var realtimeRequestCount = 0
@@ -201,6 +202,8 @@ struct MozcFirstHybridDiagnostics: Equatable, Sendable {
         shadowPromotionEvaluations += other.shadowPromotionEvaluations
         shadowPromotionOpportunities += other.shadowPromotionOpportunities
         shadowPromotionBoundaryRejected += other.shadowPromotionBoundaryRejected
+        shadowPromotionZenzaiExecutionRejected +=
+            other.shadowPromotionZenzaiExecutionRejected
         candidateFencesAcquired += other.candidateFencesAcquired
         candidateFencesReleased += other.candidateFencesReleased
         realtimeRequestCount += other.realtimeRequestCount
@@ -237,6 +240,8 @@ struct MozcFirstHybridDiagnostics: Equatable, Sendable {
             "shadow_promotion_evaluations=\(shadowPromotionEvaluations)",
             "shadow_promotion_opportunities=\(shadowPromotionOpportunities)",
             "shadow_promotion_boundary_rejected=\(shadowPromotionBoundaryRejected)",
+            "shadow_promotion_zenzai_execution_rejected="
+                + "\(shadowPromotionZenzaiExecutionRejected)",
             "candidate_fences_acquired=\(candidateFencesAcquired)",
             "candidate_fences_released=\(candidateFencesReleased)",
             "realtime_requests=\(realtimeRequestCount)",
@@ -274,6 +279,7 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
         case keepMozc
         case promoteHazkey
         case boundaryRejected
+        case zenzaiExecutionRejected
     }
 
     private struct CandidateRoute: Sendable {
@@ -845,7 +851,8 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
             options: context.options,
             output: ConversionOutput(
                 candidates: candidates,
-                pageSize: min(requestedOutput.pageSize, candidates.count)
+                pageSize: min(requestedOutput.pageSize, candidates.count),
+                zenzaiExecutionEvidence: requestedOutput.zenzaiExecutionEvidence
             )
         )
     }
@@ -900,14 +907,17 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
         let activePromotionDecision = Self.promotionDecision(
             policy: promotionPolicy,
             primary: primary.candidates,
-            secondary: secondary.candidates
+            secondary: secondary.candidates,
+            secondaryZenzaiExecutionEvidence: secondary.zenzaiExecutionEvidence
         )
         if let shadowPromotionPolicy {
             recordShadowPromotionDecision(
                 Self.promotionDecision(
                     policy: shadowPromotionPolicy,
                     primary: primary.candidates,
-                    secondary: secondary.candidates
+                    secondary: secondary.candidates,
+                    secondaryZenzaiExecutionEvidence:
+                        secondary.zenzaiExecutionEvidence
                 )
             )
         }
@@ -976,12 +986,22 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
     private static func promotionDecision(
         policy: HybridPromotionPolicy,
         primary: [ConverterCandidate],
-        secondary: [ConverterCandidate]
+        secondary: [ConverterCandidate],
+        secondaryZenzaiExecutionEvidence: ZenzaiExecutionEvidence?
     ) -> PromotionDecision {
         guard policy == .oneSidedConsensus,
               let primaryFirst = primary.first,
               let secondaryFirst = secondary.first else {
             return .keepMozc
+        }
+
+        if let evidence = secondaryZenzaiExecutionEvidence {
+            // Legacy/non-Zenzai secondaries may not publish request evidence.
+            // Once evidence is present, every request must have reached `.pass`;
+            // a partial or internally inconsistent record cannot authorize Top-1.
+            guard evidence.authorizesTop1Promotion else {
+                return .zenzaiExecutionRejected
+            }
         }
 
         let boundary = primaryFirst.consumingCount
@@ -1014,6 +1034,8 @@ final class MozcFirstHybridKanaKanjiConverter: KanaKanjiConverting, @unchecked S
                 diagnostics.shadowPromotionOpportunities += 1
             case .boundaryRejected:
                 diagnostics.shadowPromotionBoundaryRejected += 1
+            case .zenzaiExecutionRejected:
+                diagnostics.shadowPromotionZenzaiExecutionRejected += 1
             }
         }
     }
